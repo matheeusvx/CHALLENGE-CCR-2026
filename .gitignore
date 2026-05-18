@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.DS_Store
+
+# outputs gerados
+outputs/*
+!outputs/.gitkeep
+
+# modelos treinados
+models/*
+!models/.gitkeep
+
+# notebooks temporários
+.ipynb_checkpoints/
+
+# arquivos do VS Code
+.vscode/

@@ -1,6 +1,16 @@
+<<<<<<< HEAD
 opencv-python
 numpy
 matplotlib
 scikit-learn
 torch
 torchvision
+=======
+torch
+torchvision
+opencv-python
+scikit-learn
+matplotlib
+numpy
+pillow
+>>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)

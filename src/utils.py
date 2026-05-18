@@ -13,9 +13,15 @@ def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+<<<<<<< HEAD
 def create_model(num_classes: int = 2) -> torch.nn.Module:
     """Cria um modelo ResNet18 usando transfer learning."""
     weights = models.ResNet18_Weights.DEFAULT
+=======
+def create_model(num_classes: int = 2, pretrained: bool = True) -> torch.nn.Module:
+    """Cria um modelo ResNet18 para classificacao binaria."""
+    weights = models.ResNet18_Weights.DEFAULT if pretrained else None
+>>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
     model = models.resnet18(weights=weights)
 
     for parameter in model.parameters():
