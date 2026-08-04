@@ -1,2 +1,6 @@
-"""Pacote reservado para o futuro MVP de monitoramento por satelite."""
+"""Monitoramento de vegetacao com cenas reais Sentinel-2 L2A."""
+
+from .config import COLLECTION_ID, STAC_ENDPOINT, MonitoringConfig
+
+__all__ = ["COLLECTION_ID", "STAC_ENDPOINT", "MonitoringConfig"]
 
