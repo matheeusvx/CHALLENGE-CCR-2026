@@ -19,7 +19,13 @@ SCENE_COLUMNS = [
     "platform",
     "tile",
     "available_assets",
-    "status",
+    "valid_pixel_percentage",
+    "valid_pixel_count",
+    "total_pixel_count",
+    "quality_status",
+    "quality_reasons",
+    "accepted_for_timeseries",
+    "processing_status",
     "error",
 ]
 
@@ -38,7 +44,11 @@ TIMESERIES_COLUMNS = [
     "ndvi_min",
     "ndvi_max",
     "valid_pixel_count",
+    "total_pixel_count",
     "valid_pixel_percentage",
+    "quality_status",
+    "quality_reasons",
+    "accepted_for_timeseries",
 ]
 
 
@@ -93,8 +103,35 @@ def _write_timeseries_plot(records: list[dict[str, Any]], output_path: Path) -> 
     if records:
         frame = pd.DataFrame(records).sort_values("datetime")
         dates = pd.to_datetime(frame["datetime"], utc=True)
-        axis.plot(dates, frame["ndvi_mean"], marker="o", label="Media")
-        axis.plot(dates, frame["ndvi_median"], marker="s", label="Mediana")
+        regular_mask = frame["quality_status"] != "low"
+        regular = frame.loc[regular_mask]
+        regular_dates = dates.loc[regular_mask]
+        low_quality = frame.loc[~regular_mask]
+        low_quality_dates = dates.loc[~regular_mask]
+
+        if not regular.empty:
+            axis.plot(regular_dates, regular["ndvi_mean"], marker="o", label="Media aceita")
+            axis.plot(
+                regular_dates,
+                regular["ndvi_median"],
+                marker="s",
+                label="Mediana aceita",
+            )
+        if not low_quality.empty:
+            axis.scatter(
+                low_quality_dates,
+                low_quality["ndvi_mean"],
+                marker="X",
+                s=70,
+                label="Media low (incluida)",
+            )
+            axis.scatter(
+                low_quality_dates,
+                low_quality["ndvi_median"],
+                marker="P",
+                s=60,
+                label="Mediana low (incluida)",
+            )
         if len(frame) == 1:
             axis.set_xlim(dates.iloc[0] - timedelta(days=1), dates.iloc[0] + timedelta(days=1))
         axis.legend()
@@ -110,6 +147,22 @@ def _write_timeseries_plot(records: list[dict[str, Any]], output_path: Path) -> 
     figure.tight_layout()
     figure.savefig(output_path, dpi=150)
     plt.close(figure)
+
+
+def _csv_frame(records: list[dict[str, Any]], columns: list[str]) -> pd.DataFrame:
+    """Cria um DataFrame cronologico e serializa listas de motivos de qualidade."""
+    normalized: list[dict[str, Any]] = []
+    for record in records:
+        row = dict(record)
+        reasons = row.get("quality_reasons")
+        if isinstance(reasons, (list, tuple, set)):
+            row["quality_reasons"] = ";".join(str(reason) for reason in reasons)
+        normalized.append(row)
+
+    frame = pd.DataFrame(normalized, columns=columns)
+    if not frame.empty and "datetime" in frame:
+        frame = frame.sort_values("datetime", kind="stable")
+    return frame
 
 
 def write_outputs(
@@ -128,8 +181,8 @@ def write_outputs(
         "plot": run_directory / "ndvi_timeseries.png",
     }
 
-    pd.DataFrame(scene_records, columns=SCENE_COLUMNS).to_csv(paths["scenes"], index=False)
-    pd.DataFrame(ndvi_records, columns=TIMESERIES_COLUMNS).to_csv(paths["timeseries"], index=False)
+    _csv_frame(scene_records, SCENE_COLUMNS).to_csv(paths["scenes"], index=False)
+    _csv_frame(ndvi_records, TIMESERIES_COLUMNS).to_csv(paths["timeseries"], index=False)
 
     with paths["summary"].open("w", encoding="utf-8") as file:
         json.dump(

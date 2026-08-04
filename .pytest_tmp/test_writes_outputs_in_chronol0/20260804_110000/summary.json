@@ -1,0 +1,16 @@
+{
+  "accepted_scene_count": 1,
+  "rejected_scene_count": 1,
+  "rejected_scenes": [
+    {
+      "item_id": "newer",
+      "quality_reasons": [
+        "insufficient_valid_pixels"
+      ]
+    }
+  ],
+  "rejection_reasons": {
+    "insufficient_valid_pixels": 1
+  },
+  "invalid": null
+}

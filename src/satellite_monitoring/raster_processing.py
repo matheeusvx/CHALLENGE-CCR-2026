@@ -27,7 +27,8 @@ class RasterSceneData:
     red: np.ndarray
     nir: np.ndarray
     valid_mask: np.ndarray
-    aoi_pixel_count: int
+    total_pixel_count: int
+    partial_raster_coverage: bool
     red_asset: str
     nir_asset: str
     scl_asset: str | None
@@ -143,6 +144,25 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
                 aoi_geojson,
                 precision=15,
             )
+            full_aoi_window = geometry_window(
+                reference,
+                [aoi_in_reference_crs],
+                boundless=True,
+            )
+            full_aoi_shape = (int(full_aoi_window.height), int(full_aoi_window.width))
+            full_aoi_mask = geometry_mask(
+                [aoi_in_reference_crs],
+                out_shape=full_aoi_shape,
+                transform=reference.window_transform(full_aoi_window),
+                invert=True,
+            )
+            total_pixel_count = int(np.count_nonzero(full_aoi_mask))
+            partial_raster_coverage = (
+                full_aoi_window.col_off < 0
+                or full_aoi_window.row_off < 0
+                or full_aoi_window.col_off + full_aoi_window.width > reference.width
+                or full_aoi_window.row_off + full_aoi_window.height > reference.height
+            )
             window = geometry_window(reference, [aoi_in_reference_crs])
 
             red_raw = reference.read(1, window=window, masked=True)
@@ -191,15 +211,15 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
     except rasterio.errors.RasterioError as exc:
         raise RasterProcessingError(f"Falha ao acessar os assets remotos: {exc}") from exc
 
-    aoi_pixel_count = int(np.count_nonzero(inside_aoi))
-    if aoi_pixel_count == 0:
+    if total_pixel_count == 0:
         raise RasterProcessingError("A area de interesse nao contem pixels na grade da cena.")
 
     return RasterSceneData(
         red=red,
         nir=nir,
         valid_mask=valid_mask,
-        aoi_pixel_count=aoi_pixel_count,
+        total_pixel_count=total_pixel_count,
+        partial_raster_coverage=partial_raster_coverage,
         red_asset=red_key,
         nir_asset=nir_key,
         scl_asset=scl_key,

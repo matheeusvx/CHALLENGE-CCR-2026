@@ -15,16 +15,33 @@ param(
     [string]$EndDate,
 
     [double]$MaxCloudCover = 20,
+    [int]$MaxScenes = 12,
+    [ValidateSet("newest", "oldest")]
+    [string]$SceneOrder = "newest",
+    [double]$MinValidPixelPercentage = 70,
+    [int]$MinObservations = 4,
+    [switch]$IncludeLowQualityScenes,
     [string]$PythonExe = ".venv\Scripts\python.exe"
 )
 
-& $PythonExe -m src.satellite_monitoring.cli `
-    --latitude $Latitude `
-    --longitude $Longitude `
-    --radius-meters $RadiusMeters `
-    --start-date $StartDate `
-    --end-date $EndDate `
-    --max-cloud-cover $MaxCloudCover `
-    --max-scenes 1
+$invariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
+$cliArguments = @(
+    "-m", "src.satellite_monitoring.cli",
+    "--latitude", $Latitude.ToString($invariantCulture),
+    "--longitude", $Longitude.ToString($invariantCulture),
+    "--radius-meters", $RadiusMeters.ToString($invariantCulture),
+    "--start-date", $StartDate,
+    "--end-date", $EndDate,
+    "--max-cloud-cover", $MaxCloudCover.ToString($invariantCulture),
+    "--max-scenes", $MaxScenes.ToString($invariantCulture),
+    "--scene-order", $SceneOrder,
+    "--min-valid-pixel-percentage", $MinValidPixelPercentage.ToString($invariantCulture),
+    "--min-observations", $MinObservations.ToString($invariantCulture)
+)
 
+if ($IncludeLowQualityScenes) {
+    $cliArguments += "--include-low-quality-scenes"
+}
+
+& $PythonExe @cliArguments
 exit $LASTEXITCODE

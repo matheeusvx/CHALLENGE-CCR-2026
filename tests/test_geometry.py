@@ -49,3 +49,23 @@ def test_config_rejects_reversed_dates_and_invalid_limits() -> None:
 
     with pytest.raises(ValueError, match="cenas"):
         MonitoringConfig(0, 0, 100, date(2026, 1, 1), date(2026, 2, 1), 20, 0)
+
+    with pytest.raises(ValueError, match="pixels validos"):
+        MonitoringConfig(
+            0,
+            0,
+            100,
+            date(2026, 1, 1),
+            date(2026, 2, 1),
+            min_valid_pixel_percentage=101,
+        )
+
+    with pytest.raises(ValueError, match="observacoes"):
+        MonitoringConfig(
+            0,
+            0,
+            100,
+            date(2026, 1, 1),
+            date(2026, 2, 1),
+            min_observations=0,
+        )

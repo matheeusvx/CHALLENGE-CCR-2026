@@ -1,0 +1,1 @@
+item_id,datetime,cloud_cover,platform,tile,red_asset,nir_asset,scl_asset,ndvi_mean,ndvi_median,ndvi_std,ndvi_min,ndvi_max,valid_pixel_count,total_pixel_count,valid_pixel_percentage,quality_status,quality_reasons,accepted_for_timeseries

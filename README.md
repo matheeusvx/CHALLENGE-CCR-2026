@@ -55,12 +55,16 @@ consulta com `planetary_computer.sign_inplace`.
 |       +-- geometry.py
 |       +-- indices.py
 |       +-- outputs.py
+|       +-- quality.py
 |       +-- raster_processing.py
 |       +-- stac_client.py
 +-- tests/
+|   +-- test_cli.py
 |   +-- test_geometry.py
 |   +-- test_indices.py
 |   +-- test_outputs.py
+|   +-- test_quality.py
+|   +-- test_stac_client.py
 +-- README.md
 +-- requirements.txt
 ```
@@ -92,12 +96,16 @@ python -m src.satellite_monitoring.cli `
   --start-date 2026-06-01 `
   --end-date 2026-08-01 `
   --max-cloud-cover 20 `
-  --max-scenes 10
+  --max-scenes 12 `
+  --scene-order newest `
+  --min-valid-pixel-percentage 70 `
+  --min-observations 4
 ```
 
 As coordenadas acima sao apenas um exemplo e nao estao fixas no codigo. Use
 `python -m src.satellite_monitoring.cli --help` para consultar todos os
-argumentos, incluindo `--output-dir`.
+argumentos, incluindo `--output-dir`. Por padrao, as 12 cenas mais recentes
+sao priorizadas; depois da selecao, CSV e grafico voltam a ordem cronologica.
 
 Cada execucao cria uma pasta com horario proprio:
 
@@ -109,11 +117,14 @@ outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
 +-- ndvi_timeseries.png
 ```
 
-- `scenes.csv`: metadados, assets disponiveis e status de cada cena selecionada.
+- `scenes.csv`: metadados, contagem de pixels, qualidade, motivos, aceite e
+  status de processamento de cada cena selecionada.
 - `ndvi_timeseries.csv`: media, mediana, desvio padrao, minimo, maximo e cobertura
-  de pixels validos por cena.
+  de pixels validos das cenas aceitas. Cenas abaixo do limite aparecem somente
+  com `--include-low-quality-scenes` e continuam marcadas como `low`.
 - `summary.json`: parametros, endpoint, colecao, contagens, IDs STAC reais,
-  alertas de qualidade e erros por cena.
+  estrategia temporal, limiares, descartes pelo limite, rejeicoes de qualidade,
+  intervalo efetivamente processado, alertas e erros por cena.
 - `ndvi_timeseries.png`: evolucao temporal da media e mediana do NDVI.
 
 Uma falha em uma cena e registrada e as cenas seguintes continuam. Falhas na
@@ -142,11 +153,29 @@ interpolacao bilinear. A cobertura global `eo:cloud_cover` filtra cenas, mas
 nao e usada como mascara local. Se o SCL estiver ausente, a cena ainda e
 processada e recebe um alerta de qualidade.
 
+Os limiares iniciais de qualidade sao provisorios:
+
+- `high`: pelo menos 85% de pixels validos;
+- `medium`: de 70% ate menos de 85%;
+- `low`: menos de 70%.
+
+O limite de aceite e configurado separadamente por
+`--min-valid-pixel-percentage` (padrao 70). Sem a opcao
+`--include-low-quality-scenes`, cenas abaixo desse limite permanecem em
+`scenes.csv`, mas nao entram na serie temporal. Ausencia de SCL, cobertura
+parcial, nuvens globais excessivas e ausencia de NDVI valido ficam registradas
+em `quality_reasons`.
+
+O parametro `--min-observations` tem padrao 4. Quando a serie aceita fica abaixo
+desse minimo, os arquivos ainda sao gerados com `overall_status` igual a
+`insufficient_observations`; nenhuma interpretacao de tendencia e produzida.
+Esses valores nao constituem validacao cientifica ou operacional.
+
 ## Testes
 
 ```powershell
-python -m pytest
 python -m compileall src
+python -m pytest -q --basetemp=.pytest_tmp -p no:cacheprovider
 ```
 
 Os testes unitarios usam apenas pequenos arrays locais para validar a formula,
@@ -158,15 +187,21 @@ area e um intervalo com imagens disponiveis:
 
 ```powershell
 .\scripts\smoke_test.ps1 `
-  -Latitude -23.5505 `
-  -Longitude -46.6333 `
-  -RadiusMeters 100 `
-  -StartDate 2026-06-01 `
-  -EndDate 2026-08-01
+  -Latitude -23.10821 `
+  -Longitude -46.96109 `
+  -RadiusMeters 200 `
+  -StartDate 2026-05-01 `
+  -EndDate 2026-08-04 `
+  -MaxCloudCover 30 `
+  -MaxScenes 12 `
+  -SceneOrder newest `
+  -MinValidPixelPercentage 70 `
+  -MinObservations 4
 ```
 
-O script limita o teste a uma cena verdadeira e propaga o codigo de saida da
-CLI. Ele nao contem coordenadas ou datas padrao.
+O script propaga o codigo de saida da CLI e nao contem coordenadas ou datas
+padrao. Use `-IncludeLowQualityScenes` somente quando for necessario manter
+observacoes abaixo do limite, sempre com a marcacao de qualidade correspondente.
 
 ## Classificador legado
 
@@ -193,3 +228,5 @@ inclui imagens.
 - Os resultados ainda nao representam validacao operacional da CCR/Motiva.
 - Areas pequenas podem conter poucos pixels validos apos a mascara SCL.
 - Disponibilidade de cenas e acesso aos assets dependem do servico externo.
+- Os limiares `high`, `medium`, `low` e o minimo de observacoes sao provisoes
+  de engenharia e ainda exigem calibracao com dados de campo.
