@@ -1,4 +1,4 @@
-"""Funções utilitárias do projeto."""
+"""Funcoes utilitarias do classificador legado de fotos RGB."""
 
 from pathlib import Path
 
@@ -9,19 +9,13 @@ CLASSES = ["cortar", "nao_cortar"]
 
 
 def get_device() -> torch.device:
-    """Retorna GPU, quando disponível, ou CPU."""
+    """Retorna GPU, quando disponivel, ou CPU."""
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-<<<<<<< HEAD
-def create_model(num_classes: int = 2) -> torch.nn.Module:
-    """Cria um modelo ResNet18 usando transfer learning."""
-    weights = models.ResNet18_Weights.DEFAULT
-=======
 def create_model(num_classes: int = 2, pretrained: bool = True) -> torch.nn.Module:
-    """Cria um modelo ResNet18 para classificacao binaria."""
+    """Cria uma ResNet18 para classificacao binaria por transfer learning."""
     weights = models.ResNet18_Weights.DEFAULT if pretrained else None
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
     model = models.resnet18(weights=weights)
 
     for parameter in model.parameters():
@@ -33,5 +27,6 @@ def create_model(num_classes: int = 2, pretrained: bool = True) -> torch.nn.Modu
 
 
 def ensure_directory(path: str | Path) -> None:
-    """Cria um diretório caso ele ainda não exista."""
+    """Cria um diretorio caso ele ainda nao exista."""
     Path(path).mkdir(parents=True, exist_ok=True)
+

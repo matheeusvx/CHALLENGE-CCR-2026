@@ -1,7 +1,4 @@
-<<<<<<< HEAD
-"""Dataset simples para imagens organizadas por classe."""
-=======
-"""Pipeline de dataset e dataloaders para classificacao binaria de imagens.
+"""Dataset e dataloaders do classificador legado de fotos RGB locais.
 
 A estrutura esperada e:
 
@@ -16,57 +13,24 @@ data/
     cortar/
     nao_cortar/
 """
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
 
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
-<<<<<<< HEAD
-from torch.utils.data import Dataset
-=======
 from torch.utils.data import DataLoader, Dataset
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
 from torchvision import transforms
 
-from utils import CLASSES
+from .utils import CLASSES
 
-<<<<<<< HEAD
-
-class RoadVegetationDataset(Dataset):
-    """Carrega imagens das pastas data/cortar e data/nao_cortar."""
-
-    def __init__(self, data_dir: str, image_paths: list[Path] | None = None):
-        self.data_dir = Path(data_dir)
-        self.transform = transforms.Compose(
-            [
-                transforms.ToPILImage(),
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
-        )
-
-        self.samples = self._load_samples(image_paths)
-
-    def _load_samples(self, image_paths: list[Path] | None) -> list[tuple[Path, int]]:
-        if image_paths is not None:
-            return [(path, CLASSES.index(path.parent.name)) for path in image_paths]
-
-        samples = []
-        for label, class_name in enumerate(CLASSES):
-            class_dir = self.data_dir / class_name
-            for image_path in sorted(class_dir.glob("*")):
-                if image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
-                    samples.append((image_path, label))
-=======
 # Extensoes aceitas. A lista e pequena para manter o comportamento previsivel.
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
-def read_image_with_opencv(image_path: str | Path):
+def read_image_with_opencv(image_path: str | Path) -> np.ndarray:
     """Le uma imagem local com OpenCV e converte de BGR para RGB."""
     image_path = Path(image_path)
     image = cv2.imread(str(image_path))
@@ -133,7 +97,6 @@ class RoadVegetationDataset(Dataset):
                 if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTENSIONS:
                     samples.append((image_path, label))
 
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
         return samples
 
     def __len__(self) -> int:
@@ -141,31 +104,6 @@ class RoadVegetationDataset(Dataset):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, int]:
         image_path, label = self.samples[index]
-<<<<<<< HEAD
-        image = cv2.imread(str(image_path))
-
-        if image is None:
-            raise ValueError(f"Não foi possível ler a imagem: {image_path}")
-
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = self.transform(image)
-        return image, label
-
-
-def list_image_paths(data_dir: str) -> list[Path]:
-    """Lista os caminhos das imagens do projeto."""
-    paths = []
-    for class_name in CLASSES:
-        class_dir = Path(data_dir) / class_name
-        paths.extend(
-            sorted(
-                path
-                for path in class_dir.glob("*")
-                if path.suffix.lower() in {".jpg", ".jpeg", ".png"}
-            )
-        )
-    return paths
-=======
         image = read_image_with_opencv(image_path)
 
         if self.transform is not None:
@@ -215,4 +153,4 @@ def create_dataloaders(
         )
         for split in splits
     }
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
+

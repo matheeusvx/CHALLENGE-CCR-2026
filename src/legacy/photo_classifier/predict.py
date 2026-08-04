@@ -1,70 +1,17 @@
-<<<<<<< HEAD
-"""Predição de uma imagem individual."""
-=======
-"""Predicao de uma imagem individual."""
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
+"""Predicao de uma imagem individual com o classificador legado."""
+
+from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-<<<<<<< HEAD
-import cv2
-import torch
-from torchvision import transforms
 
-from utils import CLASSES, create_model, get_device
-
-
-def predict(image_path: str, model_path: str) -> str:
-    device = get_device()
-    model = create_model()
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
-
-    image = cv2.imread(image_path)
-    if image is None:
-        raise ValueError(f"Não foi possível ler a imagem: {image_path}")
-
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    transform = transforms.Compose(
-        [
-            transforms.ToPILImage(),
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-
-    tensor = transform(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        output = model(tensor)
-        prediction = torch.argmax(output, dim=1).item()
-
-    return CLASSES[prediction]
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Classifica uma imagem de vegetação.")
-    parser.add_argument("--image", required=True, help="Caminho da imagem para classificação.")
-    parser.add_argument("--model-path", default="models/modelo_vegetacao.pth", help="Caminho do modelo treinado.")
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = parse_args()
-    result = predict(args.image, args.model_path)
-    print(f"Imagem: {Path(args.image).name}")
-    print(f"Classe prevista: {result}")
-=======
-import torch
-
-from dataset import IMAGENET_MEAN, IMAGENET_STD, get_eval_transforms, read_image_with_opencv
-from utils import CLASSES, create_model, get_device
-
-
-def load_trained_model(model_path: str | Path) -> torch.nn.Module:
+def load_trained_model(model_path: str | Path):
     """Carrega o modelo salvo em disco ja preparado para inferencia."""
+    import torch
+
+    from .utils import create_model, get_device
+
     model_path = Path(model_path)
     if not model_path.exists():
         raise FileNotFoundError(f"Modelo nao encontrado: {model_path}")
@@ -84,6 +31,11 @@ def load_trained_model(model_path: str | Path) -> torch.nn.Module:
 
 def predict(image_path: str | Path, model_path: str | Path, image_size: int = 224) -> tuple[str, float]:
     """Retorna a classe prevista e a probabilidade da imagem informada."""
+    import torch
+
+    from .dataset import get_eval_transforms, read_image_with_opencv
+    from .utils import CLASSES, get_device
+
     image_path = Path(image_path)
     if not image_path.exists():
         raise FileNotFoundError(f"Imagem nao encontrada: {image_path}")
@@ -107,6 +59,9 @@ def predict(image_path: str | Path, model_path: str | Path, image_size: int = 22
 def show_processed_image(image_path: str | Path, image_size: int = 224) -> None:
     """Mostra a imagem apos resize e normalizacao revertida para visualizacao."""
     import matplotlib.pyplot as plt
+    import torch
+
+    from .dataset import IMAGENET_MEAN, IMAGENET_STD, get_eval_transforms, read_image_with_opencv
 
     image = read_image_with_opencv(image_path)
     tensor = get_eval_transforms(image_size=image_size)(image)
@@ -124,7 +79,7 @@ def show_processed_image(image_path: str | Path, image_size: int = 224) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Classifica uma imagem de vegetacao.")
     parser.add_argument("--image", required=True, help="Caminho da imagem para classificacao.")
-    parser.add_argument("--model-path", default="models/modelo_vegetacao.pth", help="Caminho do modelo treinado.")
+    parser.add_argument("--model-path", default="models/photo_classifier_resnet18.pth", help="Caminho do modelo treinado.")
     parser.add_argument("--image-size", type=int, default=224, help="Tamanho da imagem de entrada.")
     parser.add_argument("--show-image", action="store_true", help="Mostra a imagem processada usada na inferencia.")
     return parser.parse_args()
@@ -144,4 +99,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
->>>>>>> bc5df2a (feat: estrutura inicial do MVP com pipeline de classificacao binaria)
