@@ -12,10 +12,10 @@ em `src/legacy/photo_classifier/`.
 ## Fluxo do MVP
 
 ```text
-latitude + longitude + raio + datas
-                  |
-                  v
-       area geodesica em EPSG:4326
+circulo (latitude, longitude e raio) OU GeoJSON + datas
+                           |
+                           v
+              area de interesse em EPSG:4326
                   |
                   v
      consulta STAC Sentinel-2 L2A
@@ -102,6 +102,35 @@ python -m src.satellite_monitoring.cli `
   --min-observations 4
 ```
 
+Como alternativa, informe um arquivo GeoJSON que delimite somente a faixa
+lateral da rodovia a ser analisada:
+
+```powershell
+python -m src.satellite_monitoring.cli `
+  --geometry-file data/aoi/louveira_lateral.geojson `
+  --start-date 2026-05-01 `
+  --end-date 2026-08-04 `
+  --max-cloud-cover 30 `
+  --max-scenes 12 `
+  --scene-order newest `
+  --min-valid-pixel-percentage 70 `
+  --min-observations 4
+```
+
+Os modos sao mutuamente exclusivos: use `--geometry-file` ou o conjunto
+completo `--latitude`, `--longitude` e `--radius-meters`. O GeoJSON deve estar
+em EPSG:4326, com coordenadas no formato `[longitude, latitude]`. Sao aceitos
+`Polygon`, `MultiPolygon`, `Feature` poligonal e `FeatureCollection` nao vazia
+contendo apenas geometrias poligonais. As geometrias de uma colecao sao unidas
+para formar uma unica area; arquivos com outro CRS declarado, coordenadas fora
+dos limites geograficos, geometrias vazias ou poligonos invalidos sao rejeitados.
+
+O poligono deve representar apenas a area lateral relevante. Evite faixas
+excessivamente estreitas: as bandas RED e NIR do Sentinel-2 usadas aqui possuem
+resolucao espacial nominal de 10 metros, e pixels de borda podem misturar pista,
+acostamento, vegetacao e areas vizinhas. A consulta pode usar a caixa envolvente
+para otimizar a leitura, mas a mascara final respeita a geometria fornecida.
+
 As coordenadas acima sao apenas um exemplo e nao estao fixas no codigo. Use
 `python -m src.satellite_monitoring.cli --help` para consultar todos os
 argumentos, incluindo `--output-dir`. Por padrao, as 12 cenas mais recentes
@@ -111,18 +140,22 @@ Cada execucao cria uma pasta com horario proprio:
 
 ```text
 outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
++-- aoi.geojson
 +-- scenes.csv
 +-- ndvi_timeseries.csv
 +-- summary.json
 +-- ndvi_timeseries.png
 ```
 
+- `aoi.geojson`: geometria efetivamente usada na consulta STAC e no recorte das
+  bandas. Para entrada por arquivo, tambem preserva o documento original em
+  `source_geojson`.
 - `scenes.csv`: metadados, contagem de pixels, qualidade, motivos, aceite e
   status de processamento de cada cena selecionada.
 - `ndvi_timeseries.csv`: media, mediana, desvio padrao, minimo, maximo e cobertura
   de pixels validos das cenas aceitas. Cenas abaixo do limite aparecem somente
   com `--include-low-quality-scenes` e continuam marcadas como `low`.
-- `summary.json`: parametros, endpoint, colecao, contagens, IDs STAC reais,
+- `summary.json`: parametros, metadados da area, endpoint, colecao, contagens, IDs STAC reais,
   estrategia temporal, limiares, descartes pelo limite, rejeicoes de qualidade,
   intervalo efetivamente processado, alertas e erros por cena.
 - `ndvi_timeseries.png`: evolucao temporal da media e mediana do NDVI.

@@ -16,7 +16,7 @@ from .config import (
     MonitoringConfig,
     parse_iso_date,
 )
-from .geometry import create_aoi_geojson
+from .geometry import resolve_aoi
 from .indices import InsufficientValidPixelsError, analyze_ndvi
 from .outputs import create_run_directory, write_outputs
 from .quality import assess_scene_quality, determine_overall_status, summarize_scene_quality
@@ -35,9 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Gera uma serie temporal real de NDVI com Sentinel-2 L2A."
     )
-    parser.add_argument("--latitude", type=float, required=True, help="Latitude da area em EPSG:4326.")
-    parser.add_argument("--longitude", type=float, required=True, help="Longitude da area em EPSG:4326.")
-    parser.add_argument("--radius-meters", type=float, required=True, help="Raio da area de interesse em metros.")
+    parser.add_argument(
+        "--geometry-file",
+        type=Path,
+        help="Arquivo GeoJSON EPSG:4326 com Polygon, MultiPolygon ou Features poligonais.",
+    )
+    parser.add_argument("--latitude", type=float, help="Latitude do centro circular em EPSG:4326.")
+    parser.add_argument("--longitude", type=float, help="Longitude do centro circular em EPSG:4326.")
+    parser.add_argument("--radius-meters", type=float, help="Raio da area circular em metros.")
     parser.add_argument("--start-date", type=_date_argument, required=True, help="Data inicial no formato AAAA-MM-DD.")
     parser.add_argument("--end-date", type=_date_argument, required=True, help="Data final no formato AAAA-MM-DD.")
     parser.add_argument(
@@ -96,6 +101,7 @@ def _config_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
             radius_meters=args.radius_meters,
             start_date=args.start_date,
             end_date=args.end_date,
+            geometry_file=args.geometry_file,
             max_cloud_cover=args.max_cloud_cover,
             max_scenes=args.max_scenes,
             scene_order=args.scene_order,
@@ -107,6 +113,12 @@ def _config_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
     except ValueError as exc:
         parser.error(str(exc))
         raise AssertionError("argparse encerra a execucao em parser.error") from exc
+
+
+def parse_config(argv: Sequence[str] | None = None) -> MonitoringConfig:
+    """Interpreta a CLI e valida que exatamente um modo de geometria foi usado."""
+    parser = build_parser()
+    return _config_from_args(parser.parse_args(argv), parser)
 
 
 def _new_scene_record(scene: Scene) -> dict[str, Any]:
@@ -135,13 +147,15 @@ def _effective_date_range(ndvi_records: list[dict[str, Any]]) -> dict[str, str |
 
 def run(config: MonitoringConfig) -> int:
     """Executa o fluxo completo e retorna um codigo apropriado ao processo."""
+    try:
+        resolved_aoi = resolve_aoi(config)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Falha na geometria da area de interesse: {exc}", file=sys.stderr)
+        return 2
+
     started_at = datetime.now(timezone.utc)
     run_directory = create_run_directory(config.output_root)
-    aoi_geojson = create_aoi_geojson(
-        config.latitude,
-        config.longitude,
-        config.radius_meters,
-    )
+    aoi_geojson = resolved_aoi.geometry
 
     scene_records: list[dict[str, Any]] = []
     ndvi_records: list[dict[str, Any]] = []
@@ -299,6 +313,7 @@ def run(config: MonitoringConfig) -> int:
         "overall_status": overall_status,
         "scene_order": config.scene_order,
         "quality_thresholds": config.quality_thresholds,
+        "aoi": resolved_aoi.metadata,
         "scene_count_found": total_matches,
         "scene_count_selected": len(selected_scenes),
         "scene_count_not_selected_due_to_limit": len(discarded_by_limit),
@@ -318,7 +333,13 @@ def run(config: MonitoringConfig) -> int:
     }
 
     try:
-        write_outputs(run_directory, scene_records, ndvi_records, summary)
+        write_outputs(
+            run_directory,
+            scene_records,
+            ndvi_records,
+            summary,
+            resolved_aoi.output_geojson,
+        )
     except Exception as exc:
         print(f"Falha ao salvar os resultados: {exc}", file=sys.stderr)
         return 1
@@ -330,10 +351,7 @@ def run(config: MonitoringConfig) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    config = _config_from_args(args, parser)
-    return run(config)
+    return run(parse_config(argv))
 
 
 if __name__ == "__main__":

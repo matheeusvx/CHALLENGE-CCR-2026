@@ -29,11 +29,11 @@ def parse_iso_date(value: str) -> date:
 class MonitoringConfig:
     """Parametros de uma execucao do pipeline Sentinel-2."""
 
-    latitude: float
-    longitude: float
-    radius_meters: float
-    start_date: date
-    end_date: date
+    latitude: float | None = None
+    longitude: float | None = None
+    radius_meters: float | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     max_cloud_cover: float = 20.0
     max_scenes: int = DEFAULT_MAX_SCENES
     scene_order: str = DEFAULT_SCENE_ORDER
@@ -45,14 +45,40 @@ class MonitoringConfig:
     output_root: Path = Path("outputs/satellite_monitoring")
     endpoint: str = STAC_ENDPOINT
     collection: str = COLLECTION_ID
+    geometry_file: Path | None = None
 
     def __post_init__(self) -> None:
-        if not -90 <= self.latitude <= 90:
-            raise ValueError("Latitude deve estar entre -90 e 90 graus.")
-        if not -180 <= self.longitude <= 180:
-            raise ValueError("Longitude deve estar entre -180 e 180 graus.")
-        if self.radius_meters <= 0:
-            raise ValueError("O raio deve ser maior que zero.")
+        circular_values = (self.latitude, self.longitude, self.radius_meters)
+        has_any_circular_value = any(value is not None for value in circular_values)
+        has_all_circular_values = all(value is not None for value in circular_values)
+        has_geometry_file = self.geometry_file is not None
+
+        if has_geometry_file and has_any_circular_value:
+            raise ValueError(
+                "Informe geometry-file ou latitude/longitude/raio, nunca os dois modos juntos."
+            )
+        if not has_geometry_file and not has_any_circular_value:
+            raise ValueError(
+                "Informe geometry-file ou os tres parametros latitude, longitude e radius-meters."
+            )
+        if not has_geometry_file and not has_all_circular_values:
+            raise ValueError(
+                "O modo circular exige latitude, longitude e radius-meters em conjunto."
+            )
+
+        if has_all_circular_values:
+            assert self.latitude is not None
+            assert self.longitude is not None
+            assert self.radius_meters is not None
+            if not -90 <= self.latitude <= 90:
+                raise ValueError("Latitude deve estar entre -90 e 90 graus.")
+            if not -180 <= self.longitude <= 180:
+                raise ValueError("Longitude deve estar entre -180 e 180 graus.")
+            if self.radius_meters <= 0:
+                raise ValueError("O raio deve ser maior que zero.")
+
+        if self.start_date is None or self.end_date is None:
+            raise ValueError("As datas inicial e final sao obrigatorias.")
         if self.start_date > self.end_date:
             raise ValueError("A data inicial nao pode ser posterior a data final.")
         if not 0 <= self.max_cloud_cover <= 100:
@@ -72,6 +98,8 @@ class MonitoringConfig:
 
     @property
     def datetime_range(self) -> str:
+        assert self.start_date is not None
+        assert self.end_date is not None
         return f"{self.start_date.isoformat()}/{self.end_date.isoformat()}"
 
     @property
@@ -86,7 +114,8 @@ class MonitoringConfig:
 
     def to_dict(self) -> dict[str, Any]:
         values = asdict(self)
-        values["start_date"] = self.start_date.isoformat()
-        values["end_date"] = self.end_date.isoformat()
+        values["start_date"] = self.start_date.isoformat() if self.start_date else None
+        values["end_date"] = self.end_date.isoformat() if self.end_date else None
+        values["geometry_file"] = str(self.geometry_file) if self.geometry_file else None
         values["output_root"] = str(self.output_root)
         return values

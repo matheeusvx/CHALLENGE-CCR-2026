@@ -1,0 +1,66 @@
+{
+  "type": "Feature",
+  "properties": {
+    "geometry_source": "geojson_file"
+  },
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -47.0,
+          -23.0
+        ],
+        [
+          -46.999,
+          -23.0
+        ],
+        [
+          -46.999,
+          -22.999
+        ],
+        [
+          -47.0,
+          -22.999
+        ],
+        [
+          -47.0,
+          -23.0
+        ]
+      ]
+    ]
+  },
+  "source_geojson": {
+    "type": "Feature",
+    "properties": {
+      "name": "faixa lateral"
+    },
+    "geometry": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [
+            -47.0,
+            -23.0
+          ],
+          [
+            -46.999,
+            -23.0
+          ],
+          [
+            -46.999,
+            -22.999
+          ],
+          [
+            -47.0,
+            -22.999
+          ],
+          [
+            -47.0,
+            -23.0
+          ]
+        ]
+      ]
+    }
+  }
+}

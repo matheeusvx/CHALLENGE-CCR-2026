@@ -1,4 +1,10 @@
 {
+  "aoi": {
+    "source": "circle",
+    "geometry_type": "Polygon",
+    "area_square_meters": 100.0,
+    "feature_count": 1
+  },
   "accepted_scene_count": 1,
   "rejected_scene_count": 1,
   "rejected_scenes": [

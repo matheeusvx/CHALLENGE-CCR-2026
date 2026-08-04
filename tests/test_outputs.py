@@ -9,6 +9,15 @@ import pytest
 
 from src.satellite_monitoring.outputs import create_run_directory, write_outputs
 
+AOI_GEOJSON = {
+    "type": "Feature",
+    "properties": {"geometry_source": "circle"},
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[-47.0, -23.0], [-46.999, -23.0], [-46.999, -22.999], [-47.0, -23.0]]],
+    },
+}
+
 
 def _scene_record(item_id: str, observed_at: str, accepted: bool) -> dict:
     return {
@@ -64,6 +73,12 @@ def test_writes_outputs_in_chronological_order_and_serializes_quality(tmp_path) 
         _timeseries_record("older", "2026-08-01T10:00:00+00:00", "high"),
     ]
     summary = {
+        "aoi": {
+            "source": "circle",
+            "geometry_type": "Polygon",
+            "area_square_meters": 100.0,
+            "feature_count": 1,
+        },
         "accepted_scene_count": np.int64(1),
         "rejected_scene_count": np.int64(1),
         "rejected_scenes": [
@@ -76,13 +91,14 @@ def test_writes_outputs_in_chronological_order_and_serializes_quality(tmp_path) 
         "invalid": np.nan,
     }
 
-    paths = write_outputs(run_directory, scenes, timeseries, summary)
+    paths = write_outputs(run_directory, scenes, timeseries, summary, AOI_GEOJSON)
 
     assert set(path.name for path in paths.values()) == {
         "scenes.csv",
         "ndvi_timeseries.csv",
         "summary.json",
         "ndvi_timeseries.png",
+        "aoi.geojson",
     }
     assert all(path.exists() and path.stat().st_size > 0 for path in paths.values())
 
@@ -104,11 +120,21 @@ def test_writes_outputs_in_chronological_order_and_serializes_quality(tmp_path) 
     ]
     assert saved_summary["invalid"] is None
     assert saved_summary["rejection_reasons"]["insufficient_valid_pixels"] == 1
+    assert saved_summary["aoi"]["source"] == "circle"
+
+    saved_aoi = json.loads(paths["aoi"].read_text(encoding="utf-8"))
+    assert saved_aoi == AOI_GEOJSON
 
 
 def test_empty_timeseries_does_not_invent_observations(tmp_path) -> None:
     run_directory = create_run_directory(tmp_path, datetime(2026, 8, 4, 12, 0, 0))
-    paths = write_outputs(run_directory, [], [], {"accepted_scene_count": 0})
+    paths = write_outputs(
+        run_directory,
+        [],
+        [],
+        {"accepted_scene_count": 0},
+        AOI_GEOJSON,
+    )
 
     with paths["timeseries"].open(encoding="utf-8", newline="") as file:
         assert list(csv.DictReader(file)) == []

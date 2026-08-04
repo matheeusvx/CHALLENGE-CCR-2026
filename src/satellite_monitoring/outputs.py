@@ -170,8 +170,9 @@ def write_outputs(
     scene_records: list[dict[str, Any]],
     ndvi_records: list[dict[str, Any]],
     summary: dict[str, Any],
+    aoi_geojson: dict[str, Any],
 ) -> dict[str, Path]:
-    """Salva os quatro artefatos previstos para uma execucao."""
+    """Salva os artefatos tabulares, espaciais, JSON e grafico da execucao."""
     run_directory = Path(run_directory)
     run_directory.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -179,6 +180,7 @@ def write_outputs(
         "timeseries": run_directory / "ndvi_timeseries.csv",
         "summary": run_directory / "summary.json",
         "plot": run_directory / "ndvi_timeseries.png",
+        "aoi": run_directory / "aoi.geojson",
     }
 
     _csv_frame(scene_records, SCENE_COLUMNS).to_csv(paths["scenes"], index=False)
@@ -187,6 +189,16 @@ def write_outputs(
     with paths["summary"].open("w", encoding="utf-8") as file:
         json.dump(
             to_json_compatible(summary),
+            file,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        file.write("\n")
+
+    with paths["aoi"].open("w", encoding="utf-8") as file:
+        json.dump(
+            to_json_compatible(aoi_geojson),
             file,
             ensure_ascii=False,
             indent=2,

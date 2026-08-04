@@ -1,0 +1,76 @@
+{
+  "parameters": {
+    "latitude": null,
+    "longitude": null,
+    "radius_meters": null,
+    "start_date": "2026-05-01",
+    "end_date": "2026-08-04",
+    "max_cloud_cover": 20.0,
+    "max_scenes": 12,
+    "scene_order": "newest",
+    "min_valid_pixel_percentage": 70.0,
+    "include_low_quality_scenes": false,
+    "min_observations": 4,
+    "medium_quality_threshold": 70.0,
+    "high_quality_threshold": 85.0,
+    "output_root": "C:\\Users\\Sucesso\\Documents\\CHALLENGE CCR-MOTIVA\\.pytest_tmp\\test_run_writes_geojson_aoi_me0\\outputs",
+    "endpoint": "https://planetarycomputer.microsoft.com/api/stac/v1",
+    "collection": "sentinel-2-l2a",
+    "geometry_file": "C:\\Users\\Sucesso\\Documents\\CHALLENGE CCR-MOTIVA\\.pytest_tmp\\test_run_writes_geojson_aoi_me0\\aoi.geojson"
+  },
+  "endpoint": "https://planetarycomputer.microsoft.com/api/stac/v1",
+  "collection": "sentinel-2-l2a",
+  "started_at": "2026-08-04T15:48:09.862878+00:00",
+  "finished_at": "2026-08-04T15:48:09.864114+00:00",
+  "overall_status": "failed",
+  "scene_order": "newest",
+  "quality_thresholds": {
+    "high_min_valid_pixel_percentage": 85.0,
+    "medium_min_valid_pixel_percentage": 70.0,
+    "accepted_min_valid_pixel_percentage": 70.0,
+    "provisional": true
+  },
+  "aoi": {
+    "source": "geojson_file",
+    "geometry_source": "geojson_file",
+    "geometry_type": "Polygon",
+    "file": "C:\\Users\\Sucesso\\Documents\\CHALLENGE CCR-MOTIVA\\.pytest_tmp\\test_run_writes_geojson_aoi_me0\\aoi.geojson",
+    "bounding_box": [
+      -47.0,
+      -23.0,
+      -46.999,
+      -22.999
+    ],
+    "centroid": {
+      "longitude": -46.99949999999999,
+      "latitude": -22.999499999999994
+    },
+    "centroid_longitude": -46.99949999999999,
+    "centroid_latitude": -22.999499999999994,
+    "area_square_meters": 11353.79773837328,
+    "feature_count": 1,
+    "valid": true
+  },
+  "scene_count_found": 0,
+  "scene_count_selected": 0,
+  "scene_count_not_selected_due_to_limit": 0,
+  "scene_count_processed": 0,
+  "scene_count_ignored": 0,
+  "first_selected_datetime": null,
+  "last_selected_datetime": null,
+  "date_range_effectively_processed": {
+    "start": null,
+    "end": null
+  },
+  "scenes_discarded_by_limit": [],
+  "ignored_item_ids": [],
+  "quality_messages": [],
+  "errors_by_scene": [],
+  "fatal_error": null,
+  "processed_item_ids": [],
+  "trend_interpretation": null,
+  "accepted_scene_count": 0,
+  "rejected_scene_count": 0,
+  "rejected_scenes": [],
+  "rejection_reasons": {}
+}

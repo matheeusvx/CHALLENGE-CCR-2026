@@ -1,0 +1,29 @@
+{
+  "type": "Feature",
+  "properties": {
+    "geometry_source": "circle"
+  },
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -47.0,
+          -23.0
+        ],
+        [
+          -46.999,
+          -23.0
+        ],
+        [
+          -46.999,
+          -22.999
+        ],
+        [
+          -47.0,
+          -23.0
+        ]
+      ]
+    ]
+  }
+}
