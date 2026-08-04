@@ -22,6 +22,8 @@ SCENE_COLUMNS = [
     "valid_pixel_percentage",
     "valid_pixel_count",
     "total_pixel_count",
+    "aoi_coverage_percentage",
+    "partial_raster_coverage",
     "quality_status",
     "quality_reasons",
     "accepted_for_timeseries",
@@ -46,9 +48,31 @@ TIMESERIES_COLUMNS = [
     "valid_pixel_count",
     "total_pixel_count",
     "valid_pixel_percentage",
+    "aoi_coverage_percentage",
+    "partial_raster_coverage",
     "quality_status",
     "quality_reasons",
     "accepted_for_timeseries",
+    "daily_aggregation",
+    "aggregation_scene_count",
+    "aggregation_source_item_ids",
+    "aggregation_selected_item_id",
+]
+
+RECOMMENDATION_COLUMNS = [
+    "recommendation",
+    "confidence",
+    "experimental",
+    "area_type",
+    "observation_count",
+    "current_ndvi",
+    "historical_median",
+    "current_percentile",
+    "recent_trend",
+    "significant_drop_detected",
+    "days_since_significant_drop",
+    "reasons",
+    "blocking_reasons",
 ]
 
 
@@ -88,7 +112,11 @@ def to_json_compatible(value: Any) -> Any:
     return value
 
 
-def _write_timeseries_plot(records: list[dict[str, Any]], output_path: Path) -> None:
+def _write_timeseries_plot(
+    records: list[dict[str, Any]],
+    output_path: Path,
+    recommendation: dict[str, Any],
+) -> None:
     # Um cache temporario evita falhas em perfis Windows sem permissao de escrita.
     matplotlib_cache = Path(tempfile.gettempdir()) / "satellite-monitoring-matplotlib"
     matplotlib_cache.mkdir(parents=True, exist_ok=True)
@@ -134,11 +162,43 @@ def _write_timeseries_plot(records: list[dict[str, Any]], output_path: Path) -> 
             )
         if len(frame) == 1:
             axis.set_xlim(dates.iloc[0] - timedelta(days=1), dates.iloc[0] + timedelta(days=1))
+        metrics = recommendation.get("metrics", {})
+        historical_median = metrics.get("historical_median")
+        if historical_median is not None:
+            axis.axhline(
+                historical_median,
+                color="dimgray",
+                linestyle="--",
+                linewidth=1.2,
+                label="Mediana historica",
+            )
+        drop_dates = set(metrics.get("significant_drop_dates") or [])
+        drop_mask = dates.dt.date.astype(str).isin(drop_dates)
+        if drop_mask.any():
+            axis.scatter(
+                dates.loc[drop_mask],
+                frame.loc[drop_mask, "ndvi_mean"],
+                marker="v",
+                s=80,
+                color="firebrick",
+                label="Queda significativa",
+                zorder=4,
+            )
+        axis.scatter(
+            [dates.iloc[-1]],
+            [frame.iloc[-1]["ndvi_mean"]],
+            marker="*",
+            s=130,
+            color="black",
+            label="Observacao atual",
+            zorder=5,
+        )
         axis.legend()
     else:
         axis.text(0.5, 0.5, "Nenhuma cena processada", ha="center", va="center")
 
-    axis.set_title("Serie temporal de NDVI")
+    decision = str(recommendation.get("recommendation", "inconclusivo")).upper()
+    axis.set_title(f"Serie diaria de NDVI | Recomendacao: {decision}")
     axis.set_xlabel("Data")
     axis.set_ylabel("NDVI")
     axis.set_ylim(-1.0, 1.0)
@@ -157,6 +217,11 @@ def _csv_frame(records: list[dict[str, Any]], columns: list[str]) -> pd.DataFram
         reasons = row.get("quality_reasons")
         if isinstance(reasons, (list, tuple, set)):
             row["quality_reasons"] = ";".join(str(reason) for reason in reasons)
+        source_ids = row.get("aggregation_source_item_ids")
+        if isinstance(source_ids, (list, tuple, set)):
+            row["aggregation_source_item_ids"] = ";".join(
+                str(item_id) for item_id in source_ids
+            )
         normalized.append(row)
 
     frame = pd.DataFrame(normalized, columns=columns)
@@ -171,6 +236,7 @@ def write_outputs(
     ndvi_records: list[dict[str, Any]],
     summary: dict[str, Any],
     aoi_geojson: dict[str, Any],
+    recommendation: dict[str, Any],
 ) -> dict[str, Path]:
     """Salva os artefatos tabulares, espaciais, JSON e grafico da execucao."""
     run_directory = Path(run_directory)
@@ -181,6 +247,8 @@ def write_outputs(
         "summary": run_directory / "summary.json",
         "plot": run_directory / "ndvi_timeseries.png",
         "aoi": run_directory / "aoi.geojson",
+        "recommendation_json": run_directory / "cut_recommendation.json",
+        "recommendation_csv": run_directory / "cut_recommendation.csv",
     }
 
     _csv_frame(scene_records, SCENE_COLUMNS).to_csv(paths["scenes"], index=False)
@@ -206,5 +274,36 @@ def write_outputs(
         )
         file.write("\n")
 
-    _write_timeseries_plot(ndvi_records, paths["plot"])
+    with paths["recommendation_json"].open("w", encoding="utf-8") as file:
+        json.dump(
+            to_json_compatible(recommendation),
+            file,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        file.write("\n")
+
+    metrics = recommendation.get("metrics", {})
+    recommendation_row = {
+        "recommendation": recommendation.get("recommendation"),
+        "confidence": recommendation.get("confidence"),
+        "experimental": recommendation.get("experimental"),
+        "area_type": recommendation.get("area_type"),
+        "observation_count": metrics.get("observation_count"),
+        "current_ndvi": metrics.get("current_ndvi_mean"),
+        "historical_median": metrics.get("historical_median"),
+        "current_percentile": metrics.get("current_percentile"),
+        "recent_trend": metrics.get("recent_trend"),
+        "significant_drop_detected": metrics.get("significant_drop_detected"),
+        "days_since_significant_drop": metrics.get("days_since_significant_drop"),
+        "reasons": ";".join(recommendation.get("reasons") or []),
+        "blocking_reasons": ";".join(recommendation.get("blocking_reasons") or []),
+    }
+    pd.DataFrame([recommendation_row], columns=RECOMMENDATION_COLUMNS).to_csv(
+        paths["recommendation_csv"],
+        index=False,
+    )
+
+    _write_timeseries_plot(ndvi_records, paths["plot"], recommendation)
     return paths

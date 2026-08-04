@@ -9,12 +9,27 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .config import (
+    DEFAULT_DAILY_AGGREGATION,
+    DEFAULT_DECISION_MIN_OBSERVATIONS,
+    DEFAULT_HIGH_VEGETATION_PERCENTILE,
     DEFAULT_MAX_SCENES,
+    DEFAULT_MAX_GAP_DAYS,
     DEFAULT_MIN_OBSERVATIONS,
     DEFAULT_MIN_VALID_PIXEL_PERCENTAGE,
+    DEFAULT_RECENT_INTERVENTION_DAYS,
     DEFAULT_SCENE_ORDER,
+    DEFAULT_SIGNIFICANT_DROP_ABSOLUTE,
+    DEFAULT_SIGNIFICANT_DROP_RELATIVE_PERCENTAGE,
+    DEFAULT_TREND_WINDOW,
     MonitoringConfig,
     parse_iso_date,
+)
+from .cut_recommendation import (
+    RecommendationInput,
+    RecommendationResult,
+    RecommendationThresholds,
+    aggregate_daily_observations,
+    recommend_cut,
 )
 from .geometry import resolve_aoi
 from .indices import InsufficientValidPixelsError, analyze_ndvi
@@ -81,6 +96,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="Quantidade minima de observacoes aceitas para uma serie suficiente.",
     )
     parser.add_argument(
+        "--daily-aggregation",
+        choices=["best", "median", "none"],
+        default=DEFAULT_DAILY_AGGREGATION,
+        help="Consolidacao de cenas aceitas do mesmo dia.",
+    )
+    parser.add_argument(
+        "--decision-min-observations",
+        type=int,
+        default=DEFAULT_DECISION_MIN_OBSERVATIONS,
+        help="Minimo de observacoes consolidadas para a recomendacao experimental.",
+    )
+    parser.add_argument(
+        "--high-vegetation-percentile",
+        type=float,
+        default=DEFAULT_HIGH_VEGETATION_PERCENTILE,
+        help="Percentil local minimo considerado nivel alto de vegetacao.",
+    )
+    parser.add_argument(
+        "--significant-drop-absolute",
+        type=float,
+        default=DEFAULT_SIGNIFICANT_DROP_ABSOLUTE,
+        help="Queda absoluta minima de NDVI considerada significativa.",
+    )
+    parser.add_argument(
+        "--significant-drop-relative-percentage",
+        type=float,
+        default=DEFAULT_SIGNIFICANT_DROP_RELATIVE_PERCENTAGE,
+        help="Queda relativa minima considerada significativa, em percentual.",
+    )
+    parser.add_argument(
+        "--trend-window",
+        type=int,
+        default=DEFAULT_TREND_WINDOW,
+        help="Quantidade de observacoes recentes usada na tendencia linear.",
+    )
+    parser.add_argument(
+        "--max-gap-days",
+        type=int,
+        default=DEFAULT_MAX_GAP_DAYS,
+        help="Intervalo maximo aceitavel entre observacoes, em dias.",
+    )
+    parser.add_argument(
+        "--recent-intervention-days",
+        type=int,
+        default=DEFAULT_RECENT_INTERVENTION_DAYS,
+        help="Janela para considerar uma possivel intervencao recente.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("outputs/satellite_monitoring"),
@@ -108,6 +171,16 @@ def _config_from_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
             min_valid_pixel_percentage=args.min_valid_pixel_percentage,
             include_low_quality_scenes=args.include_low_quality_scenes,
             min_observations=args.min_observations,
+            daily_aggregation=args.daily_aggregation,
+            decision_min_observations=args.decision_min_observations,
+            high_vegetation_percentile=args.high_vegetation_percentile,
+            significant_drop_absolute=args.significant_drop_absolute,
+            significant_drop_relative_percentage=(
+                args.significant_drop_relative_percentage
+            ),
+            trend_window=args.trend_window,
+            max_gap_days=args.max_gap_days,
+            recent_intervention_days=args.recent_intervention_days,
             output_root=args.output_dir,
         )
     except ValueError as exc:
@@ -128,6 +201,8 @@ def _new_scene_record(scene: Scene) -> dict[str, Any]:
             "valid_pixel_percentage": None,
             "valid_pixel_count": None,
             "total_pixel_count": None,
+            "aoi_coverage_percentage": None,
+            "partial_raster_coverage": None,
             "quality_status": "unknown",
             "quality_reasons": [],
             "accepted_for_timeseries": False,
@@ -143,6 +218,46 @@ def _effective_date_range(ndvi_records: list[dict[str, Any]]) -> dict[str, str |
         return {"start": None, "end": None}
     dates = sorted(record["datetime"] for record in ndvi_records)
     return {"start": dates[0], "end": dates[-1]}
+
+
+REASON_MESSAGES = {
+    "recent_significant_drop_confirmed": "Queda recente significativa confirmada por observacao posterior.",
+    "quality_acceptable_during_drop": "As observacoes envolvidas na queda possuem qualidade aceitavel.",
+    "current_percentile_below_or_equal_50": "O NDVI atual esta abaixo ou no centro do historico local.",
+    "stable_or_decreasing_recent_trend": "A tendencia recente esta estavel ou decrescente.",
+    "current_percentile_at_or_above_high_threshold": "O NDVI atual esta no nivel alto do historico local.",
+    "positive_or_stable_high_recent_trend": "A tendencia recente esta positiva ou estavel em nivel alto.",
+    "no_recent_confirmed_significant_drop": "Nao ha queda significativa recente confirmada.",
+    "insufficient_observations": "Ha poucas observacoes diarias para uma decisao.",
+    "excessive_observation_gap": "Existe intervalo excessivo entre observacoes.",
+    "no_recent_observation": "Nao existe observacao suficientemente recente.",
+    "insufficient_valid_pixel_percentage": "Ha observacao com percentual insuficiente de pixels validos.",
+    "partial_aoi_coverage": "Ha cobertura parcial relevante da area de interesse.",
+    "unacceptable_observation_quality": "A qualidade das observacoes nao e suficiente.",
+    "contradictory_series": "A serie recente apresenta movimentos contraditorios.",
+    "insufficient_trend_data": "Nao ha dados suficientes para calcular a tendencia configurada.",
+    "unconfirmed_possible_drop": "Uma possivel queda ainda nao possui observacao posterior de confirmacao.",
+    "criteria_between_cut_and_no_cut": "Os indicadores ficaram entre cortar e nao cortar.",
+}
+
+
+def print_recommendation(result: RecommendationResult) -> None:
+    """Exibe a decisao experimental e suas ressalvas sem depender de cores."""
+    confidence = {"high": "ALTA", "medium": "MEDIA", "low": "BAIXA"}[result.confidence]
+    print("=" * 40)
+    print("RECOMENDACAO EXPERIMENTAL")
+    print("Area: faixa lateral gramada")
+    print(f"Decisao: {result.recommendation.upper()}")
+    print(f"Confianca: {confidence}")
+    print("=" * 40)
+    print("\nMotivos:")
+    codes = [*result.reasons, *result.blocking_reasons]
+    for code in codes or ["criteria_between_cut_and_no_cut"]:
+        print(f"- {REASON_MESSAGES.get(code, code)}")
+    print("\nAviso:")
+    print("O resultado utiliza indicadores espectrais e historicos.")
+    print("O Sentinel-2 nao mede diretamente a altura da grama.")
+    print("A recomendacao exige validacao de campo.")
 
 
 def run(config: MonitoringConfig) -> int:
@@ -224,6 +339,8 @@ def run(config: MonitoringConfig) -> int:
                         "valid_pixel_percentage": valid_pixel_percentage,
                         "valid_pixel_count": valid_pixel_count,
                         "total_pixel_count": raster_data.total_pixel_count,
+                        "aoi_coverage_percentage": raster_data.aoi_coverage_percentage,
+                        "partial_raster_coverage": raster_data.partial_raster_coverage,
                         "quality_status": assessment.quality_status,
                         "quality_reasons": list(assessment.quality_reasons),
                         "accepted_for_timeseries": assessment.accepted_for_timeseries,
@@ -253,6 +370,8 @@ def run(config: MonitoringConfig) -> int:
                             "ndvi_max": statistics.maximum,
                             "valid_pixel_count": statistics.valid_pixel_count,
                             "total_pixel_count": raster_data.total_pixel_count,
+                            "aoi_coverage_percentage": raster_data.aoi_coverage_percentage,
+                            "partial_raster_coverage": raster_data.partial_raster_coverage,
                             "valid_pixel_percentage": statistics.valid_pixel_percentage,
                             "quality_status": assessment.quality_status,
                             "quality_reasons": list(assessment.quality_reasons),
@@ -288,17 +407,41 @@ def run(config: MonitoringConfig) -> int:
         fatal_error = str(exc)
         print(f"Falha impeditiva na consulta: {fatal_error}", file=sys.stderr)
 
+    daily_result = aggregate_daily_observations(
+        ndvi_records,
+        strategy=config.daily_aggregation,
+    )
+    daily_records = daily_result.observations
+    thresholds = RecommendationThresholds(
+        decision_min_observations=config.decision_min_observations,
+        high_vegetation_percentile=config.high_vegetation_percentile,
+        significant_drop_absolute=config.significant_drop_absolute,
+        significant_drop_relative_percentage=config.significant_drop_relative_percentage,
+        trend_window=config.trend_window,
+        max_gap_days=config.max_gap_days,
+        recent_intervention_days=config.recent_intervention_days,
+    )
+    assert config.end_date is not None
+    recommendation = recommend_cut(
+        RecommendationInput(
+            observations=daily_records,
+            thresholds=thresholds,
+            reference_date=config.end_date,
+            min_valid_pixel_percentage=config.min_valid_pixel_percentage,
+        )
+    )
+
     quality_summary = summarize_scene_quality(scene_records)
     overall_status = determine_overall_status(
         fatal_error=fatal_error,
         processed_scene_count=len(processed_item_ids),
-        accepted_scene_count=quality_summary["accepted_scene_count"],
+        accepted_scene_count=len(daily_records),
         min_observations=config.min_observations,
     )
     if overall_status == "insufficient_observations":
         print(
             "Aviso: observacoes aceitas insuficientes "
-            f"({quality_summary['accepted_scene_count']}/{config.min_observations}). "
+            f"({len(daily_records)}/{config.min_observations}). "
             "Nenhuma interpretacao de tendencia foi gerada.",
             file=sys.stderr,
         )
@@ -321,7 +464,11 @@ def run(config: MonitoringConfig) -> int:
         "scene_count_ignored": len(failed_item_ids),
         "first_selected_datetime": selected_scenes[0].datetime.isoformat() if selected_scenes else None,
         "last_selected_datetime": selected_scenes[-1].datetime.isoformat() if selected_scenes else None,
-        "date_range_effectively_processed": _effective_date_range(ndvi_records),
+        "date_range_effectively_processed": _effective_date_range(daily_records),
+        "daily_aggregation": daily_result.audit,
+        "daily_observation_count": len(daily_records),
+        "recommendation_thresholds": config.recommendation_thresholds,
+        "cut_recommendation": recommendation.to_summary_dict(),
         "scenes_discarded_by_limit": discarded_by_limit,
         "ignored_item_ids": failed_item_ids,
         "quality_messages": quality_messages,
@@ -336,15 +483,17 @@ def run(config: MonitoringConfig) -> int:
         write_outputs(
             run_directory,
             scene_records,
-            ndvi_records,
+            daily_records,
             summary,
             resolved_aoi.output_geojson,
+            recommendation.to_dict(),
         )
     except Exception as exc:
         print(f"Falha ao salvar os resultados: {exc}", file=sys.stderr)
         return 1
 
     print(f"Resultados salvos em: {run_directory.resolve()}")
+    print_recommendation(recommendation)
     if overall_status == "failed":
         return 1
     return 0

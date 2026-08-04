@@ -28,6 +28,7 @@ class RasterSceneData:
     nir: np.ndarray
     valid_mask: np.ndarray
     total_pixel_count: int
+    aoi_coverage_percentage: float
     partial_raster_coverage: bool
     red_asset: str
     nir_asset: str
@@ -173,6 +174,12 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
                 transform=output_transform,
                 invert=True,
             )
+            covered_pixel_count = int(np.count_nonzero(inside_aoi))
+            aoi_coverage_percentage = (
+                min(100.0, covered_pixel_count / total_pixel_count * 100.0)
+                if total_pixel_count > 0
+                else 0.0
+            )
 
             nir_raw = _read_aligned_band(
                 stack,
@@ -206,8 +213,14 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
                     "sombra, cirrus e neve."
                 )
 
-    except (WindowError, ValueError) as exc:
+    except WindowError as exc:
         raise RasterProcessingError("A area de interesse nao intercepta o raster da cena.") from exc
+    except UnicodeError as exc:
+        raise RasterProcessingError(
+            f"Falha de codificacao ao acessar o raster remoto: {exc}"
+        ) from exc
+    except ValueError as exc:
+        raise RasterProcessingError(f"Falha ao preparar o recorte raster: {exc}") from exc
     except rasterio.errors.RasterioError as exc:
         raise RasterProcessingError(f"Falha ao acessar os assets remotos: {exc}") from exc
 
@@ -219,6 +232,7 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
         nir=nir,
         valid_mask=valid_mask,
         total_pixel_count=total_pixel_count,
+        aoi_coverage_percentage=aoi_coverage_percentage,
         partial_raster_coverage=partial_raster_coverage,
         red_asset=red_key,
         nir_asset=nir_key,

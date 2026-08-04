@@ -318,3 +318,28 @@ def test_config_rejects_reversed_dates_and_invalid_limits() -> None:
 
 def test_create_aoi_geojson_remains_available() -> None:
     assert create_aoi_geojson(-23.0, -47.0, 100)["type"] == "Polygon"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("daily_aggregation", "weekly"),
+        ("decision_min_observations", 0),
+        ("high_vegetation_percentile", 101),
+        ("significant_drop_absolute", 0),
+        ("significant_drop_relative_percentage", 0),
+        ("trend_window", 1),
+        ("max_gap_days", 0),
+        ("recent_intervention_days", 0),
+    ],
+)
+def test_rejects_invalid_recommendation_parameters(field: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        MonitoringConfig(
+            0,
+            0,
+            100,
+            START_DATE,
+            END_DATE,
+            **{field: value},
+        )

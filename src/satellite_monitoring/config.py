@@ -15,6 +15,14 @@ DEFAULT_MIN_VALID_PIXEL_PERCENTAGE = 70.0
 DEFAULT_MIN_OBSERVATIONS = 4
 DEFAULT_MEDIUM_QUALITY_THRESHOLD = 70.0
 DEFAULT_HIGH_QUALITY_THRESHOLD = 85.0
+DEFAULT_DAILY_AGGREGATION = "best"
+DEFAULT_DECISION_MIN_OBSERVATIONS = 4
+DEFAULT_HIGH_VEGETATION_PERCENTILE = 75.0
+DEFAULT_SIGNIFICANT_DROP_ABSOLUTE = 0.06
+DEFAULT_SIGNIFICANT_DROP_RELATIVE_PERCENTAGE = 15.0
+DEFAULT_TREND_WINDOW = 3
+DEFAULT_MAX_GAP_DAYS = 20
+DEFAULT_RECENT_INTERVENTION_DAYS = 20
 
 
 def parse_iso_date(value: str) -> date:
@@ -46,6 +54,16 @@ class MonitoringConfig:
     endpoint: str = STAC_ENDPOINT
     collection: str = COLLECTION_ID
     geometry_file: Path | None = None
+    daily_aggregation: str = DEFAULT_DAILY_AGGREGATION
+    decision_min_observations: int = DEFAULT_DECISION_MIN_OBSERVATIONS
+    high_vegetation_percentile: float = DEFAULT_HIGH_VEGETATION_PERCENTILE
+    significant_drop_absolute: float = DEFAULT_SIGNIFICANT_DROP_ABSOLUTE
+    significant_drop_relative_percentage: float = (
+        DEFAULT_SIGNIFICANT_DROP_RELATIVE_PERCENTAGE
+    )
+    trend_window: int = DEFAULT_TREND_WINDOW
+    max_gap_days: int = DEFAULT_MAX_GAP_DAYS
+    recent_intervention_days: int = DEFAULT_RECENT_INTERVENTION_DAYS
 
     def __post_init__(self) -> None:
         circular_values = (self.latitude, self.longitude, self.radius_meters)
@@ -95,6 +113,22 @@ class MonitoringConfig:
             raise ValueError(
                 "Os limites de qualidade devem respeitar 0 <= medium <= high <= 100."
             )
+        if self.daily_aggregation not in {"best", "median", "none"}:
+            raise ValueError("A agregacao diaria deve ser 'best', 'median' ou 'none'.")
+        if self.decision_min_observations <= 0:
+            raise ValueError("O minimo de observacoes para decisao deve ser maior que zero.")
+        if not 0 <= self.high_vegetation_percentile <= 100:
+            raise ValueError("O percentil de vegetacao alta deve estar entre 0 e 100.")
+        if not 0 < self.significant_drop_absolute <= 2:
+            raise ValueError("A queda absoluta significativa deve estar entre 0 e 2.")
+        if self.significant_drop_relative_percentage <= 0:
+            raise ValueError("A queda relativa significativa deve ser maior que zero.")
+        if self.trend_window < 2:
+            raise ValueError("A janela de tendencia deve conter pelo menos duas observacoes.")
+        if self.max_gap_days <= 0:
+            raise ValueError("O intervalo maximo entre observacoes deve ser maior que zero.")
+        if self.recent_intervention_days <= 0:
+            raise ValueError("A janela de intervencao recente deve ser maior que zero.")
 
     @property
     def datetime_range(self) -> str:
@@ -110,6 +144,23 @@ class MonitoringConfig:
             "medium_min_valid_pixel_percentage": self.medium_quality_threshold,
             "accepted_min_valid_pixel_percentage": self.min_valid_pixel_percentage,
             "provisional": True,
+        }
+
+    @property
+    def recommendation_thresholds(self) -> dict[str, Any]:
+        """Explicita os parametros experimentais usados pela recomendacao."""
+        return {
+            "decision_min_observations": self.decision_min_observations,
+            "high_vegetation_percentile": self.high_vegetation_percentile,
+            "significant_drop_absolute": self.significant_drop_absolute,
+            "significant_drop_relative_percentage": (
+                self.significant_drop_relative_percentage
+            ),
+            "trend_window": self.trend_window,
+            "max_gap_days": self.max_gap_days,
+            "recent_intervention_days": self.recent_intervention_days,
+            "experimental": True,
+            "validated_by_motiva": False,
         }
 
     def to_dict(self) -> dict[str, Any]:

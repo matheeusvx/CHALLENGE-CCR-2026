@@ -5,9 +5,11 @@ rodovia por meio de uma serie temporal real de NDVI. O MVP consulta cenas
 Sentinel-2 L2A no Microsoft Planetary Computer, recorta a area informada e
 exporta os resultados calculados.
 
-Esta etapa nao decide se a vegetacao deve ser classificada como `cortar` ou
-`nao_cortar`. O classificador anterior de fotografias RGB permanece preservado
-em `src/legacy/photo_classifier/`.
+O pipeline tambem produz uma recomendacao experimental e explicavel para o
+cenario inicial de faixa lateral gramada comum: `cortar`, `nao_cortar` ou
+`inconclusivo`. Ela usa exclusivamente o historico local de NDVI, tendencia,
+quedas, persistencia e qualidade das observacoes. O classificador anterior de
+fotografias RGB permanece preservado em `src/legacy/photo_classifier/`.
 
 ## Fluxo do MVP
 
@@ -24,10 +26,13 @@ circulo (latitude, longitude e raio) OU GeoJSON + datas
    vermelho + NIR + mascara SCL opcional
                   |
                   v
-        estatisticas e serie NDVI
+ estatisticas + consolidacao diaria NDVI
                   |
                   v
-          CSV + JSON + grafico
+    regras explicaveis experimentais
+                  |
+                  v
+       CSV + JSON + grafico + decisao
 ```
 
 A fonte e a API STAC publica do
@@ -52,6 +57,7 @@ consulta com `planetary_computer.sign_inplace`.
 |   +-- satellite_monitoring/
 |       +-- cli.py
 |       +-- config.py
+|       +-- cut_recommendation.py
 |       +-- geometry.py
 |       +-- indices.py
 |       +-- outputs.py
@@ -60,6 +66,7 @@ consulta com `planetary_computer.sign_inplace`.
 |       +-- stac_client.py
 +-- tests/
 |   +-- test_cli.py
+|   +-- test_cut_recommendation.py
 |   +-- test_geometry.py
 |   +-- test_indices.py
 |   +-- test_outputs.py
@@ -99,7 +106,8 @@ python -m src.satellite_monitoring.cli `
   --max-scenes 12 `
   --scene-order newest `
   --min-valid-pixel-percentage 70 `
-  --min-observations 4
+  --min-observations 4 `
+  --daily-aggregation best
 ```
 
 Como alternativa, informe um arquivo GeoJSON que delimite somente a faixa
@@ -114,7 +122,15 @@ python -m src.satellite_monitoring.cli `
   --max-scenes 12 `
   --scene-order newest `
   --min-valid-pixel-percentage 70 `
-  --min-observations 4
+  --min-observations 4 `
+  --daily-aggregation best `
+  --decision-min-observations 4 `
+  --high-vegetation-percentile 75 `
+  --significant-drop-absolute 0.06 `
+  --significant-drop-relative-percentage 15 `
+  --trend-window 3 `
+  --max-gap-days 20 `
+  --recent-intervention-days 20
 ```
 
 Os modos sao mutuamente exclusivos: use `--geometry-file` ou o conjunto
@@ -136,6 +152,13 @@ As coordenadas acima sao apenas um exemplo e nao estao fixas no codigo. Use
 argumentos, incluindo `--output-dir`. Por padrao, as 12 cenas mais recentes
 sao priorizadas; depois da selecao, CSV e grafico voltam a ordem cronologica.
 
+Por padrao, `--daily-aggregation best` mantem uma observacao por dia. A cena
+com mais pixels validos e escolhida; os desempates usam menor cobertura global
+de nuvens, maior cobertura espacial da AOI e, por fim, o ID da cena para manter
+o resultado deterministico. `median` calcula a mediana das estatisticas aceitas
+do dia. `none` preserva todas as cenas aceitas. A proveniencia, as cenas
+consideradas e a escolha de cada dia ficam registradas no CSV e no resumo.
+
 Cada execucao cria uma pasta com horario proprio:
 
 ```text
@@ -145,6 +168,8 @@ outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
 +-- ndvi_timeseries.csv
 +-- summary.json
 +-- ndvi_timeseries.png
++-- cut_recommendation.json
++-- cut_recommendation.csv
 ```
 
 - `aoi.geojson`: geometria efetivamente usada na consulta STAC e no recorte das
@@ -152,13 +177,18 @@ outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
   `source_geojson`.
 - `scenes.csv`: metadados, contagem de pixels, qualidade, motivos, aceite e
   status de processamento de cada cena selecionada.
-- `ndvi_timeseries.csv`: media, mediana, desvio padrao, minimo, maximo e cobertura
-  de pixels validos das cenas aceitas. Cenas abaixo do limite aparecem somente
-  com `--include-low-quality-scenes` e continuam marcadas como `low`.
+- `ndvi_timeseries.csv`: serie aceita e consolidada, com estatisticas NDVI,
+  qualidade, cobertura da AOI e proveniencia da agregacao diaria. Cenas abaixo
+  do limite aparecem somente com `--include-low-quality-scenes` e continuam
+  marcadas como `low`.
 - `summary.json`: parametros, metadados da area, endpoint, colecao, contagens, IDs STAC reais,
   estrategia temporal, limiares, descartes pelo limite, rejeicoes de qualidade,
-  intervalo efetivamente processado, alertas e erros por cena.
-- `ndvi_timeseries.png`: evolucao temporal da media e mediana do NDVI.
+  consolidacao diaria, recomendacao, intervalo processado, alertas e erros.
+- `ndvi_timeseries.png`: serie diaria, mediana historica, quedas significativas,
+  observacao atual e recomendacao, sempre com eixo NDVI entre -1 e 1.
+- `cut_recommendation.json`: resultado explicavel completo, metricas, limites,
+  qualidade, motivos, bloqueios e limitacoes.
+- `cut_recommendation.csv`: uma linha resumida para integracao e auditoria.
 
 Uma falha em uma cena e registrada e as cenas seguintes continuam. Falhas na
 consulta ou uma execucao sem nenhuma cena processada retornam codigo diferente
@@ -204,6 +234,42 @@ desse minimo, os arquivos ainda sao gerados com `overall_status` igual a
 `insufficient_observations`; nenhuma interpretacao de tendencia e produzida.
 Esses valores nao constituem validacao cientifica ou operacional.
 
+## Recomendacao experimental
+
+Os resultados significam:
+
+- `cortar`: o NDVI atual esta no nivel alto do proprio historico local, com
+  tendencia compativel, qualidade suficiente e sem queda recente confirmada;
+- `nao_cortar`: ha indicio de intervencao recente confirmada ou a vegetacao esta
+  abaixo do nivel historico alto, sem crescimento acelerado;
+- `inconclusivo`: os dados nao sustentam nenhuma das duas decisoes com seguranca.
+
+Uma recomendacao fica inconclusiva quando faltam observacoes, a serie possui
+lacunas excessivas, a observacao mais recente esta distante do fim do periodo,
+a qualidade ou cobertura da AOI e insuficiente, ha movimentos contraditorios,
+nao e possivel calcular tendencia ou uma queda ainda aguarda confirmacao.
+
+Os parametros iniciais sao configuraveis na CLI:
+
+- `--decision-min-observations 4`;
+- `--high-vegetation-percentile 75`;
+- `--significant-drop-absolute 0.06`;
+- `--significant-drop-relative-percentage 15`;
+- `--trend-window 3`;
+- `--max-gap-days 20`;
+- `--recent-intervention-days 20`.
+
+Esses limites sao hipoteses de engenharia experimentais e ainda nao foram
+validados pela Motiva. A confianca `high`, `medium` ou `low` considera quantidade
+e qualidade das observacoes, regularidade temporal, distancia dos limites,
+confirmacao de queda, amplitude e estabilidade. Ela nao e uma probabilidade.
+
+O resultado deve ser interpretado como apoio experimental para priorizacao de
+inspecoes. O uso e restrito a areas predominantemente gramadas, delimitadas para
+evitar pista, construcoes, arvores densas, corpos d'agua e areas urbanas. NDVI
+nao mede altura em centimetros. A validacao exige comparar os resultados com
+inspecoes de campo e registros reais de manutencao e corte.
+
 ## Testes
 
 ```powershell
@@ -211,9 +277,9 @@ python -m compileall src
 python -m pytest -q --basetemp=.pytest_tmp -p no:cacheprovider
 ```
 
-Os testes unitarios usam apenas pequenos arrays locais para validar a formula,
-mascaras e serializacao. Eles nao simulam uma execucao funcional nem gravam
-respostas inventadas da API.
+Os testes unitarios usam pequenos arrays e series temporais deterministicas para
+validar formula, mascaras, consolidacao, regras e serializacao. Eles nao fazem
+chamadas externas nem gravam respostas inventadas da API.
 
 Para repetir manualmente um smoke test real no Windows, informe sua propria
 area e um intervalo com imagens disponiveis:
@@ -256,8 +322,8 @@ inclui imagens.
 - A resolucao espacial do Sentinel-2 e limitada para faixas rodoviarias estreitas.
 - Um pixel pode misturar vegetacao, pista, acostamento, solo e estruturas.
 - A cobertura de nuvens do item nao substitui uma mascara local de pixels.
-- Nesta etapa, o sistema monitora vigor e mudancas da vegetacao.
-- A decisao `cortar` ou `nao_cortar` pertence a uma etapa posterior.
+- A recomendacao e experimental e pode retornar `inconclusivo`.
+- O sistema nao detecta corte diretamente nem estima altura da vegetacao.
 - Os resultados ainda nao representam validacao operacional da CCR/Motiva.
 - Areas pequenas podem conter poucos pixels validos apos a mascara SCL.
 - Disponibilidade de cenas e acesso aos assets dependem do servico externo.
