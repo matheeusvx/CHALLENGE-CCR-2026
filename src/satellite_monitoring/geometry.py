@@ -264,6 +264,22 @@ def calculate_geometry_metadata(
 
 def resolve_aoi(config: MonitoringConfig) -> ResolvedAOI:
     """Resolve o modo configurado para a geometria unica usada em todo o pipeline."""
+    if config.geometry is not None:
+        geometry, feature_count = extract_polygon_geometry(config.geometry)
+        geometry_mapping = mapping(geometry)
+        metadata = calculate_geometry_metadata(
+            geometry,
+            source="geojson_inline",
+            feature_count=feature_count,
+        )
+        output_geojson = {
+            "type": "Feature",
+            "properties": {"geometry_source": "geojson_inline"},
+            "geometry": geometry_mapping,
+            "source_geojson": config.geometry,
+        }
+        return ResolvedAOI(geometry_mapping, output_geojson, metadata)
+
     if config.geometry_file is not None:
         original_document = load_geojson_file(config.geometry_file)
         geometry, feature_count = extract_polygon_geometry(original_document)

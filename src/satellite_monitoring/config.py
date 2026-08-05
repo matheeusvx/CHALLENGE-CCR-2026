@@ -54,6 +54,7 @@ class MonitoringConfig:
     endpoint: str = STAC_ENDPOINT
     collection: str = COLLECTION_ID
     geometry_file: Path | None = None
+    geometry: dict[str, Any] | None = None
     daily_aggregation: str = DEFAULT_DAILY_AGGREGATION
     decision_min_observations: int = DEFAULT_DECISION_MIN_OBSERVATIONS
     high_vegetation_percentile: float = DEFAULT_HIGH_VEGETATION_PERCENTILE
@@ -70,16 +71,20 @@ class MonitoringConfig:
         has_any_circular_value = any(value is not None for value in circular_values)
         has_all_circular_values = all(value is not None for value in circular_values)
         has_geometry_file = self.geometry_file is not None
+        has_inline_geometry = self.geometry is not None
+        geometry_mode_count = int(has_geometry_file) + int(has_inline_geometry)
 
-        if has_geometry_file and has_any_circular_value:
+        if geometry_mode_count > 1 or (geometry_mode_count and has_any_circular_value):
             raise ValueError(
-                "Informe geometry-file ou latitude/longitude/raio, nunca os dois modos juntos."
+                "Informe geometry, geometry-file ou latitude/longitude/raio, "
+                "nunca os dois modos juntos."
             )
-        if not has_geometry_file and not has_any_circular_value:
+        if geometry_mode_count == 0 and not has_any_circular_value:
             raise ValueError(
-                "Informe geometry-file ou os tres parametros latitude, longitude e radius-meters."
+                "Informe geometry-file, geometry ou os tres parametros "
+                "latitude, longitude e radius-meters."
             )
-        if not has_geometry_file and not has_all_circular_values:
+        if geometry_mode_count == 0 and not has_all_circular_values:
             raise ValueError(
                 "O modo circular exige latitude, longitude e radius-meters em conjunto."
             )

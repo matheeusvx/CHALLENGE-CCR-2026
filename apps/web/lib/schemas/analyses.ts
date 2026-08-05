@@ -1,0 +1,69 @@
+import { z } from "zod";
+
+const positionSchema = z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]);
+const ringSchema = z.array(positionSchema).min(4);
+
+export const geometrySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("Polygon"), coordinates: z.array(ringSchema).min(1) }),
+  z.object({ type: z.literal("MultiPolygon"), coordinates: z.array(z.array(ringSchema).min(1)).min(1) }),
+  z.object({ type: z.literal("Feature"), geometry: z.record(z.string(), z.unknown()), properties: z.record(z.string(), z.unknown()).optional() }),
+  z.object({ type: z.literal("FeatureCollection"), features: z.array(z.record(z.string(), z.unknown())).min(1) }),
+]);
+
+export const geometryValidationSchema = z.object({
+  valid: z.literal(true),
+  geometry_type: z.string(),
+  area_square_meters: z.number(),
+  centroid: z.object({ longitude: z.number(), latitude: z.number() }),
+  bounding_box: z.array(z.number()).length(4),
+  estimated_sentinel_pixels: z.number().int().nonnegative(),
+  warnings: z.array(z.string()),
+});
+
+const recordSchema = z.record(z.string(), z.unknown());
+
+export const analysisResponseSchema = z.object({
+  analysis_id: z.string().uuid(),
+  status: z.string(),
+  recommendation: z.object({
+    decision: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
+    confidence: z.enum(["high", "medium", "low"]),
+    experimental: z.boolean(),
+    summary: z.string(),
+    reasons: z.array(z.string()),
+    blocking_reasons: z.array(z.string()),
+    limitations: z.array(z.string()),
+    metrics: recordSchema,
+  }),
+  aoi: recordSchema,
+  summary: recordSchema,
+  timeseries: z.array(recordSchema),
+  scenes: z.array(recordSchema),
+  artifacts: z.record(z.string(), z.string()),
+  warnings: z.array(recordSchema),
+  errors: z.array(recordSchema),
+});
+
+export const healthSchema = z.object({
+  status: z.literal("ok"),
+  service: z.string(),
+  version: z.string(),
+});
+
+export type GeometryDocument = z.infer<typeof geometrySchema>;
+export type GeometryValidation = z.infer<typeof geometryValidationSchema>;
+export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;
+
+export function parseGeometryText(value: string): GeometryDocument {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("O GeoJSON nao contem JSON valido.");
+  }
+  const result = geometrySchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("Informe um Polygon, MultiPolygon, Feature ou FeatureCollection valido.");
+  }
+  return result.data;
+}

@@ -11,6 +11,62 @@ cenario inicial de faixa lateral gramada comum: `cortar`, `nao_cortar` ou
 quedas, persistencia e qualidade das observacoes. O classificador anterior de
 fotografias RGB permanece preservado em `src/legacy/photo_classifier/`.
 
+## Plataforma web
+
+O repositorio tambem contem a fundacao da plataforma **Motiva Vegetation
+Intelligence**, organizada como um monorepo sem duplicar o motor Python:
+
+- `src/satellite_monitoring/service.py`: servico reutilizavel chamado pela CLI e pela API;
+- `apps/api`: FastAPI sincrona, contratos Pydantic e acesso controlado aos artefatos;
+- `apps/web`: Next.js, TypeScript, TanStack Query, Zod, Zustand e Apache ECharts;
+- `packages/contracts`: OpenAPI gerado e fluxo de tipos TypeScript;
+- `infra`: reserva para os modulos de infraestrutura posteriores;
+- `docker-compose.yml`: composicao local inicial com apenas `api` e `web`.
+
+O primeiro fluxo tecnico aceita um GeoJSON na interface, valida a AOI com a
+mesma logica do pipeline, executa a analise real e apresenta recomendacao,
+metricas, serie temporal e cenas. A API nao chama a CLI por subprocesso.
+
+### Execucao sem Docker
+
+Terminal 1, na raiz, em PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt -r apps\api\requirements.txt
+$env:API_CORS_ORIGINS = "http://localhost:3000"
+python -m uvicorn apps.api.app.main:app --reload --port 8000
+```
+
+Terminal 2:
+
+```powershell
+Copy-Item apps\web\.env.example apps\web\.env.local
+pnpm install
+pnpm --dir apps\web generate:api
+pnpm --dir apps\web dev
+```
+
+A API fica em `http://localhost:8000`, sua documentacao em
+`http://localhost:8000/docs` e o frontend em `http://localhost:3000`.
+
+### Execucao com Docker
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build
+```
+
+O Compose aguarda o healthcheck da API antes de iniciar o frontend. Nao ha
+segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
+
+### Variaveis
+
+- `API_HOST` e `API_PORT`: bind da API;
+- `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
+- `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
+- `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
+
 ## Fluxo do MVP
 
 ```text
@@ -44,13 +100,19 @@ consulta com `planetary_computer.sign_inplace`.
 
 ```text
 .
++-- apps/
+|   +-- api/
+|   +-- web/
 +-- data/
++-- infra/
 +-- models/
 +-- notebooks/
 +-- outputs/
 |   +-- satellite_monitoring/
 +-- scripts/
 |   +-- smoke_test.ps1
++-- packages/
+|   +-- contracts/
 +-- src/
 |   +-- legacy/
 |   |   +-- photo_classifier/
@@ -63,6 +125,7 @@ consulta com `planetary_computer.sign_inplace`.
 |       +-- outputs.py
 |       +-- quality.py
 |       +-- raster_processing.py
+|       +-- service.py
 |       +-- stac_client.py
 +-- tests/
 |   +-- test_cli.py
@@ -73,6 +136,7 @@ consulta com `planetary_computer.sign_inplace`.
 |   +-- test_quality.py
 |   +-- test_stac_client.py
 +-- README.md
++-- docker-compose.yml
 +-- requirements.txt
 ```
 
@@ -275,6 +339,11 @@ inspecoes de campo e registros reais de manutencao e corte.
 ```powershell
 python -m compileall src
 python -m pytest -q --basetemp=.pytest_tmp -p no:cacheprovider
+python -m pytest -q apps\api\tests --basetemp=.pytest_tmp_api -p no:cacheprovider
+pnpm --dir apps\web lint
+pnpm --dir apps\web test
+pnpm --dir apps\web build
+docker compose config
 ```
 
 Os testes unitarios usam pequenos arrays e series temporais deterministicas para
@@ -329,3 +398,10 @@ inclui imagens.
 - Disponibilidade de cenas e acesso aos assets dependem do servico externo.
 - Os limiares `high`, `medium`, `low` e o minimo de observacoes sao provisoes
   de engenharia e ainda exigem calibracao com dados de campo.
+- A API executa o pipeline de forma sincrona e guarda o registro de analises em memoria.
+- Nao existem ainda autenticacao, persistencia, fila, worker ou processamento assincrono.
+- Mapa operacional, selecao de rodovias, PostGIS e servidor de tiles ficam para etapas futuras.
+
+Os proximos modulos recomendados sao persistencia do historico e metadados,
+processamento assincrono com estados de execucao, autenticacao e, somente apos
+essas bases, visualizacao cartografica da malha rodoviaria.

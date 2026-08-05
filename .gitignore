@@ -2,6 +2,10 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.env.local
+.env.*
+!.env.example
+!**/.env.example
 .DS_Store
 
 # outputs gerados
@@ -19,4 +23,8 @@ models/*
 .vscode/
 # arquivos temporarios do pytest
 .pytest_tmp/
+.pytest_tmp_api/
 .pytest_cache/
+.next/
+node_modules/
+coverage/

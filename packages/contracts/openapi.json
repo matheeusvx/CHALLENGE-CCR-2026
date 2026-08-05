@@ -1,0 +1,596 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Motiva Vegetation Intelligence API",
+    "description": "API sincrona para validacao de AOI e monitoramento Sentinel-2.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Healthcheck",
+        "operationId": "healthcheck_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/validate-geometry": {
+      "post": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Validate Geometry",
+        "operationId": "validate_geometry_api_analyses_validate_geometry_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeometryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeometryValidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/run": {
+      "post": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Run Analysis",
+        "operationId": "run_analysis_api_analyses_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/{analysis_id}/artifacts/{artifact_name}": {
+      "get": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Get Artifact",
+        "operationId": "get_artifact_api_analyses__analysis_id__artifacts__artifact_name__get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "artifact_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisResponse": {
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "title": "Analysis Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/RecommendationResponse"
+          },
+          "aoi": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Aoi"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "timeseries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Timeseries"
+          },
+          "scenes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Scenes"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Artifacts"
+          },
+          "warnings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "status",
+          "recommendation",
+          "aoi",
+          "summary",
+          "timeseries",
+          "scenes",
+          "artifacts",
+          "warnings",
+          "errors"
+        ],
+        "title": "AnalysisResponse"
+      },
+      "AnalysisRunRequest": {
+        "properties": {
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "max_cloud_cover": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Max Cloud Cover",
+            "default": 30.0
+          },
+          "max_scenes": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Scenes",
+            "default": 12
+          },
+          "scene_order": {
+            "type": "string",
+            "enum": [
+              "newest",
+              "oldest"
+            ],
+            "title": "Scene Order",
+            "default": "newest"
+          },
+          "min_valid_pixel_percentage": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Min Valid Pixel Percentage",
+            "default": 70.0
+          },
+          "min_observations": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Min Observations",
+            "default": 4
+          },
+          "daily_aggregation": {
+            "type": "string",
+            "enum": [
+              "best",
+              "median",
+              "none"
+            ],
+            "title": "Daily Aggregation",
+            "default": "best"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionParameters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "geometry",
+          "start_date",
+          "end_date"
+        ],
+        "title": "AnalysisRunRequest"
+      },
+      "Centroid": {
+        "properties": {
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "longitude",
+          "latitude"
+        ],
+        "title": "Centroid"
+      },
+      "DecisionParameters": {
+        "properties": {
+          "decision_min_observations": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 2.0,
+            "title": "Decision Min Observations",
+            "default": 4
+          },
+          "high_vegetation_percentile": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "High Vegetation Percentile",
+            "default": 75.0
+          },
+          "significant_drop_absolute": {
+            "type": "number",
+            "maximum": 2.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Significant Drop Absolute",
+            "default": 0.06
+          },
+          "significant_drop_relative_percentage": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Significant Drop Relative Percentage",
+            "default": 15.0
+          },
+          "trend_window": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 2.0,
+            "title": "Trend Window",
+            "default": 3
+          },
+          "max_gap_days": {
+            "type": "integer",
+            "maximum": 366.0,
+            "minimum": 1.0,
+            "title": "Max Gap Days",
+            "default": 20
+          },
+          "recent_intervention_days": {
+            "type": "integer",
+            "maximum": 366.0,
+            "minimum": 1.0,
+            "title": "Recent Intervention Days",
+            "default": 20
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DecisionParameters"
+      },
+      "GeometryRequest": {
+        "properties": {
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "geometry"
+        ],
+        "title": "GeometryRequest"
+      },
+      "GeometryValidationResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "geometry_type": {
+            "type": "string",
+            "title": "Geometry Type"
+          },
+          "area_square_meters": {
+            "type": "number",
+            "title": "Area Square Meters"
+          },
+          "centroid": {
+            "$ref": "#/components/schemas/Centroid"
+          },
+          "bounding_box": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bounding Box"
+          },
+          "estimated_sentinel_pixels": {
+            "type": "integer",
+            "title": "Estimated Sentinel Pixels"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid",
+          "geometry_type",
+          "area_square_meters",
+          "centroid",
+          "bounding_box",
+          "estimated_sentinel_pixels",
+          "warnings"
+        ],
+        "title": "GeometryValidationResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse"
+      },
+      "RecommendationResponse": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "cortar",
+              "nao_cortar",
+              "inconclusivo"
+            ],
+            "title": "Decision"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence"
+          },
+          "experimental": {
+            "type": "boolean",
+            "title": "Experimental"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "blocking_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocking Reasons"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "confidence",
+          "experimental",
+          "summary",
+          "reasons",
+          "blocking_reasons",
+          "limitations"
+        ],
+        "title": "RecommendationResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
