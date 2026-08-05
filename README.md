@@ -23,9 +23,17 @@ Intelligence**, organizada como um monorepo sem duplicar o motor Python:
 - `infra`: reserva para os modulos de infraestrutura posteriores;
 - `docker-compose.yml`: composicao local inicial com apenas `api` e `web`.
 
-O primeiro fluxo tecnico aceita um GeoJSON na interface, valida a AOI com a
-mesma logica do pipeline, executa a analise real e apresenta recomendacao,
-metricas, serie temporal e cenas. A API nao chama a CLI por subprocesso.
+O fluxo web apresenta um mapa operacional MapLibre: o operador navega ate o
+trecho, desenha ou edita um Polygon, valida a AOI com a mesma logica do pipeline,
+executa a analise real e recebe recomendacao, metricas, serie temporal e cenas.
+A entrada manual e o upload GeoJSON continuam disponiveis em uma secao avancada.
+A API nao chama a CLI por subprocesso.
+
+A base operacional padrao usa o estilo vetorial Bright do OpenFreeMap e inicia
+em Louveira no zoom 12. Um seletor permite alternar para a base Terreno sem
+perder camera, geometria ou resultado. A AOI possui source e layers proprios,
+independentes do editor TerraDraw, e e reinstalada automaticamente depois de
+uma troca de estilo.
 
 ### Execucao sem Docker
 
@@ -66,6 +74,36 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
+- `NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL`: style JSON da base operacional; o
+  padrao Bright do OpenFreeMap nao exige token proprietario;
+- `NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL`: style JSON da opcao Terreno. A antiga
+  `NEXT_PUBLIC_MAP_STYLE_URL` permanece como fallback compativel dessa opcao.
+
+### Workspace geoespacial
+
+No frontend, selecione a ferramenta de poligono, clique sobre a faixa lateral
+para adicionar vertices e clique no primeiro ponto para concluir. A ferramenta
+de edicao permite mover e remover vertices; tambem existem controles para
+desfazer, refazer, excluir e enquadrar a AOI. A aba **Area** mostra uma previa
+Turf e, depois de **Validar area**, substitui esses valores pelos metadados
+oficiais retornados pela API.
+
+Qualquer edicao incrementa a revisao da geometria, descarta a validacao anterior
+e bloqueia **Executar analise** ate uma nova validacao. As abas **Area**,
+**Parametros** e **Resultado** compartilham o mesmo estado, por isso alternar
+entre elas nao remove a geometria. A recomendacao altera o contorno no mapa e
+tambem e apresentada em texto, com confianca e periodo.
+
+Ao concluir o desenho, aplicar ou importar GeoJSON, abrir o resultado ou usar
+**Enquadrar**, a camera ajusta a area com padding para os controles e zoom
+maximo 16. O mapa nao executa movimentos continuos durante o arraste de
+vertices. O contorno persistente combina preenchimento transparente, halo de
+contraste, linha semantica, vertices e rotulo textual.
+
+A secao **Entrada avancada por GeoJSON** aceita Polygon, Feature Polygon ou uma
+FeatureCollection com um unico Polygon. Arquivos `.json` e `.geojson` de ate
+2 MB sao lidos localmente no navegador; somente a geometria normalizada e
+enviada a API. Use coordenadas EPSG:4326 no formato `[longitude, latitude]`.
 
 ## Fluxo do MVP
 
@@ -400,8 +438,15 @@ inclui imagens.
   de engenharia e ainda exigem calibracao com dados de campo.
 - A API executa o pipeline de forma sincrona e guarda o registro de analises em memoria.
 - Nao existem ainda autenticacao, persistencia, fila, worker ou processamento assincrono.
-- Mapa operacional, selecao de rodovias, PostGIS e servidor de tiles ficam para etapas futuras.
+- O editor visual suporta apenas um Polygon ativo; MultiPolygon permanece
+  disponivel no pipeline/CLI, mas nao no workspace desta etapa.
+- O mapa ainda nao exibe rasters Sentinel-2, cobertura por cena ou cadastro de
+  rodovias, e depende de acesso ao provedor de mapa base configurado.
+- Limites municipais e rodovias administradas ainda nao possuem overlay
+  proprio. A arquitetura reserva IDs para essas fontes, mas so aceitara dados
+  oficiais, simplificados e versionados.
+- A geometria e os resultados web ainda nao possuem persistencia historica.
 
-Os proximos modulos recomendados sao persistencia do historico e metadados,
-processamento assincrono com estados de execucao, autenticacao e, somente apos
-essas bases, visualizacao cartografica da malha rodoviaria.
+Os proximos modulos recomendados sao a visualizacao cartografica da cobertura e
+qualidade das cenas, persistencia do historico e metadados, processamento
+assincrono com estados de execucao e autenticacao.

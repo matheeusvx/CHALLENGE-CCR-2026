@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
 import type { ReactNode } from "react";
+import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 import { Providers } from "./providers";
 

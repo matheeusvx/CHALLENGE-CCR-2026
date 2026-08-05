@@ -7,17 +7,17 @@ import { AnalysisResult } from "@/components/analysis/analysis-result";
 import * as api from "@/lib/api/analyses";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { useAnalysisStore } from "@/stores/analysis-store";
+import type { PolygonGeometry } from "@/lib/map/geometry";
 
-vi.mock("@/lib/api/analyses", () => ({
-  getHealth: vi.fn(),
-  validateGeometry: vi.fn(),
-  runAnalysis: vi.fn(),
+vi.mock("@/lib/api/analyses", () => ({ getHealth: vi.fn(), validateGeometry: vi.fn(), runAnalysis: vi.fn() }));
+vi.mock("@/components/map/analysis-map", () => ({
+  AnalysisMap: ({ result: mapResult }: { result?: AnalysisResponse }) => <div data-testid="analysis-map" data-decision={mapResult?.recommendation.decision ?? "editing"} />,
 }));
 
-const geometry = JSON.stringify({
-  type: "Polygon",
+const polygon: PolygonGeometry = {
+  type: "Polygon" as const,
   coordinates: [[[-46.962, -23.109], [-46.96, -23.109], [-46.96, -23.107], [-46.962, -23.107], [-46.962, -23.109]]],
-});
+};
 
 const validation = {
   valid: true as const,
@@ -32,26 +32,12 @@ const validation = {
 const result: AnalysisResponse = {
   analysis_id: "6d7ba572-321d-4a27-9f0f-9fcbd5ecab62",
   status: "completed",
-  recommendation: {
-    decision: "nao_cortar",
-    confidence: "high",
-    experimental: true,
-    summary: "Vegetacao abaixo do nivel alto local.",
-    reasons: ["current_percentile_below_or_equal_50"],
-    blocking_reasons: [],
-    limitations: ["Validacao de campo necessaria."],
-    metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 },
-  },
+  recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Vegetacao abaixo do nivel alto local.", reasons: ["current_percentile_below_or_equal_50"], blocking_reasons: [], limitations: ["Validacao de campo necessaria."], metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 } },
   aoi: { source: "geojson_inline" },
   summary: { date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" } },
-  timeseries: [
-    { datetime: "2026-06-01T00:00:00Z", ndvi_mean: 0.61, ndvi_median: 0.6 },
-    { datetime: "2026-08-01T00:00:00Z", ndvi_mean: 0.52, ndvi_median: 0.51 },
-  ],
+  timeseries: [{ datetime: "2026-06-01T00:00:00Z", ndvi_mean: 0.61, ndvi_median: 0.6 }, { datetime: "2026-08-01T00:00:00Z", ndvi_mean: 0.52, ndvi_median: 0.51 }],
   scenes: [{ item_id: "S2_TEST", datetime: "2026-08-01T00:00:00Z", cloud_cover: 8, valid_pixel_percentage: 92, quality_status: "high", accepted_for_timeseries: true, daily_aggregation: "best" }],
-  artifacts: {},
-  warnings: [],
-  errors: [],
+  artifacts: {}, warnings: [], errors: [],
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -64,50 +50,69 @@ beforeEach(() => {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", service: "motiva-vegetation-api", version: "0.1.0" });
   vi.mocked(api.validateGeometry).mockResolvedValue(validation);
   vi.mocked(api.runAnalysis).mockResolvedValue(result);
-  useAnalysisStore.setState({ geometryText: "", geometryValidated: false });
+  useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", fitRequestId: 0, activeTab: "area" });
 });
 
-describe("plataforma", () => {
-  it("renderiza a tela e o status da API", async () => {
+describe("workspace geoespacial", () => {
+  it("renderiza a pagina, o mapa e o status da API", async () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("heading", { name: "Motiva Vegetation Intelligence" })).toBeInTheDocument();
+    expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("api-status")).toHaveTextContent("API operacional"));
   });
 
-  it("valida sintaticamente o GeoJSON e bloqueia a analise invalida", () => {
+  it("mostra o estado sem geometria e bloqueia a analise", () => {
     render(<Home />, { wrapper });
-    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: "{" } });
-    fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("JSON valido");
+    expect(screen.getByText("Nenhuma area delimitada")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Executar analise" })).toBeDisabled();
   });
 
-  it("mostra o estado de loading durante a validacao", async () => {
+  it("aplica um Polygon colado ao mapa", () => {
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByText("Entrada avancada por GeoJSON"));
+    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: JSON.stringify(polygon) } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(screen.getByText("Area aguardando validacao")).toBeInTheDocument();
+    expect(useAnalysisStore.getState().geometrySource).toBe("pasted");
+  });
+
+  it("rejeita JSON invalido na entrada avancada", () => {
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByText("Entrada avancada por GeoJSON"));
+    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: "{" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("JSON valido");
+  });
+
+  it("exibe loading enquanto valida", async () => {
     let resolve!: (value: typeof validation) => void;
     vi.mocked(api.validateGeometry).mockReturnValue(new Promise((done) => { resolve = done; }));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
-    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: geometry } });
     fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Processando");
+    expect(await screen.findByRole("status")).toHaveTextContent("Validando geometria");
     await act(async () => resolve(validation));
   });
 
-  it("exibe erros retornados pela API", async () => {
+  it("exibe o erro estruturado de validacao", async () => {
     vi.mocked(api.validateGeometry).mockRejectedValue(new Error("A geometria enviada nao e valida."));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
-    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: geometry } });
     fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("A geometria enviada nao e valida");
+    expect(useAnalysisStore.getState().geometry).toEqual(polygon);
   });
 
-  it("valida, executa e exibe a recomendacao", async () => {
+  it("uma validacao atual habilita e executa a analise", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
-    fireEvent.change(screen.getByLabelText("GeoJSON da area de interesse"), { target: { value: geometry } });
     fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
     await screen.findByText("Area validada");
-    fireEvent.click(screen.getByRole("button", { name: "Executar analise" }));
-    expect(await screen.findByRole("heading", { name: "NAO CORTAR" })).toBeInTheDocument();
-    expect(screen.getByText("Vegetacao abaixo do nivel alto local.")).toBeInTheDocument();
+    const runButton = screen.getByRole("button", { name: "Executar analise" });
+    expect(runButton).toBeEnabled();
+    fireEvent.click(runButton);
+    expect((await screen.findAllByText("Vegetacao abaixo do nivel alto local.")).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
   });
 
   it("renderiza a serie vazia sem falhar", () => {

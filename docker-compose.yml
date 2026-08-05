@@ -25,6 +25,8 @@ services:
       dockerfile: apps/web/Dockerfile
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL: ${NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL:-https://tiles.openfreemap.org/styles/bright}
+      NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL: ${NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL:-https://demotiles.maplibre.org/style.json}
     ports:
       - "3000:3000"
     depends_on:

@@ -5,8 +5,9 @@ import { Play, ScanSearch } from "lucide-react";
 import { useState } from "react";
 import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
-import { parseGeometryText, type AnalysisResponse } from "@/lib/schemas/analyses";
-import { useAnalysisStore } from "@/stores/analysis-store";
+import { parseGeoJsonText } from "@/lib/map/geometry";
+import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { AnalysisStatus } from "./analysis-status";
 import { GeometryEditor } from "./geometry-editor";
 import { GeometryValidationPanel } from "./geometry-validation";
@@ -25,10 +26,11 @@ export function AnalysisForm({ onResult }: Props) {
     setLocalError(undefined);
     validation.reset();
     try {
-      const geometry = parseGeometryText(form.geometryText);
-      validation.mutate(geometry, { onSuccess: () => form.setField("geometryValidated", true) });
+      const geometry = parseGeoJsonText(form.geometryText);
+      form.setGeometry(geometry, "pasted");
+      const revision = useAnalysisStore.getState().geometryRevision;
+      validation.mutate(geometry, { onSuccess: (data) => form.applyGeometryValidation(data, revision) });
     } catch (error) {
-      form.setField("geometryValidated", false);
       setLocalError(messageFrom(error));
     }
   };
@@ -36,7 +38,7 @@ export function AnalysisForm({ onResult }: Props) {
   const handleRun = () => {
     setLocalError(undefined);
     try {
-      const geometry = parseGeometryText(form.geometryText);
+      const geometry = form.geometry ?? parseGeoJsonText(form.geometryText);
       analysis.mutate({
         geometry,
         start_date: form.startDate,
@@ -70,7 +72,7 @@ export function AnalysisForm({ onResult }: Props) {
       <AnalysisStatus loading={validation.isPending || analysis.isPending} error={remoteError ? messageFrom(remoteError) : undefined} />
       <div className="form-actions">
         <button type="button" className="secondary-button" onClick={handleValidate} disabled={validation.isPending || analysis.isPending}><ScanSearch size={17} />Validar area</button>
-        <button type="button" className="primary-button" onClick={handleRun} disabled={!form.geometryValidated || validation.isPending || analysis.isPending}><Play size={17} />Executar analise</button>
+        <button type="button" className="primary-button" onClick={handleRun} disabled={!isCurrentGeometryValidated(form) || validation.isPending || analysis.isPending}><Play size={17} />Executar analise</button>
       </div>
     </section>
   );
