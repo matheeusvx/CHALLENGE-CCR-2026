@@ -17,3 +17,6 @@ models/*
 
 # arquivos do VS Code
 .vscode/
+# arquivos temporarios do pytest
+.pytest_tmp/
+.pytest_cache/
