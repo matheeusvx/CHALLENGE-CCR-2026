@@ -32,11 +32,10 @@ endereco.
    processamento e no resultado.
 
 O mapa abre em Louveira (`-46.955`, `-23.121`) no zoom 12 e usa a base
-**Operacional**, com cidades, logradouros, rodovias, hidrografia e nomes
-geograficos do OpenFreeMap. O seletor no canto inferior alterna para **Terreno**
-sem recriar o mapa, mover a camera ou perder a AOI. A camada da area e separada
-do editor: ela permanece visivel ao trocar de aba, validar, analisar e trocar a
-base cartografica.
+**Operacional**, definida localmente como style raster com tiles do
+OpenStreetMap. A opcao **Terreno** fica temporariamente indisponivel. A camada
+da area e separada do editor e permanece visivel ao trocar de aba, validar ou
+analisar.
 
 O comando de execucao volta a ser bloqueado sempre que a geometria e alterada.
 Pressione `Esc` sobre o mapa para voltar ao modo de navegacao. `Ctrl+Z` desfaz
@@ -67,16 +66,9 @@ Polygon e enviados ao backend somente como geometria.
 
 ## Mapa base
 
-```dotenv
-NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL=https://tiles.openfreemap.org/styles/bright
-NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL=https://demotiles.maplibre.org/style.json
-```
-
-Os estilos padrao nao exigem token. As variaveis podem apontar para qualquer
-style JSON compativel com MapLibre e acessivel pelo navegador. A antiga
-`NEXT_PUBLIC_MAP_STYLE_URL` continua aceita como fallback da opcao Terreno.
-URLs, viewport, limites de zoom e parametros de enquadramento ficam
-centralizados em `lib/map/config.ts`.
+O style operacional nao exige token e fica tipado em `lib/map/config.ts`.
+Viewport, limites de zoom e parametros de enquadramento tambem permanecem
+centralizados nesse arquivo.
 
 ## Arquitetura
 

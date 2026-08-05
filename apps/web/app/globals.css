@@ -69,6 +69,7 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 .map-message { position: absolute; z-index: 4; top: 62px; left: 14px; max-width: min(430px, calc(100% - 28px)); min-height: 34px; padding: 8px 11px; border: 1px solid #d4d0e3; border-radius: 5px; background: rgba(255,255,255,.97); box-shadow: 0 2px 8px rgba(29,27,37,.12); color: #4d4b59; display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .map-message.instruction { color: var(--purple-dark); }
 .map-message.error { border-color: #e1a9ad; color: var(--red); }
+.map-retry-button { min-height: 28px; padding: 0 8px; border: 1px solid #d79ca1; border-radius: 4px; background: #fff; color: var(--red); display: inline-flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer; }
 .map-legend { position: absolute; z-index: 4; left: 14px; bottom: 14px; min-height: 35px; padding: 7px 10px; border: 1px solid #c8cad1; border-radius: 5px; background: rgba(255,255,255,.96); box-shadow: 0 2px 8px rgba(29,27,37,.1); display: flex; align-items: center; gap: 12px; color: #42454e; font-size: 11px; }
 .map-legend > span { display: flex; align-items: center; gap: 6px; }
 .map-legend > span + span { padding-left: 10px; border-left: 1px solid #d6d8de; }
@@ -79,6 +80,8 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 .map-style-selector button { min-height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #545862; display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; }
 .map-style-selector button:hover { border-color: #d4d0e3; background: #f3f1f9; color: var(--purple-dark); }
 .map-style-selector button.active { border-color: #c8c0e8; background: #eeeafb; color: var(--purple-dark); font-weight: 650; }
+.map-style-selector button:disabled { opacity: .45; cursor: not-allowed; }
+.map-style-unavailable { max-width: 120px; padding: 0 7px; color: #6e727b; align-self: center; font-size: 9px; line-height: 1.2; }
 .map-style-selector button:focus-visible, .map-tool:focus-visible { outline: 2px solid #7c3aed; outline-offset: 2px; }
 .map-result-popup { min-width: 120px; display: grid; gap: 2px; }
 .map-result-popup strong { font: 650 12px var(--font-mono); }

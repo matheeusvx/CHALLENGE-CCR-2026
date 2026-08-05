@@ -1,18 +1,36 @@
+import type { StyleSpecification } from "maplibre-gl";
+
+export const OPERATIONAL_RASTER_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    openStreetMap: {
+      type: "raster",
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "openstreetmap-base",
+      type: "raster",
+      source: "openStreetMap",
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
+
 export const MAP_STYLES = {
   operational: {
     id: "operational",
     label: "Operacional",
-    styleUrl:
-      process.env.NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL ??
-      "https://tiles.openfreemap.org/styles/bright",
+    available: true,
   },
   terrain: {
     id: "terrain",
     label: "Terreno",
-    styleUrl:
-      process.env.NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL ??
-      process.env.NEXT_PUBLIC_MAP_STYLE_URL ??
-      "https://demotiles.maplibre.org/style.json",
+    available: false,
   },
 } as const;
 

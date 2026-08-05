@@ -15,14 +15,16 @@ class LayerMapMock {
   getLayer(id: string) { return this.layers.get(id); }
   removeLayer(id: string) { this.layers.delete(id); }
   setPaintProperty(id: string, key: string, value: unknown) { const layer = this.layers.get(id); if (layer) layer.paint = { ...layer.paint, [key]: value }; }
+  getStyle() { return {}; }
 }
 
 describe("camada operacional da AOI", () => {
-  it("cria fill, halo, outline, vertices e label a partir da geometria canonica", () => {
+  it("cria fill, halo, outline e vertices sobre o style raster", () => {
     const map = new LayerMapMock();
     installOrUpdateAoiLayer(map as never, polygon, getAoiVisualState({ editing: false, dirty: true, validation: null }));
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
-    expect([...map.layers.keys()]).toEqual(expect.arrayContaining([AOI_LAYER_IDS.fill, AOI_LAYER_IDS.halo, AOI_LAYER_IDS.outline, AOI_LAYER_IDS.vertices, AOI_LAYER_IDS.label]));
+    expect([...map.layers.keys()]).toEqual(expect.arrayContaining([AOI_LAYER_IDS.fill, AOI_LAYER_IDS.halo, AOI_LAYER_IDS.outline, AOI_LAYER_IDS.vertices]));
+    expect(map.layers.has(AOI_LAYER_IDS.label)).toBe(false);
     expect(createAoiFeatureCollection(polygon, "Area").features.filter((feature) => feature.properties.feature_role === "vertex")).toHaveLength(4);
   });
 
@@ -32,7 +34,7 @@ describe("camada operacional da AOI", () => {
     const source = map.getSource(AOI_LAYER_IDS.source)!;
     installOrUpdateAoiLayer(map as never, polygon, getAoiVisualState({ editing: false, dirty: false, validation: "valid", recommendation: "nao_cortar" }));
     expect(source.setData).toHaveBeenCalledOnce();
-    expect(map.layers).toHaveLength(5);
+    expect(map.layers).toHaveLength(4);
     expect(map.layers.get(AOI_LAYER_IDS.outline)?.paint?.["line-color"]).toBe("#27865b");
   });
 
@@ -45,6 +47,6 @@ describe("camada operacional da AOI", () => {
     expect(map.layers).toHaveLength(0);
     installOrUpdateAoiLayer(map as never, polygon, state);
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
-    expect(map.layers).toHaveLength(5);
+    expect(map.layers).toHaveLength(4);
   });
 });

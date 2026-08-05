@@ -29,11 +29,11 @@ executa a analise real e recebe recomendacao, metricas, serie temporal e cenas.
 A entrada manual e o upload GeoJSON continuam disponiveis em uma secao avancada.
 A API nao chama a CLI por subprocesso.
 
-A base operacional padrao usa o estilo vetorial Bright do OpenFreeMap e inicia
-em Louveira no zoom 12. Um seletor permite alternar para a base Terreno sem
-perder camera, geometria ou resultado. A AOI possui source e layers proprios,
-independentes do editor TerraDraw, e e reinstalada automaticamente depois de
-uma troca de estilo.
+A base operacional padrao usa um StyleSpecification raster local com tiles do
+OpenStreetMap e inicia em Louveira no zoom 12. A opcao Terreno permanece
+temporariamente indisponivel. A AOI possui source e layers proprios,
+independentes do editor TerraDraw, e e reinstalada depois do carregamento do
+style.
 
 ### Execucao sem Docker
 
@@ -74,10 +74,6 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
-- `NEXT_PUBLIC_MAP_OPERATIONAL_STYLE_URL`: style JSON da base operacional; o
-  padrao Bright do OpenFreeMap nao exige token proprietario;
-- `NEXT_PUBLIC_MAP_TERRAIN_STYLE_URL`: style JSON da opcao Terreno. A antiga
-  `NEXT_PUBLIC_MAP_STYLE_URL` permanece como fallback compativel dessa opcao.
 
 ### Workspace geoespacial
 

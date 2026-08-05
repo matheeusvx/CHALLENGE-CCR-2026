@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolygonGeometry } from "@/lib/map/geometry";
-import { DEFAULT_MAP_STYLE_ID, MAP_CONFIG, MAP_STYLES } from "@/lib/map/config";
+import { DEFAULT_MAP_STYLE_ID, MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { useAnalysisStore } from "@/stores/analysis-store";
 
 type MapMockShape = {
@@ -13,7 +13,7 @@ type MapMockShape = {
   fitBounds: ReturnType<typeof vi.fn>;
   setStyle: ReturnType<typeof vi.fn>;
   removed: boolean;
-  emit: (event: string) => void;
+  emit: (event: string, payload?: unknown) => void;
 };
 type DrawMockShape = {
   handlers: Map<string, Set<() => void>>;
@@ -35,8 +35,15 @@ vi.mock("maplibre-gl", () => {
     removed = false;
     loaded = false;
     canvas = document.createElement("canvas");
-    setStyle = vi.fn((style: string) => { this.options.style = style; this.sources.clear(); this.layers.clear(); this.loaded = false; });
-    constructor(options: Record<string, unknown>) { this.options = options; runtime.maps.push(this); }
+    setStyle = vi.fn((style: unknown) => { this.options.style = style; this.installBaseStyle(style); this.loaded = false; });
+    constructor(options: Record<string, unknown>) { this.options = options; this.installBaseStyle(options.style); runtime.maps.push(this); }
+    installBaseStyle(style: unknown) {
+      this.sources.clear();
+      this.layers.clear();
+      const specification = style as { sources?: Record<string, unknown>; layers?: Array<{ id: string; paint?: Record<string, unknown> }> };
+      Object.entries(specification.sources ?? {}).forEach(([id, source]) => this.sources.set(id, { data: source, setData: vi.fn() }));
+      specification.layers?.forEach((layer) => this.layers.set(layer.id, layer));
+    }
     key(event: string, layer?: string) { return layer ? `${event}:${layer}` : event; }
     on(event: string, layerOrHandler: string | ((...args: never[]) => void), handler?: (...args: never[]) => void) {
       const key = this.key(event, typeof layerOrHandler === "string" ? layerOrHandler : undefined);
@@ -48,7 +55,7 @@ vi.mock("maplibre-gl", () => {
       const listener = typeof layerOrHandler === "function" ? layerOrHandler : handler!;
       this.handlers.get(key)?.delete(listener);
     }
-    emit(event: string) { if (event === "style.load") this.loaded = true; this.handlers.get(event)?.forEach((handler) => handler()); }
+    emit(event: string, payload?: unknown) { if (event === "style.load" || event === "load") this.loaded = true; this.handlers.get(event)?.forEach((handler) => handler(payload as never)); }
     addControl() {}
     addSource(id: string, source: { data: unknown }) { this.sources.set(id, { data: source.data, setData: vi.fn() }); }
     getSource(id: string) { return this.sources.get(id); }
@@ -59,6 +66,7 @@ vi.mock("maplibre-gl", () => {
     setPaintProperty(id: string, key: string, value: unknown) { const layer = this.layers.get(id); if (layer) layer.paint = { ...layer.paint, [key]: value }; }
     setFeatureState() {}
     getCanvas() { return this.canvas; }
+    getStyle() { return this.options.style as { glyphs?: string }; }
     isStyleLoaded() { return this.loaded; }
     getCenter() { const [lng, lat] = this.options.center as [number, number]; return { lng, lat }; }
     getZoom() { return this.options.zoom as number; }
@@ -140,8 +148,13 @@ describe("lifecycle operacional do mapa", () => {
   it("cria uma unica camera em Louveira com o estilo operacional", () => {
     const view = render(<MapCanvas />);
     const map = runtime.maps[0];
-    expect(map.options).toMatchObject({ style: MAP_STYLES.operational.styleUrl, center: [-46.955, -23.121], zoom: 12, minZoom: 5, maxZoom: 19 });
+    expect(map.options).toMatchObject({ center: [-46.955, -23.121], zoom: 12, minZoom: 5, maxZoom: 19 });
+    expect(map.options.style).toBe(OPERATIONAL_RASTER_STYLE);
+    expect(map.handlers.get("load")?.size).toBe(1);
     expect(map.handlers.get("style.load")?.size).toBe(1);
+    expect(map.handlers.get("error")?.size).toBe(1);
+    act(() => map.emit("load"));
+    expect(map.fitBounds).not.toHaveBeenCalled();
     view.unmount();
     expect(map.removed).toBe(true);
     expect(map.handlers.size).toBe(0);
@@ -151,10 +164,11 @@ describe("lifecycle operacional do mapa", () => {
     useAnalysisStore.getState().setGeometry(polygon, "pasted");
     render(<MapCanvas />);
     const map = runtime.maps[0];
-    act(() => map.emit("style.load"));
+    act(() => map.emit("load"));
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
     expect(map.layers.has(AOI_LAYER_IDS.fill)).toBe(true);
     expect(map.layers.has(AOI_LAYER_IDS.outline)).toBe(true);
+    expect([...map.layers.keys()].indexOf(AOI_LAYER_IDS.fill)).toBeGreaterThan([...map.layers.keys()].indexOf("openstreetmap-base"));
     expect(map.fitBounds).toHaveBeenCalledOnce();
   });
 
@@ -184,20 +198,29 @@ describe("lifecycle operacional do mapa", () => {
     expect(map.fitBounds).toHaveBeenCalledTimes(2);
   });
 
-  it("troca a base sem perder geometria e reinstala os overlays no style.load", () => {
-    useAnalysisStore.getState().setGeometry(polygon, "pasted");
+  it("nao recria o mapa quando a geometria muda", () => {
     render(<MapCanvas />);
     const map = runtime.maps[0];
-    act(() => map.emit("style.load"));
-    const firstDraw = runtime.draws.at(-1)!;
-    fireEvent.click(screen.getByRole("button", { name: "Terreno" }));
-    expect(map.setStyle).toHaveBeenCalledWith(MAP_STYLES.terrain.styleUrl);
-    expect(firstDraw.stopped).toBe(true);
+    act(() => map.emit("load"));
+    act(() => useAnalysisStore.getState().setGeometry(polygon, "pasted"));
+    expect(runtime.maps).toHaveLength(1);
     expect(useAnalysisStore.getState().geometry).toEqual(polygon);
-    act(() => map.emit("style.load"));
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
-    expect(runtime.draws.at(-1)?.snapshot[0].geometry).toEqual(polygon);
-    expect(map.handlers.get("style.load")?.size).toBe(1);
+  });
+
+  it("exibe falha em qualquer erro do mapa e permite tentar novamente", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("error", { error: new Error("tile indisponivel") }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Nao foi possivel carregar a base cartografica.");
+    expect(consoleError).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(map.setStyle).toHaveBeenCalledWith(OPERATIONAL_RASTER_STYLE);
+    expect(screen.getByRole("status")).toHaveTextContent("Carregando base cartografica...");
+    act(() => map.emit("style.load"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    consoleError.mockRestore();
   });
 
   it("atualiza a AOI apos editar e a remove ao limpar", () => {
@@ -220,6 +243,8 @@ describe("lifecycle operacional do mapa", () => {
     expect(runtime.maps).toHaveLength(2);
     expect(runtime.maps[0].removed).toBe(true);
     expect(runtime.maps[0].handlers.size).toBe(0);
+    expect(runtime.maps.filter((map) => !map.removed)).toHaveLength(1);
+    expect(runtime.maps[1].handlers.get("load")?.size).toBe(1);
     expect(runtime.maps[1].handlers.get("style.load")?.size).toBe(1);
     view.unmount();
     expect(runtime.maps[1].handlers.size).toBe(0);

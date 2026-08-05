@@ -14,7 +14,7 @@ import {
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
-import { MAP_CONFIG, MAP_STYLES, type MapStyleId } from "@/lib/map/config";
+import { MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { fitMapToGeometry } from "@/lib/map/fit-map-to-geometry";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
@@ -22,7 +22,7 @@ import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-
 import { DrawingControls } from "./drawing-controls";
 import { installAoiHoverInteractions, installOrUpdateAoiLayer } from "./layers/aoi-layer";
 import { MapLegend } from "./map-legend";
-import { MapStatus } from "./map-status";
+import { MapStatus, type MapLoadStatus } from "./map-status";
 import { MapStyleSelector } from "./map-style-selector";
 
 type Props = { result?: AnalysisResponse; validationFailed?: boolean };
@@ -36,22 +36,20 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const disposeEditorRef = useRef<() => void>(() => undefined);
   const disposeHoverRef = useRef<() => void>(() => undefined);
   const initialGeometryFitDone = useRef(false);
+  const baseLoadFailedRef = useRef(false);
+  const styleEditorReadyRef = useRef(false);
   const geometry = useAnalysisStore((state) => state.geometry);
   const geometryRevision = useAnalysisStore((state) => state.geometryRevision);
   const geometryValidation = useAnalysisStore((state) => state.geometryValidation);
   const isGeometryDirty = useAnalysisStore((state) => state.isGeometryDirty);
   const selectedTool = useAnalysisStore((state) => state.selectedTool);
-  const activeMapStyle = useAnalysisStore((state) => state.activeMapStyle);
   const activeTab = useAnalysisStore((state) => state.activeTab);
-  const viewport = useAnalysisStore((state) => state.mapViewport);
   const fitRequestId = useAnalysisStore((state) => state.fitRequestId);
   const setGeometry = useAnalysisStore((state) => state.setGeometry);
   const clearGeometry = useAnalysisStore((state) => state.clearGeometry);
   const setSelectedTool = useAnalysisStore((state) => state.setSelectedTool);
-  const setActiveMapStyle = useAnalysisStore((state) => state.setActiveMapStyle);
   const setMapViewport = useAnalysisStore((state) => state.setMapViewport);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
+  const [loadStatus, setLoadStatus] = useState<MapLoadStatus>("loading");
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
 
   const validated = isCurrentGeometryValidated(useAnalysisStore.getState());
@@ -75,11 +73,11 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: MAP_STYLES[useAnalysisStore.getState().activeMapStyle].styleUrl,
-      center: [viewport.longitude, viewport.latitude],
-      zoom: viewport.zoom,
-      bearing: viewport.bearing,
-      pitch: viewport.pitch,
+      style: OPERATIONAL_RASTER_STYLE,
+      center: [-46.955, -23.121],
+      zoom: 12,
+      bearing: 0,
+      pitch: 0,
       minZoom: MAP_CONFIG.minZoom,
       maxZoom: MAP_CONFIG.maxZoom,
       attributionControl: { compact: true },
@@ -128,25 +126,42 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     const handleStyleLoad = () => {
       try {
         installOperationalLayers();
-        initializeEditor();
-        setLoading(false);
-        setError(undefined);
+        if (!styleEditorReadyRef.current) {
+          initializeEditor();
+          styleEditorReadyRef.current = true;
+        }
+        if (!baseLoadFailedRef.current) setLoadStatus("ready");
       } catch (reason) {
-        setLoading(false);
-        setError(reason instanceof Error ? `Falha ao iniciar o editor: ${reason.message}` : "Falha ao iniciar o editor de geometria.");
+        console.error("Falha ao instalar as camadas operacionais do mapa.", reason);
+        baseLoadFailedRef.current = true;
+        setLoadStatus("error");
+      }
+    };
+    const handleLoad = () => {
+      try {
+        installOperationalLayers();
+        if (!styleEditorReadyRef.current) {
+          initializeEditor();
+          styleEditorReadyRef.current = true;
+        }
+        if (!baseLoadFailedRef.current) setLoadStatus("ready");
+      } catch (reason) {
+        console.error("Falha ao concluir o carregamento do mapa.", reason);
+        baseLoadFailedRef.current = true;
+        setLoadStatus("error");
       }
     };
     const handleError = (event: maplibregl.ErrorEvent) => {
-      if (!map.isStyleLoaded()) {
-        setLoading(false);
-        setError(event.error?.message ? `Base cartografica indisponivel: ${event.error.message}` : "Nao foi possivel carregar a base cartografica.");
-      }
+      console.error("Erro do MapLibre ao carregar style, source ou tile.", event.error ?? event);
+      baseLoadFailedRef.current = true;
+      setLoadStatus("error");
     };
     const handleMoveEnd = () => {
       const center = map.getCenter();
       setMapViewport({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
     };
 
+    map.on("load", handleLoad);
     map.on("style.load", handleStyleLoad);
     map.on("error", handleError);
     map.on("moveend", handleMoveEnd);
@@ -155,6 +170,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       disposeHoverRef.current();
       disposeEditor();
       popupRef.current?.remove();
+      map.off("load", handleLoad);
       map.off("style.load", handleStyleLoad);
       map.off("error", handleError);
       map.off("moveend", handleMoveEnd);
@@ -219,17 +235,17 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       .addTo(map);
   }, [geometry, geometryValidation, isGeometryDirty, result, validated]);
 
-  const changeMapStyle = (style: MapStyleId) => {
+  const retryBaseMap = () => {
     const map = mapRef.current;
-    if (!map || style === activeMapStyle) return;
+    if (!map) return;
     disposeHoverRef.current();
     disposeEditorRef.current();
     disposeEditorRef.current = () => undefined;
     drawRef.current = null;
-    setLoading(true);
-    setError(undefined);
-    setActiveMapStyle(style);
-    map.setStyle(MAP_STYLES[style].styleUrl);
+    styleEditorReadyRef.current = false;
+    baseLoadFailedRef.current = false;
+    setLoadStatus("loading");
+    map.setStyle(OPERATIONAL_RASTER_STYLE);
   };
 
   const deleteGeometry = () => {
@@ -270,9 +286,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
         onUndo={() => replayHistory("undo")}
         onRedo={() => replayHistory("redo")}
       />
-      <MapStatus loading={loading} error={error} tool={selectedTool} />
-      <MapStyleSelector active={activeMapStyle} onChange={changeMapStyle} />
-      <MapLegend mapStyle={activeMapStyle} aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
+      <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
+      <MapStyleSelector active="operational" />
+      <MapLegend mapStyle="operational" aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
     </div>
   );
 }

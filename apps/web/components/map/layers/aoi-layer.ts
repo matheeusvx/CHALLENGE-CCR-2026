@@ -73,24 +73,26 @@ export function installOrUpdateAoiLayer(
       "circle-stroke-width": 2.5,
     },
   });
-  addLayerIfMissing(map, {
-    id: AOI_LAYER_IDS.label,
-    type: "symbol",
-    source: AOI_LAYER_IDS.source,
-    filter: ["==", ["get", "feature_role"], "label"],
-    layout: {
-      "text-field": ["get", "label"],
-      "text-font": ["Noto Sans Regular"],
-      "text-size": 12,
-      "text-offset": [0, 1.2],
-      "text-allow-overlap": true,
-    },
-    paint: {
-      "text-color": "#26232e",
-      "text-halo-color": "#ffffff",
-      "text-halo-width": 2,
-    },
-  });
+  if (map.getStyle().glyphs) {
+    addLayerIfMissing(map, {
+      id: AOI_LAYER_IDS.label,
+      type: "symbol",
+      source: AOI_LAYER_IDS.source,
+      filter: ["==", ["get", "feature_role"], "label"],
+      layout: {
+        "text-field": ["get", "label"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12,
+        "text-offset": [0, 1.2],
+        "text-allow-overlap": true,
+      },
+      paint: {
+        "text-color": "#26232e",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 2,
+      },
+    });
+  }
 
   map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-color", visualState.color);
   map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-opacity", visualState.fillOpacity);
