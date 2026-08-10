@@ -88,6 +88,16 @@ def test_daily_aggregation_best_uses_all_tiebreakers() -> None:
         "chosen",
     ]
     assert result.audit["days"][0]["selected_item_id"] == "chosen"
+    assert "scene_quality_score" in result.audit["days"][0]["selection_reason"]
+
+
+def test_daily_best_prioritizes_scene_quality_score() -> None:
+    higher_valid = _observation(10, 0.50, item_id="higher-valid", valid_percentage=99)
+    higher_score = _observation(10, 0.60, item_id="higher-score", hour=11, valid_percentage=90)
+    higher_valid["scene_quality_score"] = 80.0
+    higher_score["scene_quality_score"] = 95.0
+    result = aggregate_daily_observations([higher_valid, higher_score], "best")
+    assert result.observations[0]["item_id"] == "higher-score"
 
 
 def test_daily_aggregation_median_calculates_one_observation() -> None:

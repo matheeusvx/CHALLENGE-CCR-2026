@@ -103,8 +103,10 @@ Os valores abaixo formam o perfil interno `roadside_grass_default`. Eles sao
 experimentais, preservam o comportamento atual e nao representam parametros
 validados operacionalmente pela Motiva:
 
-- `max_cloud_cover = 30`, `max_scenes = 12`, `scene_order = newest`;
-- `min_valid_pixel_percentage = 70`, `min_observations = 4`;
+- `max_cloud_cover = 30`, `max_candidate_scenes = 40`, `max_scenes = 12`;
+- `scene_order = newest`, `min_valid_pixel_percentage = 70`;
+- `min_valid_pixel_count = 30`, `min_aoi_coverage_percentage = 95`;
+- `min_observations = 4`;
 - `daily_aggregation = best`, `decision_min_observations = 4`;
 - `high_vegetation_percentile = 75`, `significant_drop_absolute = 0.06`;
 - `significant_drop_relative_percentage = 15`, `trend_window = 3`;
@@ -181,6 +183,7 @@ consulta com `planetary_computer.sign_inplace`.
 |       +-- indices.py
 |       +-- outputs.py
 |       +-- quality.py
+|       +-- temporal_quality.py
 |       +-- raster_processing.py
 |       +-- service.py
 |       +-- stac_client.py
@@ -270,13 +273,14 @@ para otimizar a leitura, mas a mascara final respeita a geometria fornecida.
 
 As coordenadas acima sao apenas um exemplo e nao estao fixas no codigo. Use
 `python -m src.satellite_monitoring.cli --help` para consultar todos os
-argumentos, incluindo `--output-dir`. Por padrao, as 12 cenas mais recentes
-sao priorizadas; depois da selecao, CSV e grafico voltam a ordem cronologica.
+argumentos, incluindo `--output-dir`. O pipeline considera ate 40 candidatas
+dentro da janela, avalia a qualidade local e somente entao aplica o limite final
+de 12 cenas. CSV e grafico permanecem em ordem cronologica.
 
 Por padrao, `--daily-aggregation best` mantem uma observacao por dia. A cena
-com mais pixels validos e escolhida; os desempates usam menor cobertura global
-de nuvens, maior cobertura espacial da AOI e, por fim, o ID da cena para manter
-o resultado deterministico. `median` calcula a mediana das estatisticas aceitas
+aprovada com maior `scene_quality_score` e escolhida; os desempates usam maior
+percentual valido, maior cobertura da AOI, menor nuvem global e, por fim, o ID
+da cena. `median` calcula a mediana das estatisticas aceitas
 do dia. `none` preserva todas as cenas aceitas. A proveniencia, as cenas
 consideradas e a escolha de cada dia ficam registradas no CSV e no resumo.
 
@@ -287,6 +291,8 @@ outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
 +-- aoi.geojson
 +-- scenes.csv
 +-- ndvi_timeseries.csv
++-- raw_daily_timeseries.csv
++-- quality_report.json
 +-- summary.json
 +-- ndvi_timeseries.png
 +-- cut_recommendation.json
@@ -298,10 +304,12 @@ outputs/satellite_monitoring/AAAAMMDD_HHMMSS/
   `source_geojson`.
 - `scenes.csv`: metadados, contagem de pixels, qualidade, motivos, aceite e
   status de processamento de cada cena selecionada.
-- `ndvi_timeseries.csv`: serie aceita e consolidada, com estatisticas NDVI,
-  qualidade, cobertura da AOI e proveniencia da agregacao diaria. Cenas abaixo
-  do limite aparecem somente com `--include-low-quality-scenes` e continuam
-  marcadas como `low`.
+- `ndvi_timeseries.csv`: serie robusta usada pela recomendacao, com estatisticas
+  NDVI, qualidade, cobertura e proveniencia da agregacao diaria.
+- `raw_daily_timeseries.csv`: observacoes diarias aceitas antes do diagnostico
+  temporal, inclusive as posteriormente marcadas como suspeitas.
+- `quality_report.json`: candidatas, cenas processadas e rejeitadas, estatisticas
+  SCL, outliers, series bruta e analitica e qualidade global da analise.
 - `summary.json`: parametros, metadados da area, endpoint, colecao, contagens, IDs STAC reais,
   estrategia temporal, limiares, descartes pelo limite, rejeicoes de qualidade,
   consolidacao diaria, recomendacao, intervalo processado, alertas e erros.
@@ -333,9 +341,10 @@ Quando o asset SCL existe, as classes abaixo sao removidas:
 - `11`: neve ou gelo.
 
 O SCL e alinhado por vizinho mais proximo; a banda NIR e alinhada por
-interpolacao bilinear. A cobertura global `eo:cloud_cover` filtra cenas, mas
-nao e usada como mascara local. Se o SCL estiver ausente, a cena ainda e
-processada e recebe um alerta de qualidade.
+interpolacao bilinear. A cobertura global `eo:cloud_cover` filtra candidatas,
+mas nao e usada como mascara local. A composicao das classes SCL dentro da AOI
+e registrada para auditoria. No perfil `roadside_grass`, uma cena sem SCL e
+processada para rastreabilidade, mas rejeitada da serie principal.
 
 Os limiares iniciais de qualidade sao provisorios:
 
@@ -346,9 +355,22 @@ Os limiares iniciais de qualidade sao provisorios:
 O limite de aceite e configurado separadamente por
 `--min-valid-pixel-percentage` (padrao 70). Sem a opcao
 `--include-low-quality-scenes`, cenas abaixo desse limite permanecem em
-`scenes.csv`, mas nao entram na serie temporal. Ausencia de SCL, cobertura
-parcial, nuvens globais excessivas e ausencia de NDVI valido ficam registradas
-em `quality_reasons`.
+`scenes.csv`, mas nao entram na serie temporal. O perfil operacional tambem
+exige pelo menos 30 pixels validos, 95% de cobertura da AOI, SCL disponivel,
+NDVI valido e ausencia de cobertura raster parcial relevante. Cobertura da AOI
+e percentual de pixels validos sao metricas independentes.
+
+O `scene_quality_score` varia de 0 a 100: validade local (30%), quantidade
+absoluta (15%), cobertura da AOI (20%), disponibilidade SCL (15%), baixa
+contaminacao SCL (10%) e baixa nuvem global (10%). O score nao substitui
+`quality_reasons`. Reversoes isoladas so sao marcadas quando retornam
+imediatamente ao patamar vizinho e possuem qualidade inferior aos dois vizinhos;
+quedas persistentes de alta qualidade permanecem na analise.
+
+O `analysis_quality` pondera media do score das cenas (30%), menor score (15%),
+validade media (20%), cobertura media (15%), regularidade temporal (10%),
+retencao apos outliers (5%) e aceite das cenas processadas (5%). Essa pontuacao
+e experimental e nao representa validacao cientifica ou operacional.
 
 O parametro `--min-observations` tem padrao 4. Quando a serie aceita fica abaixo
 desse minimo, os arquivos ainda sao gerados com `overall_status` igual a

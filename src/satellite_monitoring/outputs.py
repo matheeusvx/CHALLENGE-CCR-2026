@@ -19,14 +19,30 @@ SCENE_COLUMNS = [
     "platform",
     "tile",
     "available_assets",
+    "global_cloud_cover",
     "valid_pixel_percentage",
+    "local_valid_pixel_percentage",
+    "local_invalid_pixel_percentage",
     "valid_pixel_count",
     "total_pixel_count",
     "aoi_coverage_percentage",
     "partial_raster_coverage",
+    "has_scl",
+    "scl_class_percentages",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "scene_quality_score",
+    "min_pixel_requirement_met",
+    "aoi_coverage_requirement_met",
+    "scl_required_met",
     "quality_status",
     "quality_reasons",
     "accepted_for_timeseries",
+    "selected_after_quality",
+    "temporal_outlier_suspected",
+    "included_in_analysis",
+    "exclusion_reasons",
     "processing_status",
     "error",
 ]
@@ -48,8 +64,15 @@ TIMESERIES_COLUMNS = [
     "valid_pixel_count",
     "total_pixel_count",
     "valid_pixel_percentage",
+    "local_valid_pixel_percentage",
+    "local_invalid_pixel_percentage",
     "aoi_coverage_percentage",
     "partial_raster_coverage",
+    "scene_quality_score",
+    "min_pixel_requirement_met",
+    "aoi_coverage_requirement_met",
+    "scl_required_met",
+    "scl_class_percentages",
     "quality_status",
     "quality_reasons",
     "accepted_for_timeseries",
@@ -57,6 +80,16 @@ TIMESERIES_COLUMNS = [
     "aggregation_scene_count",
     "aggregation_source_item_ids",
     "aggregation_selected_item_id",
+    "aggregation_selection_reason",
+    "difference_from_previous",
+    "difference_to_next",
+    "rolling_median_3",
+    "deviation_from_rolling_median",
+    "local_mad",
+    "temporal_outlier_suspected",
+    "included_in_analysis",
+    "exclusion_reasons",
+    "analysis_quality_status",
 ]
 
 RECOMMENDATION_COLUMNS = [
@@ -217,6 +250,18 @@ def _csv_frame(records: list[dict[str, Any]], columns: list[str]) -> pd.DataFram
         reasons = row.get("quality_reasons")
         if isinstance(reasons, (list, tuple, set)):
             row["quality_reasons"] = ";".join(str(reason) for reason in reasons)
+        exclusion_reasons = row.get("exclusion_reasons")
+        if isinstance(exclusion_reasons, (list, tuple, set)):
+            row["exclusion_reasons"] = ";".join(
+                str(reason) for reason in exclusion_reasons
+            )
+        scl_statistics = row.get("scl_class_percentages")
+        if isinstance(scl_statistics, dict):
+            row["scl_class_percentages"] = json.dumps(
+                to_json_compatible(scl_statistics),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
         source_ids = row.get("aggregation_source_item_ids")
         if isinstance(source_ids, (list, tuple, set)):
             row["aggregation_source_item_ids"] = ";".join(
@@ -237,6 +282,9 @@ def write_outputs(
     summary: dict[str, Any],
     aoi_geojson: dict[str, Any],
     recommendation: dict[str, Any],
+    *,
+    raw_daily_records: list[dict[str, Any]] | None = None,
+    quality_report: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
     """Salva os artefatos tabulares, espaciais, JSON e grafico da execucao."""
     run_directory = Path(run_directory)
@@ -244,7 +292,9 @@ def write_outputs(
     paths = {
         "scenes": run_directory / "scenes.csv",
         "timeseries": run_directory / "ndvi_timeseries.csv",
+        "raw_timeseries": run_directory / "raw_daily_timeseries.csv",
         "summary": run_directory / "summary.json",
+        "quality_report": run_directory / "quality_report.json",
         "plot": run_directory / "ndvi_timeseries.png",
         "aoi": run_directory / "aoi.geojson",
         "recommendation_json": run_directory / "cut_recommendation.json",
@@ -253,10 +303,26 @@ def write_outputs(
 
     _csv_frame(scene_records, SCENE_COLUMNS).to_csv(paths["scenes"], index=False)
     _csv_frame(ndvi_records, TIMESERIES_COLUMNS).to_csv(paths["timeseries"], index=False)
+    _csv_frame(
+        raw_daily_records if raw_daily_records is not None else ndvi_records,
+        TIMESERIES_COLUMNS,
+    ).to_csv(
+        paths["raw_timeseries"], index=False
+    )
 
     with paths["summary"].open("w", encoding="utf-8") as file:
         json.dump(
             to_json_compatible(summary),
+            file,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+        file.write("\n")
+
+    with paths["quality_report"].open("w", encoding="utf-8") as file:
+        json.dump(
+            to_json_compatible(quality_report or {}),
             file,
             ensure_ascii=False,
             indent=2,

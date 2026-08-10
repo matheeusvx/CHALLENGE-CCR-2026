@@ -51,7 +51,7 @@ class Scene:
 
 @dataclass(frozen=True)
 class SceneSearchResult:
-    """Cenas selecionadas e total de itens compativeis antes do limite."""
+    """Candidatas priorizadas e total de itens compativeis antes do limite."""
 
     scenes: list[Scene]
     discarded_scenes: list[Scene]
@@ -91,7 +91,7 @@ def select_scenes(
 
 
 def search_scenes(config: MonitoringConfig, aoi_geojson: dict[str, Any]) -> SceneSearchResult:
-    """Pesquisa todas as cenas e somente depois aplica estrategia e limite."""
+    """Pesquisa cenas e aplica apenas o limite tecnico do pool de candidatas."""
     client = open_stac_client(config.endpoint)
     search = client.search(
         collections=[config.collection],
@@ -112,7 +112,7 @@ def search_scenes(config: MonitoringConfig, aoi_geojson: dict[str, Any]) -> Scen
 
     selected, discarded = select_scenes(
         scenes,
-        max_scenes=config.max_scenes,
+        max_scenes=config.effective_max_candidate_scenes,
         scene_order=config.scene_order,
     )
     return SceneSearchResult(

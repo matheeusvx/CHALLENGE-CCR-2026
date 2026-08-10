@@ -133,12 +133,22 @@ def test_writes_outputs_in_chronological_order_and_serializes_quality(tmp_path) 
         summary,
         AOI_GEOJSON,
         RECOMMENDATION,
+        raw_daily_records=[
+            {**timeseries[0], "included_in_analysis": False, "exclusion_reasons": ["isolated_temporal_drop"]},
+            timeseries[1],
+        ],
+        quality_report={
+            "analysis_quality": {"score": np.float32(82.5), "status": "medium"},
+            "outliers": [{"item_id": "newer", "reasons": ["isolated_temporal_drop"]}],
+        },
     )
 
     assert set(path.name for path in paths.values()) == {
         "scenes.csv",
         "ndvi_timeseries.csv",
+        "raw_daily_timeseries.csv",
         "summary.json",
+        "quality_report.json",
         "ndvi_timeseries.png",
         "aoi.geojson",
         "cut_recommendation.json",
@@ -174,6 +184,12 @@ def test_writes_outputs_in_chronological_order_and_serializes_quality(tmp_path) 
         paths["recommendation_json"].read_text(encoding="utf-8")
     )
     assert saved_recommendation["recommendation"] == "cortar"
+    saved_quality_report = json.loads(paths["quality_report"].read_text(encoding="utf-8"))
+    assert saved_quality_report["analysis_quality"]["score"] == 82.5
+    assert saved_quality_report["outliers"][0]["reasons"] == ["isolated_temporal_drop"]
+    with paths["raw_timeseries"].open(encoding="utf-8", newline="") as file:
+        raw_rows = list(csv.DictReader(file))
+    assert raw_rows[1]["exclusion_reasons"] == "isolated_temporal_drop"
     with paths["recommendation_csv"].open(encoding="utf-8", newline="") as file:
         recommendation_rows = list(csv.DictReader(file))
     assert len(recommendation_rows) == 1

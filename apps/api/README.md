@@ -35,10 +35,15 @@ anterior, ajustado corretamente em finais de mes. A resposta registra esses
 valores em `analysis_period`.
 
 Chamadas existentes ainda podem enviar datas e parametros explicitamente. Os
-thresholds internos atuais sao experimentais: nuvens 30%, 12 cenas mais
-recentes, 70% de pixels validos, 4 observacoes, agregacao `best`, percentil alto
-75, queda absoluta 0.06, queda relativa 15%, janela de tendencia 3 e janelas
+thresholds internos atuais sao experimentais: nuvens 30%, pool de 40 candidatas,
+limite final de 12 cenas, 70% e pelo menos 30 pixels validos, 95% de cobertura
+da AOI, SCL obrigatorio, 4 observacoes, agregacao `best`, percentil alto 75,
+queda absoluta 0.06, queda relativa 15%, janela de tendencia 3 e janelas
 temporais de 20 dias. Eles nao sao configuraveis pelo operador web.
+
+Os artefatos `quality_report` e `raw_timeseries_csv` preservam a auditoria da
+qualidade local e temporal; `timeseries_csv` continua representando a serie
+efetivamente entregue ao motor de recomendacao.
 
 O registro de analises e local ao processo. Reiniciar a API remove os
 identificadores disponiveis, mas nao apaga os artefatos gravados no disco.

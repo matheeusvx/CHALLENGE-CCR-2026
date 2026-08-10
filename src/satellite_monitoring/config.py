@@ -10,8 +10,11 @@ from typing import Any
 STAC_ENDPOINT = "https://planetarycomputer.microsoft.com/api/stac/v1"
 COLLECTION_ID = "sentinel-2-l2a"
 DEFAULT_MAX_SCENES = 12
+DEFAULT_MAX_CANDIDATE_SCENES = 40
 DEFAULT_SCENE_ORDER = "newest"
 DEFAULT_MIN_VALID_PIXEL_PERCENTAGE = 70.0
+DEFAULT_MIN_VALID_PIXEL_COUNT = 30
+DEFAULT_MIN_AOI_COVERAGE_PERCENTAGE = 95.0
 DEFAULT_MIN_OBSERVATIONS = 4
 DEFAULT_MEDIUM_QUALITY_THRESHOLD = 70.0
 DEFAULT_HIGH_QUALITY_THRESHOLD = 85.0
@@ -23,6 +26,9 @@ DEFAULT_SIGNIFICANT_DROP_RELATIVE_PERCENTAGE = 15.0
 DEFAULT_TREND_WINDOW = 3
 DEFAULT_MAX_GAP_DAYS = 20
 DEFAULT_RECENT_INTERVENTION_DAYS = 20
+DEFAULT_TEMPORAL_OUTLIER_MIN_DEVIATION = 0.06
+DEFAULT_TEMPORAL_OUTLIER_MAD_MULTIPLIER = 3.0
+DEFAULT_TEMPORAL_RETURN_RATIO = 0.5
 
 
 def parse_iso_date(value: str) -> date:
@@ -44,8 +50,11 @@ class MonitoringConfig:
     end_date: date | None = None
     max_cloud_cover: float = 20.0
     max_scenes: int = DEFAULT_MAX_SCENES
+    max_candidate_scenes: int = DEFAULT_MAX_CANDIDATE_SCENES
     scene_order: str = DEFAULT_SCENE_ORDER
     min_valid_pixel_percentage: float = DEFAULT_MIN_VALID_PIXEL_PERCENTAGE
+    min_valid_pixel_count: int = DEFAULT_MIN_VALID_PIXEL_COUNT
+    min_aoi_coverage_percentage: float = DEFAULT_MIN_AOI_COVERAGE_PERCENTAGE
     include_low_quality_scenes: bool = False
     min_observations: int = DEFAULT_MIN_OBSERVATIONS
     medium_quality_threshold: float = DEFAULT_MEDIUM_QUALITY_THRESHOLD
@@ -65,6 +74,9 @@ class MonitoringConfig:
     trend_window: int = DEFAULT_TREND_WINDOW
     max_gap_days: int = DEFAULT_MAX_GAP_DAYS
     recent_intervention_days: int = DEFAULT_RECENT_INTERVENTION_DAYS
+    temporal_outlier_min_deviation: float = DEFAULT_TEMPORAL_OUTLIER_MIN_DEVIATION
+    temporal_outlier_mad_multiplier: float = DEFAULT_TEMPORAL_OUTLIER_MAD_MULTIPLIER
+    temporal_return_ratio: float = DEFAULT_TEMPORAL_RETURN_RATIO
 
     def __post_init__(self) -> None:
         circular_values = (self.latitude, self.longitude, self.radius_meters)
@@ -108,10 +120,16 @@ class MonitoringConfig:
             raise ValueError("A cobertura maxima de nuvens deve estar entre 0 e 100.")
         if self.max_scenes <= 0:
             raise ValueError("A quantidade maxima de cenas deve ser maior que zero.")
+        if self.max_candidate_scenes <= 0:
+            raise ValueError("A quantidade maxima de cenas candidatas deve ser maior que zero.")
         if self.scene_order not in {"newest", "oldest"}:
             raise ValueError("A ordem das cenas deve ser 'newest' ou 'oldest'.")
         if not 0 <= self.min_valid_pixel_percentage <= 100:
             raise ValueError("O percentual minimo de pixels validos deve estar entre 0 e 100.")
+        if self.min_valid_pixel_count <= 0:
+            raise ValueError("A quantidade minima de pixels validos deve ser maior que zero.")
+        if not 0 <= self.min_aoi_coverage_percentage <= 100:
+            raise ValueError("A cobertura minima da AOI deve estar entre 0 e 100.")
         if self.min_observations <= 0:
             raise ValueError("A quantidade minima de observacoes deve ser maior que zero.")
         if not 0 <= self.medium_quality_threshold <= self.high_quality_threshold <= 100:
@@ -134,6 +152,12 @@ class MonitoringConfig:
             raise ValueError("O intervalo maximo entre observacoes deve ser maior que zero.")
         if self.recent_intervention_days <= 0:
             raise ValueError("A janela de intervencao recente deve ser maior que zero.")
+        if self.temporal_outlier_min_deviation <= 0:
+            raise ValueError("O desvio minimo para outlier temporal deve ser maior que zero.")
+        if self.temporal_outlier_mad_multiplier <= 0:
+            raise ValueError("O multiplicador MAD deve ser maior que zero.")
+        if not 0 <= self.temporal_return_ratio <= 1:
+            raise ValueError("A razao de retorno temporal deve estar entre 0 e 1.")
 
     @property
     def datetime_range(self) -> str:
@@ -142,12 +166,19 @@ class MonitoringConfig:
         return f"{self.start_date.isoformat()}/{self.end_date.isoformat()}"
 
     @property
+    def effective_max_candidate_scenes(self) -> int:
+        """Preserva max-scenes configuravel sem reduzir o pool solicitado pela CLI."""
+        return max(self.max_candidate_scenes, self.max_scenes)
+
+    @property
     def quality_thresholds(self) -> dict[str, Any]:
         """Explicita os limiares provisorios usados pela avaliacao de qualidade."""
         return {
             "high_min_valid_pixel_percentage": self.high_quality_threshold,
             "medium_min_valid_pixel_percentage": self.medium_quality_threshold,
             "accepted_min_valid_pixel_percentage": self.min_valid_pixel_percentage,
+            "accepted_min_valid_pixel_count": self.min_valid_pixel_count,
+            "accepted_min_aoi_coverage_percentage": self.min_aoi_coverage_percentage,
             "provisional": True,
         }
 

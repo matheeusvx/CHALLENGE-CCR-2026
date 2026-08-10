@@ -98,8 +98,15 @@ def test_run_without_technical_parameters_applies_operational_profile(
     assert config.end_date.isoformat() == "2026-08-10"
     assert config.max_cloud_cover == profile.max_cloud_cover == 30
     assert config.max_scenes == profile.max_scenes == 12
+    assert config.max_candidate_scenes == profile.max_candidate_scenes == 40
     assert config.scene_order == profile.scene_order == "newest"
     assert config.min_valid_pixel_percentage == profile.min_valid_pixel_percentage == 70
+    assert config.min_valid_pixel_count == profile.min_valid_pixel_count == 30
+    assert (
+        config.min_aoi_coverage_percentage
+        == profile.min_aoi_coverage_percentage
+        == 95
+    )
     assert config.min_observations == profile.min_observations == 4
     assert config.daily_aggregation == profile.daily_aggregation == "best"
     assert config.decision_min_observations == profile.decision_min_observations == 4

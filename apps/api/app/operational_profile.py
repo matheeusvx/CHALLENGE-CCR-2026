@@ -13,8 +13,11 @@ from src.satellite_monitoring.config import (
     DEFAULT_DECISION_MIN_OBSERVATIONS,
     DEFAULT_HIGH_VEGETATION_PERCENTILE,
     DEFAULT_MAX_GAP_DAYS,
+    DEFAULT_MAX_CANDIDATE_SCENES,
     DEFAULT_MAX_SCENES,
+    DEFAULT_MIN_AOI_COVERAGE_PERCENTAGE,
     DEFAULT_MIN_OBSERVATIONS,
+    DEFAULT_MIN_VALID_PIXEL_COUNT,
     DEFAULT_MIN_VALID_PIXEL_PERCENTAGE,
     DEFAULT_RECENT_INTERVENTION_DAYS,
     DEFAULT_SCENE_ORDER,
@@ -33,8 +36,11 @@ class OperationalAnalysisProfile:
     profile_id: str = "roadside_grass_default"
     max_cloud_cover: float = 30.0
     max_scenes: int = DEFAULT_MAX_SCENES
+    max_candidate_scenes: int = DEFAULT_MAX_CANDIDATE_SCENES
     scene_order: str = DEFAULT_SCENE_ORDER
     min_valid_pixel_percentage: float = DEFAULT_MIN_VALID_PIXEL_PERCENTAGE
+    min_valid_pixel_count: int = DEFAULT_MIN_VALID_PIXEL_COUNT
+    min_aoi_coverage_percentage: float = DEFAULT_MIN_AOI_COVERAGE_PERCENTAGE
     min_observations: int = DEFAULT_MIN_OBSERVATIONS
     daily_aggregation: str = DEFAULT_DAILY_AGGREGATION
     decision_min_observations: int = DEFAULT_DECISION_MIN_OBSERVATIONS

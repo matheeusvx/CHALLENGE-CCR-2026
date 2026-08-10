@@ -16,6 +16,20 @@ from rasterio.warp import transform_geom
 
 # SCL: nodata, saturado/defeituoso, sombra, nuvem media/alta, cirrus e neve.
 SCL_EXCLUDED_CLASSES = {0, 1, 3, 8, 9, 10, 11}
+SCL_CLASS_NAMES = {
+    0: "nodata",
+    1: "saturated_or_defective",
+    2: "dark_area",
+    3: "cloud_shadow",
+    4: "vegetation",
+    5: "non_vegetated",
+    6: "water",
+    7: "unclassified",
+    8: "cloud_medium_probability",
+    9: "cloud_high_probability",
+    10: "cirrus",
+    11: "snow_or_ice",
+}
 
 
 class RasterProcessingError(RuntimeError):
@@ -33,7 +47,29 @@ class RasterSceneData:
     red_asset: str
     nir_asset: str
     scl_asset: str | None
+    scl_class_percentages: dict[str, float]
     quality_messages: list[str]
+
+
+def calculate_scl_class_percentages(
+    scl: np.ma.MaskedArray,
+    inside_aoi: np.ndarray,
+) -> dict[str, float]:
+    """Calcula a composicao SCL dentro da AOI sem inferir tipo de vegetacao."""
+    total = int(np.count_nonzero(inside_aoi))
+    if total == 0:
+        return {name: 0.0 for name in SCL_CLASS_NAMES.values()}
+
+    values = np.asarray(scl.data)
+    masked = np.ma.getmaskarray(scl)
+    percentages: dict[str, float] = {}
+    for class_value, name in SCL_CLASS_NAMES.items():
+        class_mask = inside_aoi & ~masked & (values == class_value)
+        count = int(np.count_nonzero(class_mask))
+        if class_value == 0:
+            count += int(np.count_nonzero(inside_aoi & masked))
+        percentages[name] = count / total * 100.0
+    return percentages
 
 
 def _asset_common_names(asset: Any) -> set[str]:
@@ -129,6 +165,7 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
     red_asset = item.assets[red_key]
     nir_asset = item.assets[nir_key]
     quality_messages: list[str] = []
+    scl_class_percentages: dict[str, float] = {}
 
     env_options = {
         "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
@@ -202,6 +239,7 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
                     Resampling.nearest,
                 )
                 scl_values = np.asarray(scl.data)
+                scl_class_percentages = calculate_scl_class_percentages(scl, inside_aoi)
                 valid_mask &= ~np.ma.getmaskarray(scl)
                 valid_mask &= ~np.isin(scl_values, list(SCL_EXCLUDED_CLASSES))
                 quality_messages.append(
@@ -237,5 +275,6 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
         red_asset=red_key,
         nir_asset=nir_key,
         scl_asset=scl_key,
+        scl_class_percentages=scl_class_percentages,
         quality_messages=quality_messages,
     )

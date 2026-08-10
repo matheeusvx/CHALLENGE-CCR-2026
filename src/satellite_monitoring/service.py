@@ -18,9 +18,15 @@ from .cut_recommendation import (
 from .geometry import resolve_aoi
 from .indices import InsufficientValidPixelsError, analyze_ndvi
 from .outputs import create_run_directory, to_json_compatible, write_outputs
-from .quality import assess_scene_quality, determine_overall_status, summarize_scene_quality
+from .quality import (
+    assess_scene_quality,
+    determine_overall_status,
+    select_quality_assessed_observations,
+    summarize_scene_quality,
+)
 from .raster_processing import read_scene_bands
 from .stac_client import Scene, search_scenes
+from .temporal_quality import calculate_analysis_quality, diagnose_temporal_consistency
 
 
 class InvalidAnalysisGeometryError(ValueError):
@@ -101,13 +107,29 @@ def _new_scene_record(scene: Scene) -> dict[str, Any]:
     record.update(
         {
             "valid_pixel_percentage": None,
+            "local_valid_pixel_percentage": None,
+            "local_invalid_pixel_percentage": None,
             "valid_pixel_count": None,
             "total_pixel_count": None,
             "aoi_coverage_percentage": None,
             "partial_raster_coverage": None,
+            "has_scl": False,
+            "global_cloud_cover": record.get("cloud_cover"),
+            "scl_class_percentages": {},
+            "ndvi_mean": None,
+            "ndvi_median": None,
+            "ndvi_std": None,
+            "scene_quality_score": None,
+            "min_pixel_requirement_met": False,
+            "aoi_coverage_requirement_met": False,
+            "scl_required_met": False,
             "quality_status": "unknown",
             "quality_reasons": [],
             "accepted_for_timeseries": False,
+            "selected_after_quality": False,
+            "temporal_outlier_suspected": False,
+            "included_in_analysis": False,
+            "exclusion_reasons": [],
             "processing_status": "processing",
             "error": None,
         }
@@ -120,6 +142,12 @@ def _effective_date_range(records: list[dict[str, Any]]) -> dict[str, str | None
         return {"start": None, "end": None}
     dates = sorted(record["datetime"] for record in records)
     return {"start": dates[0], "end": dates[-1]}
+
+
+def _record_date(record: dict[str, Any]) -> str:
+    return datetime.fromisoformat(
+        str(record["datetime"]).replace("Z", "+00:00")
+    ).date().isoformat()
 
 
 def run_monitoring_analysis(
@@ -141,13 +169,13 @@ def run_monitoring_analysis(
     run_directory = create_run_directory(config.output_root)
     aoi_geojson = resolved_aoi.geometry
     scene_records: list[dict[str, Any]] = []
-    ndvi_records: list[dict[str, Any]] = []
+    quality_observation_records: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     processed_item_ids: list[str] = []
     failed_item_ids: list[str] = []
-    discarded_by_limit: list[dict[str, Any]] = []
-    selected_scenes: list[Scene] = []
+    discarded_candidate_scenes: list[dict[str, Any]] = []
+    candidate_scenes: list[Scene] = []
     total_matches = 0
     fatal_error: str | None = None
 
@@ -155,13 +183,13 @@ def run_monitoring_analysis(
     try:
         search_result = deps.search_scenes(config, aoi_geojson)
         total_matches = search_result.total_matches
-        selected_scenes = search_result.scenes
-        discarded_by_limit = [
+        candidate_scenes = search_result.scenes
+        discarded_candidate_scenes = [
             {
                 "item_id": scene.item_id,
                 "datetime": scene.datetime.isoformat(),
                 "cloud_cover": scene.item.properties.get("eo:cloud_cover"),
-                "reason": "max_scenes_limit",
+                "reason": "max_candidate_scenes_safety_limit",
             }
             for scene in search_result.discarded_scenes
         ]
@@ -169,19 +197,19 @@ def run_monitoring_analysis(
             on_progress,
             ProgressEvent(
                 "search_completed",
-                f"{total_matches} cenas encontradas; {len(selected_scenes)} selecionadas.",
-                total=len(selected_scenes),
+                f"{total_matches} cenas encontradas; {len(candidate_scenes)} candidatas.",
+                total=len(candidate_scenes),
             ),
         )
 
-        for position, scene in enumerate(selected_scenes, start=1):
+        for position, scene in enumerate(candidate_scenes, start=1):
             _emit(
                 on_progress,
                 ProgressEvent(
                     "scene_started",
                     f"Processando {scene.item_id}.",
                     current=position,
-                    total=len(selected_scenes),
+                    total=len(candidate_scenes),
                     item_id=scene.item_id,
                 ),
             )
@@ -203,12 +231,17 @@ def run_monitoring_analysis(
                 valid_pixel_percentage = statistics.valid_pixel_percentage if statistics else 0.0
                 assessment = assess_scene_quality(
                     valid_pixel_percentage=valid_pixel_percentage,
+                    valid_pixel_count=valid_pixel_count,
                     min_valid_pixel_percentage=config.min_valid_pixel_percentage,
+                    min_valid_pixel_count=config.min_valid_pixel_count,
                     medium_threshold=config.medium_quality_threshold,
                     high_threshold=config.high_quality_threshold,
                     has_scl=raster_data.scl_asset is not None,
+                    scl_class_percentages=raster_data.scl_class_percentages,
                     cloud_cover=scene_record["cloud_cover"],
                     max_cloud_cover=config.max_cloud_cover,
+                    aoi_coverage_percentage=raster_data.aoi_coverage_percentage,
+                    min_aoi_coverage_percentage=config.min_aoi_coverage_percentage,
                     partial_raster_coverage=raster_data.partial_raster_coverage,
                     has_valid_ndvi_pixels=statistics is not None,
                     include_low_quality_scenes=config.include_low_quality_scenes,
@@ -216,10 +249,21 @@ def run_monitoring_analysis(
                 scene_record.update(
                     {
                         "valid_pixel_percentage": valid_pixel_percentage,
+                        "local_valid_pixel_percentage": assessment.local_valid_pixel_percentage,
+                        "local_invalid_pixel_percentage": assessment.local_invalid_pixel_percentage,
                         "valid_pixel_count": valid_pixel_count,
                         "total_pixel_count": raster_data.total_pixel_count,
                         "aoi_coverage_percentage": raster_data.aoi_coverage_percentage,
                         "partial_raster_coverage": raster_data.partial_raster_coverage,
+                        "has_scl": raster_data.scl_asset is not None,
+                        "scl_class_percentages": raster_data.scl_class_percentages,
+                        "ndvi_mean": statistics.mean if statistics else None,
+                        "ndvi_median": statistics.median if statistics else None,
+                        "ndvi_std": statistics.std if statistics else None,
+                        "scene_quality_score": assessment.scene_quality_score,
+                        "min_pixel_requirement_met": assessment.min_pixel_requirement_met,
+                        "aoi_coverage_requirement_met": assessment.aoi_coverage_requirement_met,
+                        "scl_required_met": assessment.scl_required_met,
                         "quality_status": assessment.quality_status,
                         "quality_reasons": list(assessment.quality_reasons),
                         "accepted_for_timeseries": assessment.accepted_for_timeseries,
@@ -231,8 +275,8 @@ def run_monitoring_analysis(
                     {"item_id": scene.item_id, "message": message}
                     for message in raster_data.quality_messages
                 )
-                if assessment.accepted_for_timeseries and statistics is not None:
-                    ndvi_records.append(
+                if statistics is not None:
+                    quality_observation_records.append(
                         {
                             "item_id": scene.item_id,
                             "datetime": scene_record["datetime"],
@@ -242,6 +286,7 @@ def run_monitoring_analysis(
                             "red_asset": raster_data.red_asset,
                             "nir_asset": raster_data.nir_asset,
                             "scl_asset": raster_data.scl_asset,
+                            "scl_class_percentages": raster_data.scl_class_percentages,
                             "ndvi_mean": statistics.mean,
                             "ndvi_median": statistics.median,
                             "ndvi_std": statistics.std,
@@ -252,9 +297,15 @@ def run_monitoring_analysis(
                             "aoi_coverage_percentage": raster_data.aoi_coverage_percentage,
                             "partial_raster_coverage": raster_data.partial_raster_coverage,
                             "valid_pixel_percentage": statistics.valid_pixel_percentage,
+                            "local_valid_pixel_percentage": assessment.local_valid_pixel_percentage,
+                            "local_invalid_pixel_percentage": assessment.local_invalid_pixel_percentage,
+                            "scene_quality_score": assessment.scene_quality_score,
+                            "min_pixel_requirement_met": assessment.min_pixel_requirement_met,
+                            "aoi_coverage_requirement_met": assessment.aoi_coverage_requirement_met,
+                            "scl_required_met": assessment.scl_required_met,
                             "quality_status": assessment.quality_status,
                             "quality_reasons": list(assessment.quality_reasons),
-                            "accepted_for_timeseries": True,
+                            "accepted_for_timeseries": assessment.accepted_for_timeseries,
                         }
                     )
             except Exception as exc:  # Uma cena nao deve impedir as seguintes.
@@ -275,8 +326,98 @@ def run_monitoring_analysis(
         fatal_error = str(exc)
         errors.append({"code": "SATELLITE_PROVIDER_ERROR", "message": fatal_error})
 
-    daily_result = aggregate_daily_observations(ndvi_records, strategy=config.daily_aggregation)
-    daily_records = daily_result.observations
+    selected_observations, discarded_after_quality = select_quality_assessed_observations(
+        quality_observation_records,
+        max_scenes=config.max_scenes,
+        scene_order=config.scene_order,
+    )
+    selected_ids = {str(record["item_id"]) for record in selected_observations}
+    discarded_after_quality_ids = {
+        str(record["item_id"]) for record in discarded_after_quality
+    }
+    scene_by_id = {str(record["item_id"]): record for record in scene_records}
+    for record in scene_records:
+        item_id = str(record["item_id"])
+        record["selected_after_quality"] = item_id in selected_ids
+        if not record.get("accepted_for_timeseries"):
+            record["exclusion_reasons"] = list(record.get("quality_reasons") or [])
+        elif item_id in discarded_after_quality_ids:
+            record["exclusion_reasons"] = ["max_scenes_limit_after_quality"]
+
+    daily_result = aggregate_daily_observations(
+        selected_observations,
+        strategy=config.daily_aggregation,
+    )
+    candidates_by_day: dict[str, list[dict[str, Any]]] = {}
+    for record in scene_records:
+        if not record.get("datetime"):
+            continue
+        candidates_by_day.setdefault(_record_date(record), []).append(record)
+    for day_audit in daily_result.audit["days"]:
+        candidates = sorted(
+            candidates_by_day.get(day_audit["date"], []),
+            key=lambda record: str(record.get("item_id", "")),
+        )
+        day_audit["all_candidate_item_ids"] = [
+            str(record.get("item_id", "")) for record in candidates
+        ]
+        day_audit["candidate_ranking_inputs"] = [
+            {
+                "item_id": record.get("item_id"),
+                "accepted": bool(record.get("accepted_for_timeseries")),
+                "scene_quality_score": record.get("scene_quality_score"),
+                "valid_pixel_percentage": record.get("valid_pixel_percentage"),
+                "aoi_coverage_percentage": record.get("aoi_coverage_percentage"),
+                "cloud_cover": record.get("cloud_cover"),
+            }
+            for record in candidates
+        ]
+    temporal_result = diagnose_temporal_consistency(
+        daily_result.observations,
+        min_deviation=config.temporal_outlier_min_deviation,
+        mad_multiplier=config.temporal_outlier_mad_multiplier,
+        return_ratio=config.temporal_return_ratio,
+    )
+    raw_daily_records = temporal_result.raw_daily_timeseries
+    analysis_records = temporal_result.analysis_timeseries
+
+    for daily_record in raw_daily_records:
+        source_ids = list(daily_record.get("aggregation_source_item_ids") or [])
+        selected_item_id = daily_record.get("aggregation_selected_item_id")
+        included_source_ids = (
+            source_ids
+            if daily_record.get("daily_aggregation") == "median"
+            else [selected_item_id]
+        )
+        for item_id in source_ids:
+            scene_record = scene_by_id.get(str(item_id))
+            if scene_record is None:
+                continue
+            if item_id not in included_source_ids:
+                scene_record["exclusion_reasons"] = ["not_selected_by_daily_aggregation"]
+                continue
+            scene_record["temporal_outlier_suspected"] = bool(
+                daily_record.get("temporal_outlier_suspected")
+            )
+            scene_record["included_in_analysis"] = bool(
+                daily_record.get("included_in_analysis")
+            )
+            scene_record["exclusion_reasons"] = list(
+                daily_record.get("exclusion_reasons") or []
+            )
+
+    quality_summary = summarize_scene_quality(scene_records)
+    analysis_quality = calculate_analysis_quality(
+        analysis_records,
+        raw_records=raw_daily_records,
+        processed_scene_count=len(processed_item_ids),
+        rejected_scene_count=quality_summary["rejected_scene_count"],
+        max_gap_days=config.max_gap_days,
+        min_observations=config.min_observations,
+    )
+    for record in analysis_records:
+        record["analysis_quality_status"] = analysis_quality["status"]
+
     thresholds = RecommendationThresholds(
         decision_min_observations=config.decision_min_observations,
         high_vegetation_percentile=config.high_vegetation_percentile,
@@ -289,21 +430,20 @@ def run_monitoring_analysis(
     assert config.end_date is not None
     recommendation_result = recommend_cut(
         RecommendationInput(
-            observations=daily_records,
+            observations=analysis_records,
             thresholds=thresholds,
             reference_date=config.end_date,
             min_valid_pixel_percentage=config.min_valid_pixel_percentage,
         )
     )
     recommendation = recommendation_result.to_dict()
-    quality_summary = summarize_scene_quality(scene_records)
     overall_status = determine_overall_status(
         fatal_error=fatal_error,
         processed_scene_count=len(processed_item_ids),
-        accepted_scene_count=len(daily_records),
+        accepted_scene_count=len(analysis_records),
         min_observations=config.min_observations,
     )
-    if not selected_scenes and fatal_error is None:
+    if not candidate_scenes and fatal_error is None:
         errors.append(
             {
                 "code": "NO_SCENES_FOUND",
@@ -314,9 +454,38 @@ def run_monitoring_analysis(
         warnings.append(
             {
                 "code": "INSUFFICIENT_OBSERVATIONS",
-                "message": f"Observacoes aceitas insuficientes ({len(daily_records)}/{config.min_observations}).",
+                "message": f"Observacoes aceitas insuficientes ({len(analysis_records)}/{config.min_observations}).",
             }
         )
+
+    quality_report = {
+        "configuration": {
+            "max_candidate_scenes": config.max_candidate_scenes,
+            "effective_max_candidate_scenes": config.effective_max_candidate_scenes,
+            "max_scenes": config.max_scenes,
+            "min_valid_pixel_percentage": config.min_valid_pixel_percentage,
+            "min_valid_pixel_count": config.min_valid_pixel_count,
+            "min_aoi_coverage_percentage": config.min_aoi_coverage_percentage,
+            "scl_required": True,
+            "temporal_outlier_min_deviation": config.temporal_outlier_min_deviation,
+            "temporal_outlier_mad_multiplier": config.temporal_outlier_mad_multiplier,
+            "temporal_return_ratio": config.temporal_return_ratio,
+            "experimental": True,
+        },
+        "candidate_scene_count": len(candidate_scenes),
+        "candidate_scenes_discarded_by_safety_limit": discarded_candidate_scenes,
+        "processed_scenes": scene_records,
+        "rejected_scenes": quality_summary["rejected_scenes"],
+        "observations_discarded_after_quality_limit": discarded_after_quality,
+        "raw_daily_timeseries": raw_daily_records,
+        "analysis_timeseries": analysis_records,
+        "outliers": temporal_result.outliers,
+        "analysis_quality": analysis_quality,
+        "limitations": [
+            "Os limiares de qualidade sao experimentais e ainda exigem validacao de campo.",
+            "As classes SCL auditam contaminacao; nao identificam altura ou especie vegetal.",
+        ],
+    }
 
     summary = {
         "analysis_id": identifier,
@@ -330,18 +499,36 @@ def run_monitoring_analysis(
         "quality_thresholds": config.quality_thresholds,
         "aoi": resolved_aoi.metadata,
         "scene_count_found": total_matches,
-        "scene_count_selected": len(selected_scenes),
-        "scene_count_not_selected_due_to_limit": len(discarded_by_limit),
+        "candidate_scene_count": len(candidate_scenes),
+        "scene_count_selected": len(selected_observations),
+        "scene_count_not_selected_due_to_limit": (
+            len(discarded_candidate_scenes) + len(discarded_after_quality)
+        ),
+        "scene_count_not_processed_due_to_candidate_limit": len(discarded_candidate_scenes),
+        "scene_count_not_selected_after_quality": len(discarded_after_quality),
         "scene_count_processed": len(processed_item_ids),
         "scene_count_ignored": len(failed_item_ids),
-        "first_selected_datetime": selected_scenes[0].datetime.isoformat() if selected_scenes else None,
-        "last_selected_datetime": selected_scenes[-1].datetime.isoformat() if selected_scenes else None,
-        "date_range_effectively_processed": _effective_date_range(daily_records),
+        "first_selected_datetime": selected_observations[0]["datetime"] if selected_observations else None,
+        "last_selected_datetime": selected_observations[-1]["datetime"] if selected_observations else None,
+        "date_range_effectively_processed": _effective_date_range(analysis_records),
         "daily_aggregation": daily_result.audit,
-        "daily_observation_count": len(daily_records),
+        "raw_daily_observation_count": len(raw_daily_records),
+        "daily_observation_count": len(analysis_records),
+        "analysis_quality": analysis_quality,
         "recommendation_thresholds": config.recommendation_thresholds,
         "cut_recommendation": recommendation_result.to_summary_dict(),
-        "scenes_discarded_by_limit": discarded_by_limit,
+        "scenes_discarded_by_limit": [
+            *discarded_candidate_scenes,
+            *[
+                {
+                    "item_id": record.get("item_id"),
+                    "datetime": record.get("datetime"),
+                    "cloud_cover": record.get("cloud_cover"),
+                    "reason": "max_scenes_limit_after_quality",
+                }
+                for record in discarded_after_quality
+            ],
+        ],
         "ignored_item_ids": failed_item_ids,
         "quality_messages": warnings,
         "errors_by_scene": [error for error in errors if error.get("item_id")],
@@ -355,10 +542,12 @@ def run_monitoring_analysis(
         artifact_paths = deps.write_outputs(
             run_directory,
             scene_records,
-            daily_records,
+            analysis_records,
             summary,
             resolved_aoi.output_geojson,
             recommendation,
+            raw_daily_records=raw_daily_records,
+            quality_report=quality_report,
         )
     except Exception as exc:
         errors.append({"code": "PROCESSING_ERROR", "message": f"Falha ao salvar resultados: {exc}"})
@@ -369,7 +558,7 @@ def run_monitoring_analysis(
             recommendation,
             resolved_aoi.metadata,
             to_json_compatible(summary),
-            to_json_compatible(daily_records),
+            to_json_compatible(analysis_records),
             to_json_compatible(scene_records),
             warnings=warnings,
             errors=errors,
@@ -384,6 +573,8 @@ def run_monitoring_analysis(
         "aoi": artifact_paths["aoi"],
         "recommendation_json": artifact_paths["recommendation_json"],
         "recommendation_csv": artifact_paths["recommendation_csv"],
+        "quality_report": artifact_paths["quality_report"],
+        "raw_timeseries_csv": artifact_paths["raw_timeseries"],
     }
     status = {
         "success": "completed",
@@ -397,7 +588,7 @@ def run_monitoring_analysis(
         recommendation,
         resolved_aoi.metadata,
         to_json_compatible(summary),
-        to_json_compatible(daily_records),
+        to_json_compatible(analysis_records),
         to_json_compatible(scene_records),
         artifacts=public_artifacts,
         warnings=warnings,

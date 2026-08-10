@@ -44,7 +44,9 @@ T = TypeVar("T")
 ALLOWED_ARTIFACTS = {
     "summary": "application/json",
     "timeseries_csv": "text/csv",
+    "raw_timeseries_csv": "text/csv",
     "scenes_csv": "text/csv",
+    "quality_report": "application/json",
     "recommendation_json": "application/json",
     "recommendation_csv": "text/csv",
     "chart": "image/png",
@@ -160,11 +162,14 @@ def run_analysis(
             end_date=analysis_period.end_date,
             max_cloud_cover=_or_profile(payload.max_cloud_cover, profile.max_cloud_cover),
             max_scenes=_or_profile(payload.max_scenes, profile.max_scenes),
+            max_candidate_scenes=profile.max_candidate_scenes,
             scene_order=_or_profile(payload.scene_order, profile.scene_order),
             min_valid_pixel_percentage=_or_profile(
                 payload.min_valid_pixel_percentage,
                 profile.min_valid_pixel_percentage,
             ),
+            min_valid_pixel_count=profile.min_valid_pixel_count,
+            min_aoi_coverage_percentage=profile.min_aoi_coverage_percentage,
             min_observations=_or_profile(payload.min_observations, profile.min_observations),
             daily_aggregation=_or_profile(payload.daily_aggregation, profile.daily_aggregation),
             decision_min_observations=_or_profile(

@@ -151,10 +151,19 @@ def _coverage(record: dict[str, Any]) -> float:
 
 
 def _best_record(records: list[dict[str, Any]]) -> dict[str, Any]:
-    def rank(record: dict[str, Any]) -> tuple[float, float, float, str]:
+    def rank(record: dict[str, Any]) -> tuple[int, float, float, float, float, str]:
+        accepted = 0 if record.get("accepted_for_timeseries", True) else 1
+        quality_score = _finite_number(record.get("scene_quality_score")) or 0.0
         valid = _finite_number(record.get("valid_pixel_percentage")) or 0.0
         cloud = _finite_number(record.get("cloud_cover"))
-        return (-valid, cloud if cloud is not None else math.inf, -_coverage(record), str(record.get("item_id", "")))
+        return (
+            accepted,
+            -quality_score,
+            -valid,
+            -_coverage(record),
+            cloud if cloud is not None else math.inf,
+            str(record.get("item_id", "")),
+        )
 
     return min(records, key=rank)
 
@@ -178,6 +187,9 @@ def _median_record(day: date, records: list[dict[str, Any]]) -> dict[str, Any]:
         "total_pixel_count",
         "valid_pixel_percentage",
         "aoi_coverage_percentage",
+        "scene_quality_score",
+        "local_valid_pixel_percentage",
+        "local_invalid_pixel_percentage",
     )
     for field in median_fields:
         values = [_finite_number(record.get(field)) for record in records]
@@ -227,6 +239,7 @@ def aggregate_daily_observations(
                     "aggregation_scene_count": 1,
                     "aggregation_source_item_ids": [item_id],
                     "aggregation_selected_item_id": item_id,
+                    "aggregation_selection_reason": "single_observation_for_day",
                 }
             )
             observations.append(row)
@@ -258,6 +271,12 @@ def aggregate_daily_observations(
                     "aggregation_selected_item_id": (
                         str(selected.get("item_id", "")) if strategy == "best" else None
                     ),
+                    "aggregation_selection_reason": (
+                        "accepted_then_scene_quality_score_then_valid_pixels_then_"
+                        "aoi_coverage_then_cloud_cover_then_item_id"
+                        if strategy == "best"
+                        else "median_of_accepted_daily_statistics"
+                    ),
                 }
             )
             observations.append(row)
@@ -269,6 +288,12 @@ def aggregate_daily_observations(
                         str(selected.get("item_id", "")) if strategy == "best" else None
                     ),
                     "aggregated_scene_count": len(candidates),
+                    "selection_reason": (
+                        "accepted_then_scene_quality_score_then_valid_pixels_then_"
+                        "aoi_coverage_then_cloud_cover_then_item_id"
+                        if strategy == "best"
+                        else "median_of_accepted_daily_statistics"
+                    ),
                 }
             )
 
@@ -317,6 +342,7 @@ def _quality_acceptable(record: dict[str, Any], minimum: float) -> bool:
         (percentage is None or percentage >= minimum)
         and not bool(record.get("partial_raster_coverage"))
         and record.get("quality_status") != "low"
+        and record.get("analysis_quality_status") != "low"
     )
 
 
