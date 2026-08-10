@@ -1,9 +1,8 @@
-import { BarChart3, MapPinned, SlidersHorizontal } from "lucide-react";
+import { BarChart3, MapPinned } from "lucide-react";
 import type { WorkspaceTab } from "@/stores/analysis-store";
 
 const tabs = [
   { id: "area", label: "Area", icon: MapPinned },
-  { id: "parameters", label: "Parametros", icon: SlidersHorizontal },
   { id: "result", label: "Resultado", icon: BarChart3 },
 ] as const;
 

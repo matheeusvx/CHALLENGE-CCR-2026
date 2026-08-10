@@ -25,6 +25,12 @@ const recordSchema = z.record(z.string(), z.unknown());
 export const analysisResponseSchema = z.object({
   analysis_id: z.string().uuid(),
   status: z.string(),
+  analysis_period: z.object({
+    start_date: z.iso.date(),
+    end_date: z.iso.date(),
+    timezone: z.string(),
+    strategy: z.enum(["previous_calendar_month", "explicit"]),
+  }),
   recommendation: z.object({
     decision: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
     confidence: z.enum(["high", "medium", "low"]),

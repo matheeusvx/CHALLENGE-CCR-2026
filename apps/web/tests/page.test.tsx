@@ -32,6 +32,7 @@ const validation = {
 const result: AnalysisResponse = {
   analysis_id: "6d7ba572-321d-4a27-9f0f-9fcbd5ecab62",
   status: "completed",
+  analysis_period: { start_date: "2026-07-10", end_date: "2026-08-10", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
   recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Vegetacao abaixo do nivel alto local.", reasons: ["current_percentile_below_or_equal_50"], blocking_reasons: [], limitations: ["Validacao de campo necessaria."], metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 } },
   aoi: { source: "geojson_inline" },
   summary: { date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" } },
@@ -59,6 +60,19 @@ describe("workspace geoespacial", () => {
     expect(screen.getByRole("heading", { name: "Motiva Vegetation Intelligence" })).toBeInTheDocument();
     expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("api-status")).toHaveTextContent("API operacional"));
+  });
+
+  it("mostra somente as etapas Area e Resultado sem controles tecnicos", () => {
+    render(<Home />, { wrapper });
+    expect(screen.getByRole("tab", { name: "Area" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Resultado" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Parametros" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Data inicial")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Data final")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cobertura maxima de nuvens")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Quantidade maxima de cenas")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Pixels validos minimos")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Agregacao diaria")).not.toBeInTheDocument();
   });
 
   it("mostra o estado sem geometria e bloqueia a analise", () => {
@@ -112,7 +126,20 @@ describe("workspace geoespacial", () => {
     expect(runButton).toBeEnabled();
     fireEvent.click(runButton);
     expect((await screen.findAllByText("Vegetacao abaixo do nivel alto local.")).length).toBeGreaterThan(0);
+    expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon }, expect.anything());
+    expect(screen.getAllByText("2026-07-10 a 2026-08-10").length).toBeGreaterThan(0);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
+  });
+
+  it("mantem a area validada quando a execucao falha", async () => {
+    vi.mocked(api.runAnalysis).mockRejectedValue(new Error("Falha controlada da API."));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
+    await screen.findByText("Area validada");
+    fireEvent.click(screen.getByRole("button", { name: "Executar analise" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Falha controlada da API");
+    expect(useAnalysisStore.getState().geometry).toEqual(polygon);
   });
 
   it("renderiza a serie vazia sem falhar", () => {

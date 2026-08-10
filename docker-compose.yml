@@ -8,6 +8,7 @@ services:
       API_PORT: 8000
       API_CORS_ORIGINS: http://localhost:3000
       API_OUTPUT_ROOT: outputs/satellite_monitoring
+      ANALYSIS_TIMEZONE: America/Sao_Paulo
     ports:
       - "8000:8000"
     volumes:

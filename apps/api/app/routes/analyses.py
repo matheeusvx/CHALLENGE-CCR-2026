@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends
@@ -21,9 +22,15 @@ from ..config import settings
 from ..dependencies import (
     AnalysisService,
     analysis_registry,
+    get_analysis_now,
     get_analysis_service,
 )
 from ..exceptions import ApiError
+from ..operational_profile import (
+    DEFAULT_OPERATIONAL_ANALYSIS_PROFILE,
+    AnalysisPeriod,
+    resolve_analysis_period,
+)
 from ..schemas import (
     AnalysisResponse,
     AnalysisRunRequest,
@@ -32,6 +39,7 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/api/analyses", tags=["analyses"])
+T = TypeVar("T")
 
 ALLOWED_ARTIFACTS = {
     "summary": "application/json",
@@ -42,6 +50,10 @@ ALLOWED_ARTIFACTS = {
     "chart": "image/png",
     "aoi": "application/geo+json",
 }
+
+
+def _or_profile(value: T | None, profile_value: T) -> T:
+    return profile_value if value is None else value
 
 
 def _validated_geometry_metadata(geometry_document: dict[str, Any]) -> dict[str, Any]:
@@ -81,7 +93,7 @@ def validate_geometry(payload: GeometryRequest) -> GeometryValidationResponse:
     )
 
 
-def _to_api_response(result: Any) -> AnalysisResponse:
+def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisResponse:
     recommendation = result.recommendation
     public_summary = dict(result.summary)
     if isinstance(public_summary.get("parameters"), dict):
@@ -98,6 +110,7 @@ def _to_api_response(result: Any) -> AnalysisResponse:
     return AnalysisResponse(
         analysis_id=result.analysis_id,
         status=result.status,
+        analysis_period=analysis_period.to_dict(),
         recommendation={
             "decision": recommendation.get("recommendation", "inconclusivo"),
             "confidence": recommendation.get("confidence", "low"),
@@ -122,33 +135,66 @@ def _to_api_response(result: Any) -> AnalysisResponse:
 def run_analysis(
     payload: AnalysisRunRequest,
     service: AnalysisService = Depends(get_analysis_service),
+    now: datetime = Depends(get_analysis_now),
 ) -> AnalysisResponse:
-    if payload.start_date > payload.end_date:
+    try:
+        analysis_period = resolve_analysis_period(
+            payload.start_date,
+            payload.end_date,
+            now=now,
+            timezone_name=settings.analysis_timezone,
+        )
+    except ValueError as exc:
         raise ApiError(
             "INVALID_DATE_RANGE",
-            "A data inicial nao pode ser posterior a data final.",
+            str(exc),
             status_code=422,
-        )
+        ) from exc
     _validated_geometry_metadata(payload.geometry)
+    profile = DEFAULT_OPERATIONAL_ANALYSIS_PROFILE
     decision = payload.decision
     try:
         config = MonitoringConfig(
             geometry=payload.geometry,
-            start_date=payload.start_date,
-            end_date=payload.end_date,
-            max_cloud_cover=payload.max_cloud_cover,
-            max_scenes=payload.max_scenes,
-            scene_order=payload.scene_order,
-            min_valid_pixel_percentage=payload.min_valid_pixel_percentage,
-            min_observations=payload.min_observations,
-            daily_aggregation=payload.daily_aggregation,
-            decision_min_observations=decision.decision_min_observations,
-            high_vegetation_percentile=decision.high_vegetation_percentile,
-            significant_drop_absolute=decision.significant_drop_absolute,
-            significant_drop_relative_percentage=decision.significant_drop_relative_percentage,
-            trend_window=decision.trend_window,
-            max_gap_days=decision.max_gap_days,
-            recent_intervention_days=decision.recent_intervention_days,
+            start_date=analysis_period.start_date,
+            end_date=analysis_period.end_date,
+            max_cloud_cover=_or_profile(payload.max_cloud_cover, profile.max_cloud_cover),
+            max_scenes=_or_profile(payload.max_scenes, profile.max_scenes),
+            scene_order=_or_profile(payload.scene_order, profile.scene_order),
+            min_valid_pixel_percentage=_or_profile(
+                payload.min_valid_pixel_percentage,
+                profile.min_valid_pixel_percentage,
+            ),
+            min_observations=_or_profile(payload.min_observations, profile.min_observations),
+            daily_aggregation=_or_profile(payload.daily_aggregation, profile.daily_aggregation),
+            decision_min_observations=_or_profile(
+                decision.decision_min_observations if decision else None,
+                profile.decision_min_observations,
+            ),
+            high_vegetation_percentile=_or_profile(
+                decision.high_vegetation_percentile if decision else None,
+                profile.high_vegetation_percentile,
+            ),
+            significant_drop_absolute=_or_profile(
+                decision.significant_drop_absolute if decision else None,
+                profile.significant_drop_absolute,
+            ),
+            significant_drop_relative_percentage=_or_profile(
+                decision.significant_drop_relative_percentage if decision else None,
+                profile.significant_drop_relative_percentage,
+            ),
+            trend_window=_or_profile(
+                decision.trend_window if decision else None,
+                profile.trend_window,
+            ),
+            max_gap_days=_or_profile(
+                decision.max_gap_days if decision else None,
+                profile.max_gap_days,
+            ),
+            recent_intervention_days=_or_profile(
+                decision.recent_intervention_days if decision else None,
+                profile.recent_intervention_days,
+            ),
             output_root=settings.output_root,
         )
         result = service(config, analysis_id=str(uuid4()))
@@ -178,7 +224,7 @@ def run_analysis(
         status_code = 502 if code == "SATELLITE_PROVIDER_ERROR" else 500
         raise ApiError(code, "O pipeline nao conseguiu concluir a analise.", status_code=status_code)
     analysis_registry.add(result)
-    return _to_api_response(result)
+    return _to_api_response(result, analysis_period)
 
 
 @router.get("/{analysis_id}/artifacts/{artifact_name}", response_class=FileResponse)

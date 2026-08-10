@@ -157,6 +157,41 @@
   },
   "components": {
     "schemas": {
+      "AnalysisPeriodResponse": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "previous_calendar_month",
+              "explicit"
+            ],
+            "title": "Strategy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "timezone",
+          "strategy"
+        ],
+        "title": "AnalysisPeriodResponse"
+      },
       "AnalysisResponse": {
         "properties": {
           "analysis_id": {
@@ -169,6 +204,9 @@
           },
           "recommendation": {
             "$ref": "#/components/schemas/RecommendationResponse"
+          },
+          "analysis_period": {
+            "$ref": "#/components/schemas/AnalysisPeriodResponse"
           },
           "aoi": {
             "additionalProperties": true,
@@ -226,6 +264,7 @@
           "analysis_id",
           "status",
           "recommendation",
+          "analysis_period",
           "aoi",
           "summary",
           "timeseries",
@@ -244,72 +283,127 @@
             "title": "Geometry"
           },
           "start_date": {
-            "type": "string",
-            "format": "date",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Start Date"
           },
           "end_date": {
-            "type": "string",
-            "format": "date",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "End Date"
           },
           "max_cloud_cover": {
-            "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "Max Cloud Cover",
-            "default": 30.0
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cloud Cover"
           },
           "max_scenes": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Max Scenes",
-            "default": 12
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Scenes"
           },
           "scene_order": {
-            "type": "string",
-            "enum": [
-              "newest",
-              "oldest"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "newest",
+                  "oldest"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Scene Order",
-            "default": "newest"
+            "title": "Scene Order"
           },
           "min_valid_pixel_percentage": {
-            "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "Min Valid Pixel Percentage",
-            "default": 70.0
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Valid Pixel Percentage"
           },
           "min_observations": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Min Observations",
-            "default": 4
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Observations"
           },
           "daily_aggregation": {
-            "type": "string",
-            "enum": [
-              "best",
-              "median",
-              "none"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "best",
+                  "median",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Daily Aggregation",
-            "default": "best"
+            "title": "Daily Aggregation"
           },
           "decision": {
-            "$ref": "#/components/schemas/DecisionParameters"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionParameters"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "geometry",
-          "start_date",
-          "end_date"
+          "geometry"
         ],
         "title": "AnalysisRunRequest"
       },
@@ -335,53 +429,95 @@
       "DecisionParameters": {
         "properties": {
           "decision_min_observations": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 2.0,
-            "title": "Decision Min Observations",
-            "default": 4
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Min Observations"
           },
           "high_vegetation_percentile": {
-            "type": "number",
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "High Vegetation Percentile",
-            "default": 75.0
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Vegetation Percentile"
           },
           "significant_drop_absolute": {
-            "type": "number",
-            "maximum": 2.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Significant Drop Absolute",
-            "default": 0.06
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Significant Drop Absolute"
           },
           "significant_drop_relative_percentage": {
-            "type": "number",
-            "maximum": 100.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Significant Drop Relative Percentage",
-            "default": 15.0
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Significant Drop Relative Percentage"
           },
           "trend_window": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 2.0,
-            "title": "Trend Window",
-            "default": 3
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend Window"
           },
           "max_gap_days": {
-            "type": "integer",
-            "maximum": 366.0,
-            "minimum": 1.0,
-            "title": "Max Gap Days",
-            "default": 20
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 366.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gap Days"
           },
           "recent_intervention_days": {
-            "type": "integer",
-            "maximum": 366.0,
-            "minimum": 1.0,
-            "title": "Recent Intervention Days",
-            "default": 20
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 366.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Intervention Days"
           }
         },
         "additionalProperties": false,

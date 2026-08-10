@@ -5,7 +5,7 @@ import type { PolygonGeometry } from "@/lib/map/geometry";
 
 export type GeometrySource = "drawn" | "pasted" | "uploaded" | "predefined";
 export type MapTool = "navigate" | "draw" | "edit";
-export type WorkspaceTab = "area" | "parameters" | "result";
+export type WorkspaceTab = "area" | "result";
 
 type AnalysisState = {
   geometry: PolygonGeometry | null;
@@ -21,12 +21,6 @@ type AnalysisState = {
   geometryText: string;
   fitRequestId: number;
   activeTab: WorkspaceTab;
-  startDate: string;
-  endDate: string;
-  maxCloudCover: number;
-  maxScenes: number;
-  minValidPixelPercentage: number;
-  dailyAggregation: "best" | "median" | "none";
   setGeometry: (geometry: PolygonGeometry, source: GeometrySource) => void;
   clearGeometry: () => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
@@ -39,13 +33,7 @@ type AnalysisState = {
 
 type AnalysisField =
   | "geometryText"
-  | "activeTab"
-  | "startDate"
-  | "endDate"
-  | "maxCloudCover"
-  | "maxScenes"
-  | "minValidPixelPercentage"
-  | "dailyAggregation";
+  | "activeTab";
 
 export const useAnalysisStore = create<AnalysisState>((set) => ({
   geometry: null,
@@ -61,12 +49,6 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   geometryText: "",
   fitRequestId: 0,
   activeTab: "area",
-  startDate: "2026-05-01",
-  endDate: "2026-08-04",
-  maxCloudCover: 30,
-  maxScenes: 12,
-  minValidPixelPercentage: 70,
-  dailyAggregation: "best",
   setGeometry: (geometry, source) =>
     set((state) => ({
       geometry,

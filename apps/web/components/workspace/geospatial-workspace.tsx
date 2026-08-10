@@ -5,7 +5,6 @@ import { Satellite } from "lucide-react";
 import { useState } from "react";
 import { AnalysisMap } from "@/components/map/analysis-map";
 import { AreaPanel } from "@/components/analysis/area-panel";
-import { AnalysisParametersPanel } from "@/components/analysis/analysis-parameters-panel";
 import { AnalysisResult } from "@/components/analysis/analysis-result";
 import { AnalysisResultSidebar } from "@/components/analysis/analysis-result-sidebar";
 import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
@@ -35,17 +34,7 @@ export function GeospatialWorkspace() {
     const current = useAnalysisStore.getState();
     if (!current.geometry || !isCurrentGeometryValidated(current)) return;
     analysis.reset();
-    analysis.mutate({
-      geometry: current.geometry,
-      start_date: current.startDate,
-      end_date: current.endDate,
-      max_cloud_cover: current.maxCloudCover,
-      max_scenes: current.maxScenes,
-      scene_order: "newest",
-      min_valid_pixel_percentage: current.minValidPixelPercentage,
-      min_observations: 4,
-      daily_aggregation: current.dailyAggregation,
-    });
+    analysis.mutate({ geometry: current.geometry });
   };
 
   const error = validation.error ?? analysis.error;
@@ -68,7 +57,6 @@ export function GeospatialWorkspace() {
           <WorkspaceTabs active={state.activeTab} onChange={(tab) => state.setField("activeTab", tab)} hasResult={Boolean(result)} />
           <div role="tabpanel">
             {state.activeTab === "area" && <AreaPanel validating={validation.isPending} running={analysis.isPending} error={errorMessage} onValidate={handleValidate} onRun={handleRun} />}
-            {state.activeTab === "parameters" && <AnalysisParametersPanel />}
             {state.activeTab === "result" && <AnalysisResultSidebar result={result} onRetry={handleRun} />}
           </div>
         </aside>

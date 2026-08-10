@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.api.app.dependencies import get_analysis_service
+from apps.api.app.dependencies import get_analysis_now, get_analysis_service
 from apps.api.app.main import app
 from src.satellite_monitoring.service import AnalysisResult
 
@@ -57,6 +59,9 @@ def make_result(analysis_id: str, run_directory: Path | None = None) -> Analysis
 @pytest.fixture
 def client() -> TestClient:
     app.dependency_overrides.clear()
+    app.dependency_overrides[get_analysis_now] = lambda: datetime(
+        2026, 8, 10, 12, tzinfo=ZoneInfo("America/Sao_Paulo")
+    )
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -76,6 +76,26 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnalysisPeriodResponse */
+        AnalysisPeriodResponse: {
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Timezone */
+            timezone: string;
+            /**
+             * Strategy
+             * @enum {string}
+             */
+            strategy: "previous_calendar_month" | "explicit";
+        };
         /** AnalysisResponse */
         AnalysisResponse: {
             /** Analysis Id */
@@ -83,6 +103,7 @@ export interface components {
             /** Status */
             status: string;
             recommendation: components["schemas"]["RecommendationResponse"];
+            analysis_period: components["schemas"]["AnalysisPeriodResponse"];
             /** Aoi */
             aoi: {
                 [key: string]: unknown;
@@ -118,49 +139,23 @@ export interface components {
             geometry: {
                 [key: string]: unknown;
             };
-            /**
-             * Start Date
-             * Format: date
-             */
-            start_date: string;
-            /**
-             * End Date
-             * Format: date
-             */
-            end_date: string;
-            /**
-             * Max Cloud Cover
-             * @default 30
-             */
-            max_cloud_cover: number;
-            /**
-             * Max Scenes
-             * @default 12
-             */
-            max_scenes: number;
-            /**
-             * Scene Order
-             * @default newest
-             * @enum {string}
-             */
-            scene_order: "newest" | "oldest";
-            /**
-             * Min Valid Pixel Percentage
-             * @default 70
-             */
-            min_valid_pixel_percentage: number;
-            /**
-             * Min Observations
-             * @default 4
-             */
-            min_observations: number;
-            /**
-             * Daily Aggregation
-             * @default best
-             * @enum {string}
-             */
-            daily_aggregation: "best" | "median" | "none";
-            decision?: components["schemas"]["DecisionParameters"];
+            /** Start Date */
+            start_date?: string | null;
+            /** End Date */
+            end_date?: string | null;
+            /** Max Cloud Cover */
+            max_cloud_cover?: number | null;
+            /** Max Scenes */
+            max_scenes?: number | null;
+            /** Scene Order */
+            scene_order?: ("newest" | "oldest") | null;
+            /** Min Valid Pixel Percentage */
+            min_valid_pixel_percentage?: number | null;
+            /** Min Observations */
+            min_observations?: number | null;
+            /** Daily Aggregation */
+            daily_aggregation?: ("best" | "median" | "none") | null;
+            decision?: components["schemas"]["DecisionParameters"] | null;
         };
         /** Centroid */
         Centroid: {
@@ -171,41 +166,20 @@ export interface components {
         };
         /** DecisionParameters */
         DecisionParameters: {
-            /**
-             * Decision Min Observations
-             * @default 4
-             */
-            decision_min_observations: number;
-            /**
-             * High Vegetation Percentile
-             * @default 75
-             */
-            high_vegetation_percentile: number;
-            /**
-             * Significant Drop Absolute
-             * @default 0.06
-             */
-            significant_drop_absolute: number;
-            /**
-             * Significant Drop Relative Percentage
-             * @default 15
-             */
-            significant_drop_relative_percentage: number;
-            /**
-             * Trend Window
-             * @default 3
-             */
-            trend_window: number;
-            /**
-             * Max Gap Days
-             * @default 20
-             */
-            max_gap_days: number;
-            /**
-             * Recent Intervention Days
-             * @default 20
-             */
-            recent_intervention_days: number;
+            /** Decision Min Observations */
+            decision_min_observations?: number | null;
+            /** High Vegetation Percentile */
+            high_vegetation_percentile?: number | null;
+            /** Significant Drop Absolute */
+            significant_drop_absolute?: number | null;
+            /** Significant Drop Relative Percentage */
+            significant_drop_relative_percentage?: number | null;
+            /** Trend Window */
+            trend_window?: number | null;
+            /** Max Gap Days */
+            max_gap_days?: number | null;
+            /** Recent Intervention Days */
+            recent_intervention_days?: number | null;
         };
         /** GeometryRequest */
         GeometryRequest: {

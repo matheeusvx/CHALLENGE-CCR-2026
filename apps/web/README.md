@@ -27,9 +27,13 @@ endereco.
 3. Selecione **Editar vertices** para ajustar o contorno.
 4. Confira a area provisoria e use **Validar area** para obter os valores
    oficiais da API.
-5. Ajuste datas e qualidade na aba **Parametros**.
-6. Use **Executar analise**. A geometria permanece no mapa durante o
+5. Use **Executar analise**. A geometria permanece no mapa durante o
    processamento e no resultado.
+
+O workspace possui somente as abas **Area** e **Resultado**. O operador nao
+configura datas, filtros Sentinel-2 nem thresholds de recomendacao. A API usa o
+perfil operacional padrao e uma janela automatica de um mes calendario; o
+periodo exato utilizado aparece no resultado.
 
 O mapa abre em Louveira (`-46.955`, `-23.121`) no zoom 12 e usa a base
 **Operacional**, definida localmente como style raster com tiles do
@@ -75,7 +79,7 @@ centralizados nesse arquivo.
 - `components/map/`: MapLibre, Terra Draw, seletor de base, controles, legenda e overlays.
 - `components/map/layers/`: AOI persistente e IDs reservados para fontes territoriais oficiais.
 - `components/workspace/`: composicao mapa, abas e painel operacional.
-- `components/analysis/`: area, parametros, GeoJSON avancado e resultados.
+- `components/analysis/`: area, GeoJSON avancado e resultados.
 - `lib/map/`: configuracao, normalizacao e calculos provisiorios Turf.
 - `lib/api/`: cliente HTTP centralizado e tipos gerados do OpenAPI.
 - `stores/`: geometria, revisao, origem, viewport e estado visual compartilhado.
@@ -104,6 +108,8 @@ Os testes usam rede e mapa controlados. Eles nao acessam tiles nem Sentinel-2.
 - A geometria e o resultado nao persistem apos recarregar a pagina.
 - O mapa base depende do provedor configurado e de acesso a rede.
 - A execucao da API ainda e sincrona.
+- Existe apenas um perfil operacional interno; perfis por cenario ainda nao
+  foram implementados e seus thresholds permanecem experimentais.
 
 O proximo modulo cartografico recomendado e a visualizacao de cobertura e
 qualidade das cenas sobre a AOI, antes da adicao de persistencia espacial.

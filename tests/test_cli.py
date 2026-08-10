@@ -93,6 +93,8 @@ def test_accepts_oldest_and_low_quality_inclusion() -> None:
 def test_preserves_circle_mode_configuration() -> None:
     config = parse_config(BASE_ARGUMENTS)
 
+    assert config.start_date == date(2026, 5, 1)
+    assert config.end_date == date(2026, 8, 4)
     assert config.geometry_file is None
     assert config.latitude == -23.10821
     assert config.longitude == -46.96109

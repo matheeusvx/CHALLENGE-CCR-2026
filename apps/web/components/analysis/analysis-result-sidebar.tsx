@@ -9,14 +9,14 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
     return <div className="result-panel-empty"><Leaf size={28} /><strong>Nenhum resultado disponivel</strong><p>Valide a area e execute a analise para preencher esta etapa.</p></div>;
   }
   const metrics = result.recommendation.metrics;
-  const range = result.summary.date_range_effectively_processed as { start?: string; end?: string } | undefined;
+  const range = result.analysis_period;
   return (
     <div className="workspace-panel-content result-sidebar">
       <div className={`decision-block ${result.recommendation.decision}`}><span>RECOMENDACAO EXPERIMENTAL</span><strong>{decisionLabel(result.recommendation.decision)}</strong><p>{result.recommendation.summary}</p></div>
       <dl className="result-quick-metrics">
         <div><Gauge size={16} /><dt>Confianca</dt><dd>{confidenceLabel(result.recommendation.confidence)}</dd></div>
         <div><Leaf size={16} /><dt>NDVI atual</dt><dd>{formatMetric(metrics.current_ndvi_mean)}</dd></div>
-        <div><CalendarRange size={16} /><dt>Periodo</dt><dd>{formatDate(range?.start)} a {formatDate(range?.end)}</dd></div>
+        <div><CalendarRange size={16} /><dt>Periodo</dt><dd>{formatDate(range.start_date)} a {formatDate(range.end_date)}</dd></div>
       </dl>
       <section className="result-reasons"><h3>Motivos</h3>{result.recommendation.reasons.length ? <ul>{result.recommendation.reasons.map((reason) => <li key={reason}>{recommendationReasonLabel(reason)}</li>)}</ul> : <p>Nenhum motivo adicional registrado.</p>}</section>
       {result.recommendation.blocking_reasons.length ? <section className="result-reasons blocking"><h3><AlertCircle size={15} />Bloqueios</h3><ul>{result.recommendation.blocking_reasons.map((reason) => <li key={reason}>{recommendationReasonLabel(reason)}</li>)}</ul></section> : null}

@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .operational_profile import DEFAULT_ANALYSIS_TIMEZONE
+
 
 @dataclass(frozen=True)
 class ApiSettings:
@@ -16,6 +18,9 @@ class ApiSettings:
     )
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
+    )
+    analysis_timezone: str = os.getenv(
+        "ANALYSIS_TIMEZONE", DEFAULT_ANALYSIS_TIMEZONE
     )
     service_name: str = "motiva-vegetation-api"
     version: str = "0.1.0"

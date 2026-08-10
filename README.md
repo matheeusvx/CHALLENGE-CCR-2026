@@ -29,6 +29,12 @@ executa a analise real e recebe recomendacao, metricas, serie temporal e cenas.
 A entrada manual e o upload GeoJSON continuam disponiveis em uma secao avancada.
 A API nao chama a CLI por subprocesso.
 
+O operador percorre apenas as etapas **Area** e **Resultado**. A API aplica um
+perfil operacional interno para faixa lateral gramada e calcula o periodo da
+analise automaticamente: da data atual ate um mes calendario anterior, usando
+`America/Sao_Paulo` por padrao. Datas e parametros tecnicos continuam disponiveis
+na CLI e em chamadas legadas da API, mas nao sao controles da interface web.
+
 A base operacional padrao usa um StyleSpecification raster local com tiles do
 OpenStreetMap e inicia em Louveira no zoom 12. A opcao Terreno permanece
 temporariamente indisponivel. A AOI possui source e layers proprios,
@@ -73,6 +79,7 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `API_HOST` e `API_PORT`: bind da API;
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
+- `ANALYSIS_TIMEZONE`: timezone da data oficial da analise (padrao `America/Sao_Paulo`);
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
 
 ### Workspace geoespacial
@@ -85,10 +92,26 @@ Turf e, depois de **Validar area**, substitui esses valores pelos metadados
 oficiais retornados pela API.
 
 Qualquer edicao incrementa a revisao da geometria, descarta a validacao anterior
-e bloqueia **Executar analise** ate uma nova validacao. As abas **Area**,
-**Parametros** e **Resultado** compartilham o mesmo estado, por isso alternar
-entre elas nao remove a geometria. A recomendacao altera o contorno no mapa e
-tambem e apresentada em texto, com confianca e periodo.
+e bloqueia **Executar analise** ate uma nova validacao. As abas **Area** e
+**Resultado** compartilham o mesmo estado, por isso alternar entre elas nao
+remove a geometria. A recomendacao altera o contorno no mapa e tambem e
+apresentada em texto, com confianca e periodo oficial retornado pela API.
+
+### Perfil operacional web
+
+Os valores abaixo formam o perfil interno `roadside_grass_default`. Eles sao
+experimentais, preservam o comportamento atual e nao representam parametros
+validados operacionalmente pela Motiva:
+
+- `max_cloud_cover = 30`, `max_scenes = 12`, `scene_order = newest`;
+- `min_valid_pixel_percentage = 70`, `min_observations = 4`;
+- `daily_aggregation = best`, `decision_min_observations = 4`;
+- `high_vegetation_percentile = 75`, `significant_drop_absolute = 0.06`;
+- `significant_drop_relative_percentage = 15`, `trend_window = 3`;
+- `max_gap_days = 20`, `recent_intervention_days = 20`.
+
+Os parametros continuam no motor e na CLI. A centralizacao na API prepara a
+criacao futura de perfis distintos por cenario sem expor thresholds ao operador.
 
 Ao concluir o desenho, aplicar ou importar GeoJSON, abrir o resultado ou usar
 **Enquadrar**, a camera ajusta a area com padding para os controles e zoom
