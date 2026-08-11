@@ -10,7 +10,7 @@ export function AppHeader() {
     <header className="app-header">
       <div>
         <span className={online ? "status-dot online" : "status-dot"} aria-hidden="true" />
-        <span data-testid="api-status">{health.isLoading ? "Verificando API" : online ? "API operacional" : "API indisponivel"}</span>
+        <span data-testid="api-status">{health.isLoading ? "Verificando API" : online ? "API operacional" : "API indisponível"}</span>
       </div>
       <span className="header-context">Monitoramento Sentinel-2</span>
     </header>

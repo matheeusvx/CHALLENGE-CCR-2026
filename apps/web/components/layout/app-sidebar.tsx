@@ -1,15 +1,15 @@
 import { Activity, Database, FileClock, Leaf, Settings } from "lucide-react";
 
 const navigation = [
-  { label: "Nova analise", icon: Activity, active: true },
-  { label: "Execucoes", icon: FileClock },
+  { label: "Nova análise", icon: Activity, active: true },
+  { label: "Execuções", icon: FileClock },
   { label: "Fontes", icon: Database },
-  { label: "Configuracoes", icon: Settings },
+  { label: "Configurações", icon: Settings },
 ];
 
 export function AppSidebar() {
   return (
-    <aside className="sidebar" aria-label="Navegacao principal">
+    <aside className="sidebar" aria-label="Navegação principal">
       <div className="brand-mark"><Leaf size={20} aria-hidden="true" /><span>MVI</span></div>
       <nav>
         {navigation.map(({ label, icon: Icon, active }) => (

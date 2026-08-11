@@ -40,25 +40,23 @@ export function installOrUpdateAoiLayer(
     id: AOI_LAYER_IDS.fill,
     type: "fill",
     source: AOI_LAYER_IDS.source,
-    filter: ["==", ["get", "feature_role"], "area"],
     paint: { "fill-color": visualState.color, "fill-opacity": visualState.fillOpacity },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.halo,
     type: "line",
     source: AOI_LAYER_IDS.source,
-    filter: ["==", ["get", "feature_role"], "area"],
-    paint: { "line-color": "#ffffff", "line-width": 7, "line-opacity": 0.82 },
+    paint: { "line-color": "#1d1b25", "line-width": 9, "line-opacity": 0.7 },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.outline,
     type: "line",
     source: AOI_LAYER_IDS.source,
-    filter: ["==", ["get", "feature_role"], "area"],
     paint: {
       "line-color": visualState.color,
-      "line-width": 4,
-      "line-dasharray": visualState.dashed ? [2, 1.5] : [1, 0],
+      "line-width": 5,
+      "line-opacity": 1,
+      "line-dasharray": visualState.dashed ? [2, 1.5] : [1, 0.01],
     },
   });
   addLayerIfMissing(map, {
@@ -68,9 +66,9 @@ export function installOrUpdateAoiLayer(
     filter: ["==", ["get", "feature_role"], "vertex"],
     paint: {
       "circle-color": "#ffffff",
-      "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 7, 5],
+      "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 8, 6],
       "circle-stroke-color": visualState.color,
-      "circle-stroke-width": 2.5,
+      "circle-stroke-width": 3,
     },
   });
   if (map.getStyle().glyphs) {
@@ -97,8 +95,17 @@ export function installOrUpdateAoiLayer(
   map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-color", visualState.color);
   map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-opacity", visualState.fillOpacity);
   map.setPaintProperty(AOI_LAYER_IDS.outline, "line-color", visualState.color);
-  map.setPaintProperty(AOI_LAYER_IDS.outline, "line-dasharray", visualState.dashed ? [2, 1.5] : [1, 0]);
+  map.setPaintProperty(AOI_LAYER_IDS.outline, "line-dasharray", visualState.dashed ? [2, 1.5] : [1, 0.01]);
   map.setPaintProperty(AOI_LAYER_IDS.vertices, "circle-stroke-color", visualState.color);
+  bringAoiLayersToFront(map);
+}
+
+export function bringAoiLayersToFront(map: MapLibreMap): void {
+  if (typeof map.moveLayer !== "function") return;
+  [AOI_LAYER_IDS.fill, AOI_LAYER_IDS.halo, AOI_LAYER_IDS.outline, AOI_LAYER_IDS.vertices, AOI_LAYER_IDS.label]
+    .forEach((id) => {
+      if (map.getLayer(id)) map.moveLayer(id);
+    });
 }
 
 export function removeAoiLayer(map: MapLibreMap): void {

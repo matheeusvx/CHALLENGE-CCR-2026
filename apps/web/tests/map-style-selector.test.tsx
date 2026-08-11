@@ -6,7 +6,7 @@ describe("seletor de mapa-base", () => {
   it("mantem Operacional ativo e Terreno indisponivel", () => {
     render(<MapStyleSelector active="operational" />);
     expect(screen.getByRole("button", { name: "Operacional" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Terreno temporariamente indisponivel" })).toBeDisabled();
-    expect(screen.getByText("Terreno temporariamente indisponivel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terreno temporariamente indisponível" })).toBeDisabled();
+    expect(screen.getByText("Terreno temporariamente indisponível")).toBeInTheDocument();
   });
 });

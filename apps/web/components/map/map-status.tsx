@@ -8,7 +8,7 @@ export function MapStatus({ status, tool, onRetry }: { status: MapLoadStatus; to
     return (
       <div className="map-message error" role="alert">
         <AlertTriangle size={16} />
-        <span>Nao foi possivel carregar a base cartografica.</span>
+        <span>Não foi possível carregar a base cartográfica.</span>
         <button type="button" className="map-retry-button" onClick={onRetry}>
           <RotateCcw size={14} />
           Tentar novamente
@@ -17,13 +17,13 @@ export function MapStatus({ status, tool, onRetry }: { status: MapLoadStatus; to
     );
   }
   if (status === "loading") {
-    return <div className="map-message" role="status"><span className="map-loader" />Carregando base cartografica...</div>;
+    return <div className="map-message" role="status"><span className="map-loader" />Carregando base cartográfica...</div>;
   }
   if (tool === "draw") {
     return <div className="map-message instruction"><Crosshair size={16} />Clique para adicionar pontos. Clique no primeiro ponto para concluir.</div>;
   }
   if (tool === "edit") {
-    return <div className="map-message instruction"><Crosshair size={16} />Arraste os vertices para ajustar a area.</div>;
+    return <div className="map-message instruction"><Crosshair size={16} />Arraste os vértices para ajustar a área.</div>;
   }
   return null;
 }

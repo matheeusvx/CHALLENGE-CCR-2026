@@ -8,11 +8,11 @@ export function MapStyleSelector({ active }: { active: MapStyleId }) {
         <Map size={15} />
         Operacional
       </button>
-      <button type="button" disabled title="Terreno temporariamente indisponivel" aria-label="Terreno temporariamente indisponivel">
+      <button type="button" disabled title="Terreno temporariamente indisponível" aria-label="Terreno temporariamente indisponível">
         <Mountain size={15} />
         Terreno
       </button>
-      <span className="map-style-unavailable">Terreno temporariamente indisponivel</span>
+      <span className="map-style-unavailable">Terreno temporariamente indisponível</span>
     </div>
   );
 }

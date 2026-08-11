@@ -65,11 +65,11 @@ export function parseGeometryText(value: string): GeometryDocument {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error("O GeoJSON nao contem JSON valido.");
+    throw new Error("O GeoJSON não contém JSON válido.");
   }
   const result = geometrySchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error("Informe um Polygon, MultiPolygon, Feature ou FeatureCollection valido.");
+    throw new Error("Informe um Polygon, MultiPolygon, Feature ou FeatureCollection válido.");
   }
   return result.data;
 }

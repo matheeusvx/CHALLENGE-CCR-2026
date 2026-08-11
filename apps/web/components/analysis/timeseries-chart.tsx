@@ -23,8 +23,8 @@ export function TimeseriesChart({ result }: { result: AnalysisResponse }) {
 
   return (
     <section className="chart-panel" aria-labelledby="timeseries-title">
-      <div className="section-heading"><div><span>INDICE NDVI NO PERIODO ANALISADO</span><h2 id="timeseries-title">Evolucao da vegetacao</h2></div><p>{records.length} observacoes</p></div>
-      {records.length ? <ReactECharts option={option} style={{ height: 360, width: "100%" }} notMerge /> : <div className="empty-state">A analise nao produziu observacoes validas para o grafico.</div>}
+      <div className="section-heading"><div><span>ÍNDICE NDVI NO PERÍODO ANALISADO</span><h2 id="timeseries-title">Evolução da vegetação</h2></div><p>{records.length} observações</p></div>
+      {records.length ? <ReactECharts option={option} style={{ height: 360, width: "100%" }} notMerge /> : <div className="empty-state">A análise não produziu observações válidas para o gráfico.</div>}
     </section>
   );
 }

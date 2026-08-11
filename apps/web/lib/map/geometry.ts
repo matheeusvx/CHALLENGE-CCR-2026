@@ -20,7 +20,7 @@ const ringSchema = z
       const last = ring.at(-1);
       return first[0] === last?.[0] && first[1] === last?.[1];
     },
-    "Os aneis do poligono devem estar fechados.",
+    "Os anéis do polígono devem estar fechados.",
   );
 
 export const polygonSchema = z.object({
@@ -74,7 +74,7 @@ export function normalizeGeoJson(input: unknown): PolygonGeometry {
   }
 
   throw new Error(
-    "Informe um Polygon, uma Feature Polygon ou uma FeatureCollection com um unico Polygon.",
+    "Informe um Polygon, uma Feature Polygon ou uma FeatureCollection com um único Polygon.",
   );
 }
 
@@ -83,7 +83,7 @@ export function parseGeoJsonText(value: string): PolygonGeometry {
   try {
     document = JSON.parse(value);
   } catch {
-    throw new Error("O GeoJSON nao contem JSON valido.");
+    throw new Error("O GeoJSON não contém JSON válido.");
   }
   return normalizeGeoJson(document);
 }
@@ -109,7 +109,7 @@ export function formatGeometry(geometry: PolygonGeometry): string {
 
 function assertTopologicallyValid(geometry: PolygonGeometry) {
   if (!booleanValid(geometryFeature(geometry))) {
-    throw new Error("O poligono possui uma geometria invalida ou autointersectada.");
+    throw new Error("O polígono possui uma geometria inválida ou autointersectada.");
   }
 }
 

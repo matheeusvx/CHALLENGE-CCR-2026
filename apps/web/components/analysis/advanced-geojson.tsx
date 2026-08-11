@@ -21,13 +21,13 @@ export function AdvancedGeoJson() {
     setFeedback(undefined);
     try {
       const parsed = parseGeoJsonText(text);
-      if (geometry && !window.confirm("Substituir a geometria atual pela nova area?")) return;
+      if (geometry && !window.confirm("Substituir a geometria atual pela nova área?")) return;
       setGeometry(parsed, source);
       setField("geometryText", formatGeometry(parsed));
       requestFit();
       setFeedback(source === "uploaded" ? "Arquivo aplicado ao mapa." : "GeoJSON aplicado ao mapa.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Nao foi possivel ler a geometria.");
+      setError(reason instanceof Error ? reason.message : "Não foi possível ler a geometria.");
     }
   };
 
@@ -52,7 +52,7 @@ export function AdvancedGeoJson() {
       setField("geometryText", formatGeometry(parsed));
       setError(undefined);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "JSON invalido.");
+      setError(reason instanceof Error ? reason.message : "JSON inválido.");
     }
   };
 
@@ -75,10 +75,10 @@ export function AdvancedGeoJson() {
 
   return (
     <details className="advanced-geojson">
-      <summary><FileJson size={16} />Entrada avancada por GeoJSON</summary>
+      <summary><FileJson size={16} />Entrada avançada por GeoJSON</summary>
       <div className="advanced-body">
         <label htmlFor="advanced-geometry">GeoJSON em EPSG:4326</label>
-        <textarea id="advanced-geometry" aria-label="GeoJSON da area de interesse" value={geometryText} onChange={(event) => setField("geometryText", event.target.value)} placeholder='{"type":"Polygon","coordinates":[...]}' spellCheck={false} />
+        <textarea id="advanced-geometry" aria-label="GeoJSON da área de interesse" value={geometryText} onChange={(event) => setField("geometryText", event.target.value)} placeholder='{"type":"Polygon","coordinates":[...]}' spellCheck={false} />
         {error && <p className="field-error" role="alert">{error}</p>}
         {feedback && <p className="field-success" role="status"><Check size={14} />{feedback}</p>}
         <div className="advanced-actions">

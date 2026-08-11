@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolygonGeometry } from "@/lib/map/geometry";
+import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { DEFAULT_MAP_STYLE_ID, MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { useAnalysisStore } from "@/stores/analysis-store";
 
@@ -12,6 +13,8 @@ type MapMockShape = {
   layers: Map<string, { id: string; paint?: Record<string, unknown> }>;
   fitBounds: ReturnType<typeof vi.fn>;
   setStyle: ReturnType<typeof vi.fn>;
+  moveLayer: ReturnType<typeof vi.fn>;
+  loaded: boolean;
   removed: boolean;
   emit: (event: string, payload?: unknown) => void;
 };
@@ -22,8 +25,14 @@ type DrawMockShape = {
   stopped: boolean;
   emit: (event: string) => void;
 };
+type PopupMockShape = { options: Record<string, unknown>; content?: HTMLElement; removed: boolean };
 
-const runtime = vi.hoisted(() => ({ maps: [] as MapMockShape[], draws: [] as DrawMockShape[] }));
+const runtime = vi.hoisted(() => ({
+  maps: [] as MapMockShape[],
+  draws: [] as DrawMockShape[],
+  popups: [] as PopupMockShape[],
+  polygonModeOptions: [] as Array<Record<string, unknown>>,
+}));
 
 vi.mock("maplibre-gl", () => {
   class MapMock {
@@ -32,6 +41,7 @@ vi.mock("maplibre-gl", () => {
     sources = new Map<string, { setData: ReturnType<typeof vi.fn>; data: unknown }>();
     layers = new Map<string, { id: string; paint?: Record<string, unknown> }>();
     fitBounds = vi.fn();
+    moveLayer = vi.fn((id: string) => { const layer = this.layers.get(id); if (layer) { this.layers.delete(id); this.layers.set(id, layer); } });
     removed = false;
     loaded = false;
     canvas = document.createElement("canvas");
@@ -78,10 +88,14 @@ vi.mock("maplibre-gl", () => {
     Map: MapMock,
     NavigationControl: class {},
     Popup: class {
+      options: Record<string, unknown>;
+      content?: HTMLElement;
+      removed = false;
+      constructor(options: Record<string, unknown>) { this.options = options; runtime.popups.push(this); }
       setLngLat() { return this; }
-      setDOMContent() { return this; }
+      setDOMContent(content: HTMLElement) { this.content = content; return this; }
       addTo() { return this; }
-      remove() { return this; }
+      remove() { this.removed = true; return this; }
     },
   };
 });
@@ -112,7 +126,7 @@ vi.mock("terra-draw", () => {
   }
   return {
     TerraDraw: DrawMock,
-    TerraDrawPolygonMode: class {},
+    TerraDrawPolygonMode: class { constructor(options: Record<string, unknown>) { runtime.polygonModeOptions.push(options); } },
     TerraDrawRenderMode: class {},
     TerraDrawSelectMode: class {},
     TerraDrawSessionUndoRedo: class {},
@@ -128,6 +142,8 @@ const polygon: PolygonGeometry = { type: "Polygon", coordinates: [[[-46.962, -23
 beforeEach(() => {
   runtime.maps.length = 0;
   runtime.draws.length = 0;
+  runtime.popups.length = 0;
+  runtime.polygonModeOptions.length = 0;
   useAnalysisStore.setState({
     geometry: null,
     geometryRevision: 0,
@@ -182,7 +198,11 @@ describe("lifecycle operacional do mapa", () => {
     act(() => draw.emit("finish"));
     expect(map.fitBounds).toHaveBeenCalledOnce();
     expect(useAnalysisStore.getState()).toMatchObject({ geometry: polygon, isGeometryDirty: true, selectedTool: "navigate" });
-    expect(screen.getByText("Aguardando validacao")).toBeInTheDocument();
+    expect(screen.getByText("Aguardando validação")).toBeInTheDocument();
+    expect(runtime.polygonModeOptions[0]).toMatchObject({
+      showCoordinatePoints: true,
+      styles: { outlineWidth: 5, coordinatePointWidth: 8, closingPointWidth: 9 },
+    });
   });
 
   it("enquadra apos aplicar GeoJSON e pelo controle explicito", () => {
@@ -208,16 +228,27 @@ describe("lifecycle operacional do mapa", () => {
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
   });
 
+  it("sincroniza a AOI mesmo enquanto tiles raster ainda estao carregando", () => {
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("style.load"));
+    map.loaded = false;
+    act(() => useAnalysisStore.getState().setGeometry(polygon, "drawn"));
+    expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
+    expect(map.layers.has(AOI_LAYER_IDS.fill)).toBe(true);
+    expect(map.layers.has(AOI_LAYER_IDS.outline)).toBe(true);
+  });
+
   it("exibe falha em qualquer erro do mapa e permite tentar novamente", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     render(<MapCanvas />);
     const map = runtime.maps[0];
     act(() => map.emit("error", { error: new Error("tile indisponivel") }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Nao foi possivel carregar a base cartografica.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Não foi possível carregar a base cartográfica.");
     expect(consoleError).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
     expect(map.setStyle).toHaveBeenCalledWith(OPERATIONAL_RASTER_STYLE);
-    expect(screen.getByRole("status")).toHaveTextContent("Carregando base cartografica...");
+    expect(screen.getByRole("status")).toHaveTextContent("Carregando base cartográfica...");
     act(() => map.emit("style.load"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     consoleError.mockRestore();
@@ -236,6 +267,42 @@ describe("lifecycle operacional do mapa", () => {
     expect(useAnalysisStore.getState().geometry).toEqual(edited);
     act(() => useAnalysisStore.getState().clearGeometry());
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(false);
+  });
+
+  it("mantem a AOI entre tabs e apresenta popup legivel apos a analise", () => {
+    const state = useAnalysisStore.getState();
+    state.setGeometry(polygon, "drawn");
+    const revision = useAnalysisStore.getState().geometryRevision;
+    state.applyGeometryValidation({
+      valid: true,
+      geometry_type: "Polygon",
+      area_square_meters: 4500,
+      centroid: { longitude: -46.961, latitude: -23.108 },
+      bounding_box: [-46.962, -23.109, -46.96, -23.107],
+      estimated_sentinel_pixels: 45,
+      warnings: [],
+    }, revision);
+    const result = {
+      analysis_id: "6d7ba572-321d-4a27-9f0f-9fcbd5ecab62",
+      status: "completed",
+      analysis_period: { start_date: "2026-07-11", end_date: "2026-08-11", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
+      recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Sem intervenção indicada.", reasons: [], blocking_reasons: [], limitations: [], metrics: {} },
+      aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
+    } satisfies AnalysisResponse;
+
+    render(<MapCanvas result={result} />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => useAnalysisStore.getState().setField("activeTab", "result"));
+    act(() => useAnalysisStore.getState().setField("activeTab", "area"));
+
+    expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
+    expect(map.layers.get(AOI_LAYER_IDS.outline)?.paint?.["line-color"]).toBe("#27865b");
+    expect(runtime.popups.at(-1)?.options).toMatchObject({ className: "analysis-result-map-popup" });
+    expect(runtime.popups.at(-1)?.content).toHaveTextContent("NÃO CORTAR");
+    expect(runtime.popups.at(-1)?.content).toHaveTextContent("Confiança: Alta");
+    expect(runtime.popups.at(-1)?.content).toHaveTextContent("Período: 11/07/2026 a 11/08/2026");
+    expect(runtime.popups.at(-1)?.content?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
   });
 
   it("nao conserva listeners de uma montagem descartada pelo Strict Mode", () => {

@@ -14,13 +14,13 @@ export function ResultReasons({ result }: { result: AnalysisResponse }) {
       <div className="section-heading">
         <div>
           <span>JUSTIFICATIVA</span>
-          <h2 id="result-reasons-title">Por que o sistema chegou a esta conclusao?</h2>
+          <h2 id="result-reasons-title">Por que o sistema chegou a esta conclusão?</h2>
         </div>
-        {hasAttention ? <AlertTriangle size={20} aria-label="Conclusao requer atencao" /> : <ListChecks size={20} aria-hidden="true" />}
+        {hasAttention ? <AlertTriangle size={20} aria-label="Conclusão requer atenção" /> : <ListChecks size={20} aria-hidden="true" />}
       </div>
       {reasons.length
         ? <ul>{reasons.map((reason) => <li key={reason}>{recommendationReasonLabel(reason)}</li>)}</ul>
-        : <p>O resultado foi determinado pelas condicoes resumidas na recomendacao.</p>}
+        : <p>O resultado foi determinado pelas condições resumidas na recomendação.</p>}
     </section>
   );
 }

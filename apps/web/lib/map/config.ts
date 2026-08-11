@@ -49,7 +49,7 @@ export const MAP_CONFIG = {
   minZoom: 5,
   maxZoom: 19,
   fit: {
-    padding: { top: 80, right: 120, bottom: 80, left: 80 },
+    padding: { top: 80, right: 180, bottom: 80, left: 80 },
     maxZoom: 16,
     duration: 700,
   },

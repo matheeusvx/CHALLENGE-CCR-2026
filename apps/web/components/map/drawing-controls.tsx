@@ -21,11 +21,11 @@ export function DrawingControls(props: Props) {
   return (
     <div className="drawing-controls" aria-label="Ferramentas de geometria">
       <ToolButton label="Navegar no mapa" active={props.tool === "navigate"} onClick={() => props.onTool("navigate")}><MousePointer2 size={18} /></ToolButton>
-      <ToolButton label="Desenhar poligono" active={props.tool === "draw"} onClick={() => props.onTool("draw")}><Pencil size={18} /></ToolButton>
-      <ToolButton label="Editar vertices" active={props.tool === "edit"} disabled={!props.hasGeometry} onClick={() => props.onTool("edit")}><Crosshair size={18} /></ToolButton>
+      <ToolButton label="Desenhar polígono" active={props.tool === "draw"} onClick={() => props.onTool("draw")}><Pencil size={18} /></ToolButton>
+      <ToolButton label="Editar vértices" active={props.tool === "edit"} disabled={!props.hasGeometry} onClick={() => props.onTool("edit")}><Crosshair size={18} /></ToolButton>
       <span className="map-tool-separator" />
-      <ToolButton label="Desfazer alteracao" disabled={!props.canUndo} onClick={props.onUndo}><Undo2 size={18} /></ToolButton>
-      <ToolButton label="Refazer alteracao" disabled={!props.canRedo} onClick={props.onRedo}><Redo2 size={18} /></ToolButton>
+      <ToolButton label="Desfazer alteração" disabled={!props.canUndo} onClick={props.onUndo}><Undo2 size={18} /></ToolButton>
+      <ToolButton label="Refazer alteração" disabled={!props.canRedo} onClick={props.onRedo}><Redo2 size={18} /></ToolButton>
       <ToolButton label="Enquadrar geometria" disabled={!props.hasGeometry} onClick={props.onFit}><Maximize size={18} /></ToolButton>
       <ToolButton label="Excluir geometria" disabled={!props.hasGeometry} onClick={props.onDelete}><Trash2 size={18} /></ToolButton>
     </div>

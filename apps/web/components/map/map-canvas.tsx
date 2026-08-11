@@ -17,6 +17,7 @@ import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
 import { MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { fitMapToGeometry } from "@/lib/map/fit-map-to-geometry";
 import type { PolygonGeometry } from "@/lib/map/geometry";
+import { getResultPopupPresentation } from "@/lib/map/result-popup";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { DrawingControls } from "./drawing-controls";
@@ -83,6 +84,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       attributionControl: { compact: true },
     });
     mapRef.current = map;
+    (window as typeof window & { __MVI_MAP_DIAGNOSTIC__?: MapLibreMap }).__MVI_MAP_DIAGNOSTIC__ = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
 
     const disposeEditor = () => {
@@ -125,11 +127,11 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
     const handleStyleLoad = () => {
       try {
-        installOperationalLayers();
         if (!styleEditorReadyRef.current) {
           initializeEditor();
           styleEditorReadyRef.current = true;
         }
+        installOperationalLayers();
         if (!baseLoadFailedRef.current) setLoadStatus("ready");
       } catch (reason) {
         console.error("Falha ao instalar as camadas operacionais do mapa.", reason);
@@ -139,11 +141,11 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     };
     const handleLoad = () => {
       try {
-        installOperationalLayers();
         if (!styleEditorReadyRef.current) {
           initializeEditor();
           styleEditorReadyRef.current = true;
         }
+        installOperationalLayers();
         if (!baseLoadFailedRef.current) setLoadStatus("ready");
       } catch (reason) {
         console.error("Falha ao concluir o carregamento do mapa.", reason);
@@ -175,6 +177,8 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       map.off("error", handleError);
       map.off("moveend", handleMoveEnd);
       mapRef.current = null;
+      const diagnosticWindow = window as typeof window & { __MVI_MAP_DIAGNOSTIC__?: MapLibreMap };
+      if (diagnosticWindow.__MVI_MAP_DIAGNOSTIC__ === map) delete diagnosticWindow.__MVI_MAP_DIAGNOSTIC__;
       map.remove();
     };
   // The map is deliberately created once; mutable refs carry current AOI state.
@@ -196,9 +200,32 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.isStyleLoaded()) return;
+    console.info("MVI AOI effect", JSON.stringify({ geometry: Boolean(geometry), styleEditorReady: styleEditorReadyRef.current }));
+    if (!map || !styleEditorReadyRef.current) return;
     disposeHoverRef.current();
+    const handleAoiSourceData = (event: maplibregl.MapSourceDataEvent) => {
+      if (event.sourceId !== "analysis-aoi-source") return;
+      console.info("MVI AOI sourcedata", JSON.stringify({
+        loaded: map.isSourceLoaded("analysis-aoi-source"),
+        features: map.querySourceFeatures("analysis-aoi-source").map((feature) => feature.geometry.type),
+      }));
+      if (map.isSourceLoaded("analysis-aoi-source")) map.off("sourcedata", handleAoiSourceData);
+    };
+    map.on("sourcedata", handleAoiSourceData);
     installOrUpdateAoiLayer(map, geometry, aoiVisualState);
+    console.info("MVI AOI installed", JSON.stringify({
+      source: Boolean(map.getSource("analysis-aoi-source")),
+      layers: map.getStyle().layers?.map((layer) => layer.id),
+      sourceSpecification: (map.getSource("analysis-aoi-source") as { serialize?: () => unknown } | undefined)?.serialize?.(),
+    }));
+    map.once("render", () => console.info("MVI AOI rendered", JSON.stringify({
+      sourceFeatures: map.querySourceFeatures("analysis-aoi-source").map((feature) => feature.geometry.type),
+      fill: map.queryRenderedFeatures({ layers: ["analysis-aoi-fill"] }).length,
+      outline: map.queryRenderedFeatures({ layers: ["analysis-aoi-outline"] }).length,
+      vertices: map.queryRenderedFeatures({ layers: ["analysis-aoi-vertices"] }).length,
+      center: map.getCenter(),
+      zoom: map.getZoom(),
+    })));
     disposeHoverRef.current = geometry ? installAoiHoverInteractions(map) : () => undefined;
   }, [aoiVisualState, geometry]);
 
@@ -221,15 +248,18 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     popupRef.current = null;
     const map = mapRef.current;
     if (!map || !result || !geometry || !validated || isGeometryDirty || !geometryValidation) return;
+    const presentation = getResultPopupPresentation(result);
     const popupNode = document.createElement("div");
     const title = document.createElement("strong");
-    title.textContent = decisionLabel(result.recommendation.decision);
-    const details = document.createElement("span");
-    const range = result.summary.date_range_effectively_processed as { start?: string; end?: string } | undefined;
-    details.textContent = `Confianca ${result.recommendation.confidence} | ${range?.start ?? "-"} a ${range?.end ?? "-"}`;
-    popupNode.className = "map-result-popup";
-    popupNode.append(title, details);
-    popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 12 })
+    title.textContent = presentation.decision;
+    const confidence = document.createElement("span");
+    confidence.textContent = `Confiança: ${presentation.confidence}`;
+    const period = document.createElement("span");
+    period.textContent = `Período: ${presentation.period}`;
+    popupNode.className = `map-result-popup ${presentation.state}`;
+    popupNode.dataset.decision = presentation.state;
+    popupNode.append(title, confidence, period);
+    popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 14, className: "analysis-result-map-popup" })
       .setLngLat([geometryValidation.centroid.longitude, geometryValidation.centroid.latitude])
       .setDOMContent(popupNode)
       .addTo(map);
@@ -250,7 +280,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
   const deleteGeometry = () => {
     const state = useAnalysisStore.getState();
-    if (isCurrentGeometryValidated(state) && !window.confirm("Esta area ja foi validada. Deseja exclui-la?")) return;
+    if (isCurrentGeometryValidated(state) && !window.confirm("Esta área já foi validada. Deseja excluí-la?")) return;
     drawRef.current?.clear();
     clearGeometry();
   };
@@ -274,7 +304,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
         replayHistory(event.shiftKey ? "redo" : "undo");
       }
     }}>
-      <div ref={containerRef} className="map-canvas" aria-label="Mapa para delimitacao da area rodoviaria" />
+      <div ref={containerRef} className="map-canvas" aria-label="Mapa para delimitação da área rodoviária" />
       <DrawingControls
         tool={selectedTool}
         hasGeometry={Boolean(geometry)}
@@ -295,30 +325,49 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
 const drawingStyles = {
   polygonFillColor: "#7c3aed" as const,
-  polygonFillOpacity: 0.22,
-  polygonOutlineColor: "#6d28d9" as const,
-  polygonOutlineWidth: 4,
+  polygonFillOpacity: 0.25,
+  polygonOutlineColor: "#7c3aed" as const,
+  polygonOutlineWidth: 5,
 };
 
 const polygonDrawingStyles = {
   fillColor: "#7c3aed" as const,
-  fillOpacity: 0.22,
-  outlineColor: "#6d28d9" as const,
-  outlineWidth: 4,
-  closingPointColor: "#6d28d9" as const,
+  fillOpacity: 0.25,
+  outlineColor: "#7c3aed" as const,
+  outlineOpacity: 1,
+  outlineWidth: 5,
+  closingPointColor: "#ffffff" as const,
+  closingPointWidth: 9,
+  closingPointOpacity: 1,
+  closingPointOutlineColor: "#7c3aed" as const,
+  closingPointOutlineWidth: 3,
+  closingPointOutlineOpacity: 1,
   coordinatePointColor: "#ffffff" as const,
-  coordinatePointOutlineColor: "#6d28d9" as const,
+  coordinatePointWidth: 8,
+  coordinatePointOpacity: 1,
+  coordinatePointOutlineColor: "#7c3aed" as const,
+  coordinatePointOutlineWidth: 3,
+  coordinatePointOutlineOpacity: 1,
 };
 
 const selectionStyles = {
   selectedPolygonColor: "#7c3aed" as const,
-  selectedPolygonFillOpacity: 0.22,
-  selectedPolygonOutlineColor: "#6d28d9" as const,
-  selectedPolygonOutlineWidth: 4,
+  selectedPolygonFillOpacity: 0.25,
+  selectedPolygonOutlineColor: "#7c3aed" as const,
+  selectedPolygonOutlineOpacity: 1,
+  selectedPolygonOutlineWidth: 5,
   selectionPointColor: "#ffffff" as const,
-  selectionPointOutlineColor: "#6d28d9" as const,
+  selectionPointWidth: 9,
+  selectionPointOpacity: 1,
+  selectionPointOutlineColor: "#7c3aed" as const,
+  selectionPointOutlineWidth: 3,
+  selectionPointOutlineOpacity: 1,
   midPointColor: "#f2eaff" as const,
   midPointOutlineColor: "#7c3aed" as const,
+  midPointWidth: 7,
+  midPointOpacity: 1,
+  midPointOutlineWidth: 2,
+  midPointOutlineOpacity: 1,
 };
 
 type EditorCallbacks = {
@@ -333,7 +382,7 @@ function createEditor(map: MapLibreMap, guard: React.MutableRefObject<boolean>, 
     adapter: new TerraDrawMapLibreGLAdapter({ map, coordinatePrecision: 9 }),
     modes: [
       new TerraDrawRenderMode({ modeName: "navigate", styles: drawingStyles }),
-      new TerraDrawPolygonMode({ styles: polygonDrawingStyles }),
+      new TerraDrawPolygonMode({ styles: polygonDrawingStyles, showCoordinatePoints: true }),
       new TerraDrawSelectMode({
         flags: {
           polygon: {
@@ -403,8 +452,4 @@ function replaceDrawGeometry(draw: TerraDraw, geometry: PolygonGeometry | null, 
   }
   draw.clearUndoRedoHistory();
   guard.current = false;
-}
-
-function decisionLabel(decision: AnalysisResponse["recommendation"]["decision"]) {
-  return decision === "cortar" ? "CORTAR" : decision === "nao_cortar" ? "NAO CORTAR" : "INCONCLUSIVO";
 }

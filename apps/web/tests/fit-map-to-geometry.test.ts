@@ -16,7 +16,7 @@ describe("fitMapToGeometry", () => {
     expect(bounds[0][1]).toBeCloseTo(-23.109);
     expect(bounds[1][0]).toBeCloseTo(-46.96);
     expect(bounds[1][1]).toBeCloseTo(-23.107);
-    expect(options).toEqual(expect.objectContaining({ maxZoom: 16, duration: 700, padding: { top: 80, right: 120, bottom: 80, left: 80 } }));
+    expect(options).toEqual(expect.objectContaining({ maxZoom: 16, duration: 700, padding: { top: 80, right: 180, bottom: 80, left: 80 } }));
   });
 
   it("expande caixas degeneradas sem inventar uma geometria", () => {

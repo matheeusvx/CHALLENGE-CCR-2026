@@ -14,6 +14,7 @@ class LayerMapMock {
   addLayer(layer: { id: string; paint?: Record<string, unknown> }) { this.layers.set(layer.id, layer); }
   getLayer(id: string) { return this.layers.get(id); }
   removeLayer(id: string) { this.layers.delete(id); }
+  moveLayer(id: string) { const layer = this.layers.get(id); if (layer) { this.layers.delete(id); this.layers.set(id, layer); } }
   setPaintProperty(id: string, key: string, value: unknown) { const layer = this.layers.get(id); if (layer) layer.paint = { ...layer.paint, [key]: value }; }
   getStyle() { return {}; }
 }
@@ -25,7 +26,10 @@ describe("camada operacional da AOI", () => {
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
     expect([...map.layers.keys()]).toEqual(expect.arrayContaining([AOI_LAYER_IDS.fill, AOI_LAYER_IDS.halo, AOI_LAYER_IDS.outline, AOI_LAYER_IDS.vertices]));
     expect(map.layers.has(AOI_LAYER_IDS.label)).toBe(false);
-    expect(createAoiFeatureCollection(polygon, "Area").features.filter((feature) => feature.properties.feature_role === "vertex")).toHaveLength(4);
+    expect(createAoiFeatureCollection(polygon, "Área").features.filter((feature) => feature.properties.feature_role === "vertex")).toHaveLength(4);
+    expect([...map.layers.keys()]).toEqual([AOI_LAYER_IDS.fill, AOI_LAYER_IDS.halo, AOI_LAYER_IDS.outline, AOI_LAYER_IDS.vertices]);
+    expect(map.layers.get(AOI_LAYER_IDS.halo)?.paint).toMatchObject({ "line-width": 9, "line-color": "#1d1b25" });
+    expect(map.layers.get(AOI_LAYER_IDS.outline)?.paint?.["line-width"]).toBe(5);
   });
 
   it("atualiza a fonte e o estilo sem duplicar camadas", () => {

@@ -18,12 +18,12 @@ export type AoiVisualState = {
 };
 
 const AOI_VISUAL_STATES: Record<AoiVisualStateId, AoiVisualState> = {
-  editing: { id: "editing", label: "Area em edicao", color: "#6d28d9", fillOpacity: 0.22, dashed: false },
-  pending_validation: { id: "pending_validation", label: "Aguardando validacao", color: "#c56a16", fillOpacity: 0.18, dashed: false },
-  valid: { id: "valid", label: "Area validada", color: "#2563a8", fillOpacity: 0.17, dashed: false },
-  invalid: { id: "invalid", label: "Area invalida", color: "#c43d46", fillOpacity: 0.14, dashed: true },
+  editing: { id: "editing", label: "Área em edição", color: "#7c3aed", fillOpacity: 0.25, dashed: false },
+  pending_validation: { id: "pending_validation", label: "Aguardando validação", color: "#c56a16", fillOpacity: 0.2, dashed: false },
+  valid: { id: "valid", label: "Área validada", color: "#27865b", fillOpacity: 0.18, dashed: false },
+  invalid: { id: "invalid", label: "Área inválida", color: "#c43d46", fillOpacity: 0.16, dashed: true },
   cut: { id: "cut", label: "Cortar", color: "#d44d2f", fillOpacity: 0.2, dashed: false },
-  no_cut: { id: "no_cut", label: "Nao cortar", color: "#27865b", fillOpacity: 0.18, dashed: false },
+  no_cut: { id: "no_cut", label: "Não cortar", color: "#27865b", fillOpacity: 0.18, dashed: false },
   inconclusive: { id: "inconclusive", label: "Inconclusivo", color: "#a77919", fillOpacity: 0.17, dashed: true },
 };
 

@@ -17,4 +17,9 @@ describe("estado visual da AOI", () => {
   it("nao mostra uma recomendacao antiga durante uma edicao", () => {
     expect(getAoiVisualState({ editing: true, dirty: true, validation: "valid", recommendation: "cortar" }).id).toBe("editing");
   });
+
+  it("usa roxo na edicao e verde para area validada", () => {
+    expect(getAoiVisualState({ editing: true, dirty: true, validation: null })).toMatchObject({ color: "#7c3aed", label: "Área em edição" });
+    expect(getAoiVisualState({ editing: false, dirty: false, validation: "valid" })).toMatchObject({ color: "#27865b", label: "Área validada" });
+  });
 });

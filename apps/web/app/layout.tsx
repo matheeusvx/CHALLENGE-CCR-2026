@@ -10,7 +10,7 @@ const plex = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], 
 
 export const metadata: Metadata = {
   title: "Motiva Vegetation Intelligence",
-  description: "Monitoramento espectral de vegetacao rodoviaria.",
+  description: "Monitoramento espectral de vegetação rodoviária.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

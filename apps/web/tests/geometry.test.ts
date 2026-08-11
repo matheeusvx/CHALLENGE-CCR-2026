@@ -8,8 +8,8 @@ describe("normalizacao GeoJSON", () => {
   it("aceita Polygon", () => expect(normalizeGeoJson(polygon)).toEqual(polygon));
   it("aceita Feature Polygon", () => expect(normalizeGeoJson({ type: "Feature", properties: { name: "AOI" }, geometry: polygon })).toEqual(polygon));
   it("aceita FeatureCollection com uma Feature Polygon", () => expect(normalizeGeoJson({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: polygon }] })).toEqual(polygon));
-  it("rejeita FeatureCollection com mais de uma feicao", () => expect(() => normalizeGeoJson({ type: "FeatureCollection", features: [{ type: "Feature", geometry: polygon }, { type: "Feature", geometry: polygon }] })).toThrow("unico Polygon"));
-  it("rejeita JSON invalido", () => expect(() => parseGeoJsonText("{")).toThrow("JSON valido"));
+  it("rejeita FeatureCollection com mais de uma feicao", () => expect(() => normalizeGeoJson({ type: "FeatureCollection", features: [{ type: "Feature", geometry: polygon }, { type: "Feature", geometry: polygon }] })).toThrow("único Polygon"));
+  it("rejeita JSON invalido", () => expect(() => parseGeoJsonText("{")).toThrow("JSON válido"));
   it("rejeita coordenadas fora dos limites", () => expect(() => normalizeGeoJson({ type: "Polygon", coordinates: [[[200, -23], [201, -23], [201, -22], [200, -23]]] })).toThrow());
   it("calcula area, centroide, bbox e pixels provisoriamente", () => {
     const preview = calculateGeometryPreview(polygon);

@@ -43,7 +43,7 @@ export function GeospatialWorkspace() {
   return (
     <div className="geospatial-page">
       <div className="compact-workspace-heading">
-        <div><span>OPERACOES / VEGETACAO</span><h1>Motiva Vegetation Intelligence</h1><p>Delimite a faixa lateral gramada e execute a analise Sentinel-2.</p></div>
+        <div><span>OPERAÇÕES / VEGETAÇÃO</span><h1>Motiva Vegetation Intelligence</h1><p>Delimite a faixa lateral gramada e execute a análise Sentinel-2.</p></div>
         <div className="source-chip"><Satellite size={17} /><span>Planetary Computer</span></div>
       </div>
       <div className="geospatial-workspace">
@@ -53,7 +53,7 @@ export function GeospatialWorkspace() {
             validationFailed={Boolean(validation.error && validation.variables?.revision === state.geometryRevision)}
           />
         </section>
-        <aside className="analysis-drawer" aria-label="Painel da analise">
+        <aside className="analysis-drawer" aria-label="Painel da análise">
           <WorkspaceTabs active={state.activeTab} onChange={(tab) => state.setField("activeTab", tab)} hasResult={Boolean(result)} />
           <div role="tabpanel">
             {state.activeTab === "area" && <AreaPanel validating={validation.isPending} running={analysis.isPending} error={errorMessage} onValidate={handleValidate} onRun={handleRun} />}
@@ -67,5 +67,5 @@ export function GeospatialWorkspace() {
 }
 
 function messageFrom(error: unknown) {
-  return error instanceof ApiError || error instanceof Error ? error.message : "Nao foi possivel concluir a operacao.";
+  return error instanceof ApiError || error instanceof Error ? error.message : "Não foi possível concluir a operação.";
 }
