@@ -34,10 +34,14 @@ const result: AnalysisResponse = {
   status: "completed",
   analysis_period: { start_date: "2026-07-10", end_date: "2026-08-10", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
   recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Vegetacao abaixo do nivel alto local.", reasons: ["current_percentile_below_or_equal_50"], blocking_reasons: [], limitations: ["Validacao de campo necessaria."], metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 } },
-  aoi: { source: "geojson_inline" },
-  summary: { date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" } },
-  timeseries: [{ datetime: "2026-06-01T00:00:00Z", ndvi_mean: 0.61, ndvi_median: 0.6 }, { datetime: "2026-08-01T00:00:00Z", ndvi_mean: 0.52, ndvi_median: 0.51 }],
-  scenes: [{ item_id: "S2_TEST", datetime: "2026-08-01T00:00:00Z", cloud_cover: 8, valid_pixel_percentage: 92, quality_status: "high", accepted_for_timeseries: true, daily_aggregation: "best" }],
+  aoi: { source: "geojson_inline", area_square_meters: 12450 },
+  summary: {
+    date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" },
+    analysis_quality: { score: 92, status: "high", mean_scene_quality_score: 89, rejected_scene_count: 3 },
+    thresholds: { high_vegetation_percentile: 75, significant_drop_absolute: 0.06 },
+  },
+  timeseries: [{ datetime: "2026-06-01T00:00:00Z", ndvi_mean: 0.61, ndvi_median: 0.6, scene_quality_score: 90 }, { datetime: "2026-08-01T00:00:00Z", ndvi_mean: 0.52, ndvi_median: 0.51, scene_quality_score: 92 }],
+  scenes: [{ item_id: "S2_TEST", datetime: "2026-08-01T00:00:00Z", cloud_cover: 8, valid_pixel_count: 124, total_pixel_count: 130, valid_pixel_percentage: 92, local_invalid_pixel_percentage: 8, aoi_coverage_percentage: 98, scene_quality_score: 91, quality_status: "high", accepted_for_timeseries: true, daily_aggregation: "best", temporal_outlier_suspected: false }],
   artifacts: {}, warnings: [], errors: [],
 };
 
@@ -127,8 +131,20 @@ describe("workspace geoespacial", () => {
     fireEvent.click(runButton);
     expect((await screen.findAllByText("Vegetacao abaixo do nivel alto local.")).length).toBeGreaterThan(0);
     expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon }, expect.anything());
-    expect(screen.getAllByText("2026-07-10 a 2026-08-10").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("10/07/2026 a 10/08/2026").length).toBeGreaterThan(0);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
+  });
+
+  it("exibe loading durante a execucao da analise", async () => {
+    let resolve!: (value: AnalysisResponse) => void;
+    vi.mocked(api.runAnalysis).mockReturnValue(new Promise((done) => { resolve = done; }));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Validar area" }));
+    await screen.findByText("Area validada");
+    fireEvent.click(screen.getByRole("button", { name: "Executar analise" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Processando cenas Sentinel-2");
+    await act(async () => resolve(result));
   });
 
   it("mantem a area validada quando a execucao falha", async () => {
@@ -147,10 +163,51 @@ describe("workspace geoespacial", () => {
     expect(screen.getByText("A analise nao produziu observacoes validas para o grafico.")).toBeInTheDocument();
   });
 
-  it("renderiza o grafico e a tabela de cenas", () => {
+  it("prioriza decisao, confianca, qualidade, contexto, justificativa e grafico", () => {
     render(<AnalysisResult result={result} />);
+    expect(screen.getByRole("heading", { name: "NAO CORTAR" })).toBeInTheDocument();
+    expect(screen.getByText("Confianca da recomendacao")).toBeInTheDocument();
+    expect(screen.getByText("Qualidade da analise")).toBeInTheDocument();
+    expect(screen.getByText(/12\.450 m/)).toBeInTheDocument();
+    expect(screen.getByText("10/07/2026 a 10/08/2026")).toBeInTheDocument();
+    expect(screen.getByText("A vegetacao esta abaixo do nivel considerado alto no historico recente.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Evolucao da vegetacao" })).toBeInTheDocument();
     expect(screen.getByTestId("echarts")).toBeInTheDocument();
-    expect(screen.getByText("S2_TEST")).toBeInTheDocument();
-    expect(screen.getByText("92.0%")).toBeInTheDocument();
+  });
+
+  it("nao renderiza rastreabilidade e metricas tecnicas na visao operacional", () => {
+    render(<AnalysisResult result={result} />);
+    expect(screen.queryByText("Cenas Sentinel-2")).not.toBeInTheDocument();
+    expect(screen.queryByText("S2_TEST")).not.toBeInTheDocument();
+    expect(screen.queryByText("Item Sentinel-2")).not.toBeInTheDocument();
+    expect(screen.queryByText("NDVI atual")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mediana historica")).not.toBeInTheDocument();
+    expect(screen.queryByText("Percentil atual")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tendencia recente")).not.toBeInTheDocument();
+    expect(screen.queryByText("high_vegetation_percentile")).not.toBeInTheDocument();
+    expect(screen.queryByText("significant_drop_absolute")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["cortar", "CORTAR"],
+    ["nao_cortar", "NAO CORTAR"],
+    ["inconclusivo", "INCONCLUSIVO"],
+  ] as const)("aplica o estado visual semantico para %s", (decision, label) => {
+    const variant = { ...result, recommendation: { ...result.recommendation, decision } };
+    render(<AnalysisResult result={variant} />);
+    expect(screen.getByRole("region", { name: label })).toHaveAttribute("data-decision", decision);
+  });
+
+  it("apresenta baixa qualidade sem transmitir certeza alta", () => {
+    const lowQuality = {
+      ...result,
+      recommendation: { ...result.recommendation, decision: "inconclusivo" as const, confidence: "low" as const },
+      summary: { ...result.summary, analysis_quality: { score: 42, status: "low" } },
+    };
+    render(<AnalysisResult result={lowQuality} />);
+    const recommendation = screen.getByRole("region", { name: "INCONCLUSIVO" });
+    expect(recommendation).toHaveAttribute("data-quality", "low");
+    expect(screen.getByText("Qualidade da analise")).toBeInTheDocument();
+    expect(screen.getAllByText("Baixa").length).toBeGreaterThanOrEqual(2);
   });
 });

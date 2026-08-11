@@ -35,6 +35,19 @@ configura datas, filtros Sentinel-2 nem thresholds de recomendacao. A API usa o
 perfil operacional padrao e uma janela automatica de um mes calendario; o
 periodo exato utilizado aparece no resultado.
 
+## Resultado operacional
+
+A aba **Resultado** prioriza a recomendacao, a confianca, a qualidade geral da
+analise, a area, o periodo, as principais justificativas e a evolucao temporal
+do NDVI. IDs STAC, metricas intermediarias, thresholds, scores por cena e a
+tabela tecnica de cenas nao fazem parte da visao operacional.
+
+Essa simplificacao ocorre somente na apresentacao. Os dados tecnicos continuam
+na resposta da API e nos artefatos `summary.json`, `quality_report.json` e CSVs
+para auditoria, testes, calibracao e futuros relatorios. A recomendacao permanece
+experimental, nao mede diretamente a altura da vegetacao e nao substitui a
+inspecao de campo.
+
 O mapa abre em Louveira (`-46.955`, `-23.121`) no zoom 12 e usa a base
 **Operacional**, definida localmente como style raster com tiles do
 OpenStreetMap. A opcao **Terreno** fica temporariamente indisponivel. A camada

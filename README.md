@@ -25,9 +25,13 @@ Intelligence**, organizada como um monorepo sem duplicar o motor Python:
 
 O fluxo web apresenta um mapa operacional MapLibre: o operador navega ate o
 trecho, desenha ou edita um Polygon, valida a AOI com a mesma logica do pipeline,
-executa a analise real e recebe recomendacao, metricas, serie temporal e cenas.
+executa a analise real e recebe recomendacao, contexto e evolucao temporal em
+uma visao operacional simplificada.
 A entrada manual e o upload GeoJSON continuam disponiveis em uma secao avancada.
 A API nao chama a CLI por subprocesso.
+
+Os detalhes de cenas, scores, pixels, thresholds e metricas intermediarias nao
+sao exibidos ao operador, mas permanecem na API e nos artefatos de auditoria.
 
 O operador percorre apenas as etapas **Area** e **Resultado**. A API aplica um
 perfil operacional interno para faixa lateral gramada e calcula o periodo da

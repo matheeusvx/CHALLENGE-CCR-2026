@@ -1,20 +1,42 @@
-import { AlertTriangle, CheckCircle2, Scissors, ShieldQuestion } from "lucide-react";
+import { CheckCircle2, Scissors, ShieldQuestion } from "lucide-react";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
-import { recommendationReasonLabel } from "@/lib/utils/recommendation";
-
-const labels = { cortar: "CORTAR", nao_cortar: "NAO CORTAR", inconclusivo: "INCONCLUSIVO" } as const;
-const confidence = { high: "Alta", medium: "Media", low: "Baixa" } as const;
+import {
+  analysisQualityStatus,
+  decisionLabels,
+  levelLabels,
+} from "@/lib/utils/recommendation";
 
 export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
   const recommendation = result.recommendation;
-  const Icon = recommendation.decision === "cortar" ? Scissors : recommendation.decision === "nao_cortar" ? CheckCircle2 : ShieldQuestion;
+  const quality = analysisQualityStatus(result);
+  const Icon = recommendation.decision === "cortar"
+    ? Scissors
+    : recommendation.decision === "nao_cortar"
+      ? CheckCircle2
+      : ShieldQuestion;
+
   return (
-    <section className={`recommendation ${recommendation.decision}`} aria-labelledby="recommendation-title">
-      <div className="recommendation-decision"><Icon size={25} /><div><span>RECOMENDACAO EXPERIMENTAL</span><h2 id="recommendation-title">{labels[recommendation.decision]}</h2></div></div>
-      <div className="confidence"><span>Confianca</span><strong>{confidence[recommendation.confidence]}</strong></div>
+    <section
+      className={`recommendation ${recommendation.decision}`}
+      data-decision={recommendation.decision}
+      data-quality={quality ?? "unknown"}
+      aria-labelledby="recommendation-title"
+    >
+      <div className="recommendation-main">
+        <div className="recommendation-icon" aria-hidden="true"><Icon size={30} /></div>
+        <div className="recommendation-decision">
+          <span>RECOMENDACAO EXPERIMENTAL</span>
+          <h2 id="recommendation-title">{decisionLabels[recommendation.decision]}</h2>
+        </div>
+      </div>
+      <div className="result-statuses" aria-label="Confianca e qualidade da analise">
+        <div><span>Confianca da recomendacao</span><strong>{levelLabels[recommendation.confidence]}</strong></div>
+        <div title="Indica a confiabilidade dos dados de satelite utilizados nesta analise.">
+          <span>Qualidade da analise</span>
+          <strong>{quality ? levelLabels[quality] : "Nao informada"}</strong>
+        </div>
+      </div>
       <p>{recommendation.summary}</p>
-      <div className="reason-columns"><div><h3>Motivos</h3><ul>{recommendation.reasons.map((reason) => <li key={reason}>{recommendationReasonLabel(reason)}</li>)}</ul></div><div><h3>Bloqueios</h3>{recommendation.blocking_reasons.length ? <ul>{recommendation.blocking_reasons.map((reason) => <li key={reason}>{recommendationReasonLabel(reason)}</li>)}</ul> : <span className="quiet">Nenhum bloqueio registrado</span>}</div></div>
-      <div className="experimental-note"><AlertTriangle size={16} />O Sentinel-2 nao mede diretamente a altura da grama. Validacao de campo permanece necessaria.</div>
     </section>
   );
 }
