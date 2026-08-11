@@ -4,7 +4,7 @@ import { formatArea } from "@/lib/utils/recommendation";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { AdvancedGeoJson } from "./advanced-geojson";
 
-const sourceLabels = { drawn: "Desenhada", pasted: "GeoJSON colado", uploaded: "Arquivo enviado", predefined: "Predefinida" } as const;
+const sourceLabels = { drawn: "Desenhada no mapa", pasted: "GeoJSON colado", uploaded: "Arquivo enviado", predefined: "Predefinida" } as const;
 
 type Props = {
   validating: boolean;
@@ -40,20 +40,23 @@ export function AreaPanel({ validating, running, error, onValidate, onRun }: Pro
     <div className="workspace-panel-content">
       <div className={`geometry-state ${currentValidation ? "valid" : state.geometry ? "dirty" : "empty"}`}>
         {currentValidation ? <CheckCircle2 size={18} /> : state.geometry ? <AlertTriangle size={18} /> : <MapPin size={18} />}
-        <div><strong>{validating ? "Validando área" : currentValidation ? "Área validada" : state.geometry ? state.isGeometryDirty && state.lastValidatedGeometryRevision !== null ? "Área alterada após validação" : "Área aguardando validação" : "Nenhuma área delimitada"}</strong><span>{state.geometry ? "A validação oficial é realizada pela API." : "Use a ferramenta de polígono sobre o mapa."}</span></div>
+        <div>
+          <strong>{validating ? "Validando área" : currentValidation ? "Área validada" : state.geometry ? state.isGeometryDirty && state.lastValidatedGeometryRevision !== null ? "Área alterada após validação" : "Área aguardando validação" : "Nenhuma área delimitada"}</strong>
+          <span>{state.geometry ? "Revise a área lateral selecionada antes de executar a análise." : "Desenhe um polígono sobre a faixa lateral que será analisada."}</span>
+        </div>
       </div>
 
       {data ? (
         <dl className="geometry-metrics">
-          <div><dt>Tipo</dt><dd>Polygon</dd></div>
+          <div className="metric-wide metric-area"><dt>Área selecionada</dt><dd>{formatArea(data.area)} <small>{(data.area / 10_000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ha</small></dd></div>
+          <div><dt>Tipo</dt><dd>Polígono</dd></div>
           <div><dt>Origem</dt><dd>{state.geometrySource ? sourceLabels[state.geometrySource] : "-"}</dd></div>
-          <div className="metric-wide metric-area"><dt>Área</dt><dd>{formatArea(data.area)} <small>{(data.area / 10_000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ha</small></dd></div>
-          <div className="metric-wide metric-technical"><dt>Centroide</dt><dd className="mono">{data.centroid.longitude.toFixed(6)}, {data.centroid.latitude.toFixed(6)}</dd></div>
-          <div className="metric-wide metric-technical"><dt>Bounding box</dt><dd className="mono">{data.bbox.map((value) => Number(value).toFixed(5)).join(" / ")}</dd></div>
           <div><dt>Pixels estimados</dt><dd>{data.pixels.toLocaleString("pt-BR")}</dd></div>
           <div><dt>Última validação</dt><dd>{state.lastValidatedAt ? new Date(state.lastValidatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "-"}</dd></div>
+          <div className="metric-wide metric-technical"><dt>Centroide</dt><dd className="mono">{data.centroid.longitude.toFixed(6)}, {data.centroid.latitude.toFixed(6)}</dd></div>
+          <div className="metric-wide metric-technical"><dt>Bounding box</dt><dd className="mono">{data.bbox.map((value) => Number(value).toFixed(5)).join(" / ")}</dd></div>
         </dl>
-      ) : <div className="panel-empty"><Crosshair size={24} /><p>Desenhe um polígono sobre a faixa lateral gramada que será analisada.</p></div>}
+      ) : <div className="panel-empty"><Crosshair size={24} /><p>Comece delimitando somente a vegetação lateral da rodovia. Evite pista, edificações, árvores densas e áreas urbanas.</p></div>}
 
       {official?.warnings.length ? <div className="panel-warnings"><strong>Avisos</strong>{official.warnings.map((warning) => <p key={warning}><AlertTriangle size={14} />{warning}</p>)}</div> : null}
       {error && <div className="inline-error" role="alert"><AlertTriangle size={16} />{error}</div>}
@@ -70,4 +73,3 @@ export function AreaPanel({ validating, running, error, onValidate, onRun }: Pro
     </div>
   );
 }
-

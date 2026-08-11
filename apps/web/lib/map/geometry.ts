@@ -112,4 +112,3 @@ function assertTopologicallyValid(geometry: PolygonGeometry) {
     throw new Error("O polígono possui uma geometria inválida ou autointersectada.");
   }
 }
-

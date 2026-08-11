@@ -32,6 +32,7 @@ const runtime = vi.hoisted(() => ({
   draws: [] as DrawMockShape[],
   popups: [] as PopupMockShape[],
   polygonModeOptions: [] as Array<Record<string, unknown>>,
+  workerUrls: [] as string[],
 }));
 
 vi.mock("maplibre-gl", () => {
@@ -86,6 +87,7 @@ vi.mock("maplibre-gl", () => {
   }
   return {
     Map: MapMock,
+    setWorkerUrl: (url: string) => runtime.workerUrls.push(url),
     NavigationControl: class {},
     Popup: class {
       options: Record<string, unknown>;
@@ -144,6 +146,7 @@ beforeEach(() => {
   runtime.draws.length = 0;
   runtime.popups.length = 0;
   runtime.polygonModeOptions.length = 0;
+  runtime.workerUrls.length = 0;
   useAnalysisStore.setState({
     geometry: null,
     geometryRevision: 0,
@@ -166,6 +169,7 @@ describe("lifecycle operacional do mapa", () => {
     const map = runtime.maps[0];
     expect(map.options).toMatchObject({ center: [-46.955, -23.121], zoom: 12, minZoom: 5, maxZoom: 19 });
     expect(map.options.style).toBe(OPERATIONAL_RASTER_STYLE);
+    expect(runtime.workerUrls).toEqual([MAP_CONFIG.workerUrl]);
     expect(map.handlers.get("load")?.size).toBe(1);
     expect(map.handlers.get("style.load")?.size).toBe(1);
     expect(map.handlers.get("error")?.size).toBe(1);
@@ -198,10 +202,10 @@ describe("lifecycle operacional do mapa", () => {
     act(() => draw.emit("finish"));
     expect(map.fitBounds).toHaveBeenCalledOnce();
     expect(useAnalysisStore.getState()).toMatchObject({ geometry: polygon, isGeometryDirty: true, selectedTool: "navigate" });
-    expect(screen.getByText("Aguardando validação")).toBeInTheDocument();
+    expect(screen.getAllByText(/Aguardando validação/).length).toBeGreaterThan(0);
     expect(runtime.polygonModeOptions[0]).toMatchObject({
       showCoordinatePoints: true,
-      styles: { outlineWidth: 5, coordinatePointWidth: 8, closingPointWidth: 9 },
+      styles: { outlineWidth: 6, coordinatePointWidth: 10, closingPointWidth: 11 },
     });
   });
 

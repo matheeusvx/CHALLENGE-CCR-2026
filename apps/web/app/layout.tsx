@@ -9,8 +9,8 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const plex = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Motiva Vegetation Intelligence",
-  description: "Monitoramento espectral de vegetação rodoviária.",
+  title: "Motiva Faixa Verde",
+  description: "Monitoramento da vegetação lateral rodoviária com imagens Sentinel-2.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

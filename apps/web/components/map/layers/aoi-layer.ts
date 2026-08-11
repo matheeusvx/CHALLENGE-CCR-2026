@@ -40,21 +40,24 @@ export function installOrUpdateAoiLayer(
     id: AOI_LAYER_IDS.fill,
     type: "fill",
     source: AOI_LAYER_IDS.source,
+    filter: ["==", ["get", "feature_role"], "area"],
     paint: { "fill-color": visualState.color, "fill-opacity": visualState.fillOpacity },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.halo,
     type: "line",
     source: AOI_LAYER_IDS.source,
-    paint: { "line-color": "#1d1b25", "line-width": 9, "line-opacity": 0.7 },
+    filter: ["==", ["get", "feature_role"], "area"],
+    paint: { "line-color": "#ffffff", "line-width": 10, "line-opacity": 0.82 },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.outline,
     type: "line",
     source: AOI_LAYER_IDS.source,
+    filter: ["==", ["get", "feature_role"], "area"],
     paint: {
       "line-color": visualState.color,
-      "line-width": 5,
+      "line-width": 6,
       "line-opacity": 1,
       "line-dasharray": visualState.dashed ? [2, 1.5] : [1, 0.01],
     },
@@ -66,9 +69,10 @@ export function installOrUpdateAoiLayer(
     filter: ["==", ["get", "feature_role"], "vertex"],
     paint: {
       "circle-color": "#ffffff",
-      "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 8, 6],
+      "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 9, 7],
       "circle-stroke-color": visualState.color,
       "circle-stroke-width": 3,
+      "circle-opacity": 1,
     },
   });
   if (map.getStyle().glyphs) {
@@ -78,16 +82,16 @@ export function installOrUpdateAoiLayer(
       source: AOI_LAYER_IDS.source,
       filter: ["==", ["get", "feature_role"], "label"],
       layout: {
-        "text-field": ["get", "label"],
+        "text-field": "Área selecionada",
         "text-font": ["Noto Sans Regular"],
         "text-size": 12,
-        "text-offset": [0, 1.2],
+        "text-offset": [0, 1.35],
         "text-allow-overlap": true,
       },
       paint: {
-        "text-color": "#26232e",
+        "text-color": "#1d1b25",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 2,
+        "text-halo-width": 2.4,
       },
     });
   }

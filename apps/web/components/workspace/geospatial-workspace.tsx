@@ -1,13 +1,13 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
-import { Satellite } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { CheckCircle2, Database, Satellite } from "lucide-react";
 import { useState } from "react";
 import { AnalysisMap } from "@/components/map/analysis-map";
 import { AreaPanel } from "@/components/analysis/area-panel";
 import { AnalysisResult } from "@/components/analysis/analysis-result";
 import { AnalysisResultSidebar } from "@/components/analysis/analysis-result-sidebar";
-import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
+import { getHealth, runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
@@ -16,6 +16,8 @@ import { WorkspaceTabs } from "./workspace-tabs";
 export function GeospatialWorkspace() {
   const state = useAnalysisStore();
   const [result, setResult] = useState<AnalysisResponse>();
+  const health = useQuery({ queryKey: ["health"], queryFn: getHealth, refetchInterval: 60_000 });
+  const online = health.data?.status === "ok";
   const validation = useMutation({
     mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => validateGeometry(geometry),
   });
@@ -42,9 +44,17 @@ export function GeospatialWorkspace() {
 
   return (
     <div className="geospatial-page">
-      <div className="compact-workspace-heading">
-        <div><span>OPERAÇÕES / VEGETAÇÃO</span><h1>Motiva Vegetation Intelligence</h1><p>Delimite a faixa lateral gramada e execute a análise Sentinel-2.</p></div>
-        <div className="source-chip"><Satellite size={17} /><span>Planetary Computer</span></div>
+      <div className="product-hero">
+        <div className="product-hero-copy">
+          <span className="product-kicker">Monitoramento operacional</span>
+          <h1>Motiva Faixa Verde</h1>
+          <p>Monitoramento da vegetação lateral rodoviária com recomendação de manejo baseada em imagens Sentinel-2 e histórico local.</p>
+        </div>
+        <div className="product-signal-grid" aria-label="Status operacional e fonte de dados">
+          <span className={online ? "online" : health.isLoading ? "" : "offline"}><CheckCircle2 size={16} aria-hidden="true" />{health.isLoading ? "Verificando API" : online ? "API operacional" : "API indisponível"}</span>
+          <span><Satellite size={16} aria-hidden="true" />Sentinel-2 L2A</span>
+          <span><Database size={16} aria-hidden="true" />Fonte ativa: Planetary Computer</span>
+        </div>
       </div>
       <div className="geospatial-workspace">
         <section className="map-workspace" aria-label="Workspace geoespacial">

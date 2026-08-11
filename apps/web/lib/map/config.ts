@@ -39,6 +39,7 @@ export type MapStyleId = keyof typeof MAP_STYLES;
 export const DEFAULT_MAP_STYLE_ID: MapStyleId = "operational";
 
 export const MAP_CONFIG = {
+  workerUrl: "/vendor/maplibre/maplibre-gl-worker.mjs",
   initialViewport: {
     longitude: -46.955,
     latitude: -23.121,

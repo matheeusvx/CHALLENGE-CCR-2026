@@ -72,6 +72,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    maplibregl.setWorkerUrl(MAP_CONFIG.workerUrl);
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OPERATIONAL_RASTER_STYLE,
@@ -84,7 +85,6 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       attributionControl: { compact: true },
     });
     mapRef.current = map;
-    (window as typeof window & { __MVI_MAP_DIAGNOSTIC__?: MapLibreMap }).__MVI_MAP_DIAGNOSTIC__ = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
 
     const disposeEditor = () => {
@@ -177,8 +177,6 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       map.off("error", handleError);
       map.off("moveend", handleMoveEnd);
       mapRef.current = null;
-      const diagnosticWindow = window as typeof window & { __MVI_MAP_DIAGNOSTIC__?: MapLibreMap };
-      if (diagnosticWindow.__MVI_MAP_DIAGNOSTIC__ === map) delete diagnosticWindow.__MVI_MAP_DIAGNOSTIC__;
       map.remove();
     };
   // The map is deliberately created once; mutable refs carry current AOI state.
@@ -200,32 +198,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
   useEffect(() => {
     const map = mapRef.current;
-    console.info("MVI AOI effect", JSON.stringify({ geometry: Boolean(geometry), styleEditorReady: styleEditorReadyRef.current }));
     if (!map || !styleEditorReadyRef.current) return;
     disposeHoverRef.current();
-    const handleAoiSourceData = (event: maplibregl.MapSourceDataEvent) => {
-      if (event.sourceId !== "analysis-aoi-source") return;
-      console.info("MVI AOI sourcedata", JSON.stringify({
-        loaded: map.isSourceLoaded("analysis-aoi-source"),
-        features: map.querySourceFeatures("analysis-aoi-source").map((feature) => feature.geometry.type),
-      }));
-      if (map.isSourceLoaded("analysis-aoi-source")) map.off("sourcedata", handleAoiSourceData);
-    };
-    map.on("sourcedata", handleAoiSourceData);
     installOrUpdateAoiLayer(map, geometry, aoiVisualState);
-    console.info("MVI AOI installed", JSON.stringify({
-      source: Boolean(map.getSource("analysis-aoi-source")),
-      layers: map.getStyle().layers?.map((layer) => layer.id),
-      sourceSpecification: (map.getSource("analysis-aoi-source") as { serialize?: () => unknown } | undefined)?.serialize?.(),
-    }));
-    map.once("render", () => console.info("MVI AOI rendered", JSON.stringify({
-      sourceFeatures: map.querySourceFeatures("analysis-aoi-source").map((feature) => feature.geometry.type),
-      fill: map.queryRenderedFeatures({ layers: ["analysis-aoi-fill"] }).length,
-      outline: map.queryRenderedFeatures({ layers: ["analysis-aoi-outline"] }).length,
-      vertices: map.queryRenderedFeatures({ layers: ["analysis-aoi-vertices"] }).length,
-      center: map.getCenter(),
-      zoom: map.getZoom(),
-    })));
     disposeHoverRef.current = geometry ? installAoiHoverInteractions(map) : () => undefined;
   }, [aoiVisualState, geometry]);
 
@@ -317,6 +292,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
         onRedo={() => replayHistory("redo")}
       />
       <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
+      {geometry ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
       <MapStyleSelector active="operational" />
       <MapLegend mapStyle="operational" aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
     </div>
@@ -325,25 +301,25 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
 const drawingStyles = {
   polygonFillColor: "#7c3aed" as const,
-  polygonFillOpacity: 0.25,
+  polygonFillOpacity: 0.32,
   polygonOutlineColor: "#7c3aed" as const,
-  polygonOutlineWidth: 5,
+  polygonOutlineWidth: 6,
 };
 
 const polygonDrawingStyles = {
   fillColor: "#7c3aed" as const,
-  fillOpacity: 0.25,
+  fillOpacity: 0.32,
   outlineColor: "#7c3aed" as const,
   outlineOpacity: 1,
-  outlineWidth: 5,
+  outlineWidth: 6,
   closingPointColor: "#ffffff" as const,
-  closingPointWidth: 9,
+  closingPointWidth: 11,
   closingPointOpacity: 1,
   closingPointOutlineColor: "#7c3aed" as const,
   closingPointOutlineWidth: 3,
   closingPointOutlineOpacity: 1,
   coordinatePointColor: "#ffffff" as const,
-  coordinatePointWidth: 8,
+  coordinatePointWidth: 10,
   coordinatePointOpacity: 1,
   coordinatePointOutlineColor: "#7c3aed" as const,
   coordinatePointOutlineWidth: 3,
@@ -352,19 +328,19 @@ const polygonDrawingStyles = {
 
 const selectionStyles = {
   selectedPolygonColor: "#7c3aed" as const,
-  selectedPolygonFillOpacity: 0.25,
+  selectedPolygonFillOpacity: 0.32,
   selectedPolygonOutlineColor: "#7c3aed" as const,
   selectedPolygonOutlineOpacity: 1,
-  selectedPolygonOutlineWidth: 5,
+  selectedPolygonOutlineWidth: 6,
   selectionPointColor: "#ffffff" as const,
-  selectionPointWidth: 9,
+  selectionPointWidth: 11,
   selectionPointOpacity: 1,
   selectionPointOutlineColor: "#7c3aed" as const,
   selectionPointOutlineWidth: 3,
   selectionPointOutlineOpacity: 1,
   midPointColor: "#f2eaff" as const,
   midPointOutlineColor: "#7c3aed" as const,
-  midPointWidth: 7,
+  midPointWidth: 8,
   midPointOpacity: 1,
   midPointOutlineWidth: 2,
   midPointOutlineOpacity: 1,

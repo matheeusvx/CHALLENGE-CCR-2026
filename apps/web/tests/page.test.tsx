@@ -59,27 +59,31 @@ beforeEach(() => {
 });
 
 describe("workspace geoespacial", () => {
-  it("renderiza a pagina, o mapa e o status da API", async () => {
+  it("renderiza a página, o mapa, o produto e o status da API", async () => {
     render(<Home />, { wrapper });
-    expect(screen.getByRole("heading", { name: "Motiva Vegetation Intelligence" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
+    expect(screen.queryByText("Operações / Vegetação")).not.toBeInTheDocument();
+    expect(screen.getByText(/Monitoramento da vegetação lateral rodoviária/)).toBeInTheDocument();
+    expect(screen.getAllByText("Sentinel-2 L2A").length).toBeGreaterThan(0);
+    expect(screen.getByText("Fonte ativa: Planetary Computer")).toBeInTheDocument();
     expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("api-status")).toHaveTextContent("API operacional"));
+    await waitFor(() => expect(screen.getAllByText("API operacional").length).toBeGreaterThan(0));
   });
 
-  it("mostra somente as etapas Area e Resultado sem controles tecnicos", () => {
+  it("mostra somente as etapas Área e Resultado sem controles técnicos", () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("tab", { name: "Área" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Resultado" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Parâmetros" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Data inicial")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Data final")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Cobertura maxima de nuvens")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Quantidade maxima de cenas")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Pixels validos minimos")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Agregacao diaria")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Cobertura máxima de nuvens")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Quantidade máxima de cenas")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Pixels válidos mínimos")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Agregação diária")).not.toBeInTheDocument();
   });
 
-  it("mostra o estado sem geometria e bloqueia a analise", () => {
+  it("mostra o estado sem geometria e bloqueia a análise", () => {
     render(<Home />, { wrapper });
     expect(screen.getByText("Nenhuma área delimitada")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Executar análise" })).toBeDisabled();
@@ -94,7 +98,7 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().geometrySource).toBe("pasted");
   });
 
-  it("rejeita JSON invalido na entrada avancada", () => {
+  it("rejeita JSON inválido na entrada avançada", () => {
     render(<Home />, { wrapper });
     fireEvent.click(screen.getByText("Entrada avançada por GeoJSON"));
     fireEvent.change(screen.getByLabelText("GeoJSON da área de interesse"), { target: { value: "{" } });
@@ -112,16 +116,16 @@ describe("workspace geoespacial", () => {
     await act(async () => resolve(validation));
   });
 
-  it("exibe o erro estruturado de validacao", async () => {
-    vi.mocked(api.validateGeometry).mockRejectedValue(new Error("A geometria enviada nao e valida."));
+  it("exibe o erro estruturado de validação", async () => {
+    vi.mocked(api.validateGeometry).mockRejectedValue(new Error("A geometria enviada não é válida."));
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("A geometria enviada nao e valida");
+    expect(await screen.findByRole("alert")).toHaveTextContent("A geometria enviada não é válida");
     expect(useAnalysisStore.getState().geometry).toEqual(polygon);
   });
 
-  it("uma validacao atual habilita e executa a analise", async () => {
+  it("uma validação atual habilita e executa a análise", async () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
     fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
@@ -138,7 +142,7 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().fitRequestId).toBe(fitRequest + 1);
   });
 
-  it("exibe loading durante a execucao da analise", async () => {
+  it("exibe loading durante a execução da análise", async () => {
     let resolve!: (value: AnalysisResponse) => void;
     vi.mocked(api.runAnalysis).mockReturnValue(new Promise((done) => { resolve = done; }));
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
@@ -150,7 +154,7 @@ describe("workspace geoespacial", () => {
     await act(async () => resolve(result));
   });
 
-  it("mantem a area validada quando a execucao falha", async () => {
+  it("mantém a área validada quando a execução falha", async () => {
     vi.mocked(api.runAnalysis).mockRejectedValue(new Error("Falha controlada da API."));
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
@@ -161,12 +165,12 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().geometry).toEqual(polygon);
   });
 
-  it("renderiza a serie vazia sem falhar", () => {
+  it("renderiza a série vazia sem falhar", () => {
     render(<AnalysisResult result={{ ...result, timeseries: [] }} />);
     expect(screen.getByText("A análise não produziu observações válidas para o gráfico.")).toBeInTheDocument();
   });
 
-  it("prioriza decisao, confianca, qualidade, contexto, justificativa e grafico", () => {
+  it("prioriza decisão, confiança, qualidade, contexto, justificativa e gráfico", () => {
     render(<AnalysisResult result={result} />);
     expect(screen.getByRole("heading", { name: "NÃO CORTAR" })).toBeInTheDocument();
     expect(screen.getByText("Confiança da recomendação")).toBeInTheDocument();
@@ -180,7 +184,20 @@ describe("workspace geoespacial", () => {
     expect(screen.queryByText("Sobre esta análise")).not.toBeInTheDocument();
   });
 
-  it("apresenta cada motivo da recomendacao separadamente", () => {
+  it("apresenta o resumo operacional conhecido com acentuação correta", () => {
+    const withLegacySummary = {
+      ...result,
+      recommendation: {
+        ...result.recommendation,
+        summary: "Evidencias insuficientes para uma recomendacao de corte.",
+      },
+    };
+    render(<AnalysisResult result={withLegacySummary} />);
+    expect(screen.getByText("Evidências insuficientes para uma recomendação de corte.")).toBeInTheDocument();
+    expect(screen.queryByText("Evidencias insuficientes para uma recomendacao de corte.")).not.toBeInTheDocument();
+  });
+
+  it("apresenta cada motivo da recomendação separadamente", () => {
     const withReasons = {
       ...result,
       recommendation: {
@@ -194,15 +211,15 @@ describe("workspace geoespacial", () => {
     expect(within(section!).getAllByRole("listitem")).toHaveLength(2);
   });
 
-  it("nao renderiza rastreabilidade e metricas tecnicas na visao operacional", () => {
+  it("não renderiza rastreabilidade e métricas técnicas na visão operacional", () => {
     render(<AnalysisResult result={result} />);
     expect(screen.queryByText("Cenas Sentinel-2")).not.toBeInTheDocument();
     expect(screen.queryByText("S2_TEST")).not.toBeInTheDocument();
     expect(screen.queryByText("Item Sentinel-2")).not.toBeInTheDocument();
     expect(screen.queryByText("NDVI atual")).not.toBeInTheDocument();
-    expect(screen.queryByText("Mediana historica")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mediana histórica")).not.toBeInTheDocument();
     expect(screen.queryByText("Percentil atual")).not.toBeInTheDocument();
-    expect(screen.queryByText("Tendencia recente")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tendência recente")).not.toBeInTheDocument();
     expect(screen.queryByText("high_vegetation_percentile")).not.toBeInTheDocument();
     expect(screen.queryByText("significant_drop_absolute")).not.toBeInTheDocument();
   });
@@ -211,7 +228,7 @@ describe("workspace geoespacial", () => {
     ["cortar", "CORTAR"],
     ["nao_cortar", "NÃO CORTAR"],
     ["inconclusivo", "INCONCLUSIVO"],
-  ] as const)("aplica o estado visual semantico para %s", (decision, label) => {
+  ] as const)("aplica o estado visual semântico para %s", (decision, label) => {
     const variant = { ...result, recommendation: { ...result.recommendation, decision } };
     render(<AnalysisResult result={variant} />);
     expect(screen.getByRole("region", { name: label })).toHaveAttribute("data-decision", decision);

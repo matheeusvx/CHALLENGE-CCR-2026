@@ -5,6 +5,7 @@ import {
   formatAnalysisQuality,
   formatConfidence,
   formatRecommendation,
+  formatRecommendationSummary,
 } from "@/lib/utils/recommendation";
 
 export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
@@ -24,9 +25,9 @@ export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
       aria-labelledby="recommendation-title"
     >
       <div className="recommendation-main">
-        <div className="recommendation-icon" aria-hidden="true"><Icon size={30} /></div>
+        <div className="recommendation-icon" aria-hidden="true"><Icon size={32} /></div>
         <div className="recommendation-decision">
-          <span>RECOMENDAÇÃO</span>
+          <span>Recomendação</span>
           <h2 id="recommendation-title">{formatRecommendation(recommendation.decision)}</h2>
         </div>
       </div>
@@ -37,7 +38,7 @@ export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
           <strong>{formatAnalysisQuality(quality)}</strong>
         </div>
       </div>
-      <p>{recommendation.summary}</p>
+      <p>{formatRecommendationSummary(recommendation.summary)}</p>
     </section>
   );
 }

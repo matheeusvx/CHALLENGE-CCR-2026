@@ -28,3 +28,4 @@ models/*
 .next/
 node_modules/
 coverage/
+apps/web/public/vendor/maplibre/

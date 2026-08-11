@@ -5,5 +5,5 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores([".next/**", "coverage/**", "lib/api/generated.ts"]),
+  globalIgnores([".next/**", "coverage/**", "lib/api/generated.ts", "public/vendor/maplibre/**"]),
 ]);

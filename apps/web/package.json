@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prepare:map": "node scripts/prepare-maplibre-worker.mjs",
+    "predev": "pnpm prepare:map",
+    "prebuild": "pnpm prepare:map",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

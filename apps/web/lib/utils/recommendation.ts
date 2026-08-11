@@ -23,8 +23,18 @@ const reasonLabels: Record<string, string> = {
   criteria_between_cut_and_no_cut: "Os indicadores estão em uma faixa intermediária e não sustentam uma decisão segura.",
 };
 
+const summaryLabels: Record<string, string> = {
+  "Evidencias insuficientes para uma recomendacao de corte.": "Evidências insuficientes para uma recomendação de corte.",
+  "Vegetacao abaixo do nivel historico alto sem crescimento acelerado.": "Vegetação abaixo do nível histórico alto, sem crescimento acelerado.",
+  "Recomendacao experimental de corte baseada no historico local.": "Recomendação de corte baseada no histórico local.",
+};
+
 export function recommendationReasonLabel(reason: string) {
   return reasonLabels[reason] ?? "Foi registrado um fator adicional que requer avaliação operacional.";
+}
+
+export function formatRecommendationSummary(summary: string) {
+  return summaryLabels[summary] ?? summary;
 }
 
 export const decisionLabels = {
@@ -73,4 +83,3 @@ export function formatArea(value: number | null) {
 
 export const formatOperationalDate = formatDateBR;
 export const formatOperationalArea = formatArea;
-
