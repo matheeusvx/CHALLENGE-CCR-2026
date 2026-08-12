@@ -63,11 +63,33 @@ describe("workspace geoespacial", () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
     expect(screen.queryByText("Operações / Vegetação")).not.toBeInTheDocument();
-    expect(screen.getByText(/Monitoramento da vegetação lateral rodoviária/)).toBeInTheDocument();
-    expect(screen.getAllByText("Sentinel-2 L2A").length).toBeGreaterThan(0);
-    expect(screen.getByText("Fonte ativa: Planetary Computer")).toBeInTheDocument();
+    expect(screen.getByText("Monitoramento inteligente da vegetação lateral rodoviária")).toBeInTheDocument();
+    expect(screen.queryByText("Sentinel-2 L2A")).not.toBeInTheDocument();
+    expect(screen.queryByText("Planetary Computer")).not.toBeInTheDocument();
     expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText("API operacional").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByTestId("api-status")).toHaveTextContent("API operacional"));
+    expect(screen.getAllByText("API operacional")).toHaveLength(1);
+  });
+
+  it("navega pelo shell sem desmontar a Nova análise", () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(screen.getByRole("heading", { name: "Histórico" })).toBeInTheDocument();
+    expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fontes de dados" }));
+    expect(screen.getByRole("heading", { name: "Fontes de dados" })).toBeInTheDocument();
+    expect(screen.getByText(/Sentinel-2 L2A/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Configurações" }));
+    expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Cobertura máxima de nuvens")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
+    expect(useAnalysisStore.getState().geometry).toEqual(polygon);
   });
 
   it("mostra somente as etapas Área e Resultado sem controles técnicos", () => {
@@ -96,6 +118,7 @@ describe("workspace geoespacial", () => {
     fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(screen.getByText("Área aguardando validação")).toBeInTheDocument();
     expect(useAnalysisStore.getState().geometrySource).toBe("pasted");
+    expect(screen.getByText("Área selecionada").closest("div")).toHaveClass("metric-area");
   });
 
   it("rejeita JSON inválido na entrada avançada", () => {

@@ -30,10 +30,20 @@ export async function apiRequest<T>(
   schema: z.ZodType<T>,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+    });
+  } catch (cause) {
+    console.error("Falha de rede ao acessar o serviço de análise.", cause);
+    throw new ApiError(
+      "NETWORK_ERROR",
+      "Não foi possível conectar ao serviço de análise. Tente novamente em alguns instantes.",
+      0,
+    );
+  }
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = errorEnvelopeSchema.safeParse(body);

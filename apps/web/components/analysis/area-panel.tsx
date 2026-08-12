@@ -48,11 +48,14 @@ export function AreaPanel({ validating, running, error, onValidate, onRun }: Pro
 
       {data ? (
         <dl className="geometry-metrics">
-          <div className="metric-wide metric-area"><dt>Área selecionada</dt><dd>{formatArea(data.area)} <small>{(data.area / 10_000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ha</small></dd></div>
+          <div className="metric-wide metric-area">
+            <dt>Área selecionada</dt>
+            <dd><span>{formatArea(data.area)}</span><small>{(data.area / 10_000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} ha</small></dd>
+          </div>
           <div><dt>Tipo</dt><dd>Polígono</dd></div>
           <div><dt>Origem</dt><dd>{state.geometrySource ? sourceLabels[state.geometrySource] : "-"}</dd></div>
           <div><dt>Pixels estimados</dt><dd>{data.pixels.toLocaleString("pt-BR")}</dd></div>
-          <div><dt>Última validação</dt><dd>{state.lastValidatedAt ? new Date(state.lastValidatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "-"}</dd></div>
+          <div><dt>Última validação</dt><dd>{state.lastValidatedAt ? new Date(state.lastValidatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}</dd></div>
           <div className="metric-wide metric-technical"><dt>Centroide</dt><dd className="mono">{data.centroid.longitude.toFixed(6)}, {data.centroid.latitude.toFixed(6)}</dd></div>
           <div className="metric-wide metric-technical"><dt>Bounding box</dt><dd className="mono">{data.bbox.map((value) => Number(value).toFixed(5)).join(" / ")}</dd></div>
         </dl>
