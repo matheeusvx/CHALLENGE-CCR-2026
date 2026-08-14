@@ -12,6 +12,34 @@ from src.satellite_monitoring.service import PipelineDependencies, run_monitorin
 from src.satellite_monitoring.stac_client import Scene, SceneSearchResult
 
 
+def _stable_baseline(result) -> dict:
+    metrics = result.recommendation["metrics"]
+    analysis_quality = result.summary["analysis_quality"]
+    return {
+        "status": result.status,
+        "decision": result.recommendation["recommendation"],
+        "confidence": result.recommendation["confidence"],
+        "reasons": result.recommendation["reasons"],
+        "blocking_reasons": result.recommendation["blocking_reasons"],
+        "daily_observation_count": result.summary["daily_observation_count"],
+        "analysis_quality": {
+            "status": analysis_quality["status"],
+            "score": round(analysis_quality["score"], 3),
+        },
+        "metrics": {
+            "observation_count": metrics["observation_count"],
+            "current_ndvi_mean": round(metrics["current_ndvi_mean"], 6),
+            "historical_median": round(metrics["historical_median"], 6),
+            "current_percentile": round(metrics["current_percentile"], 3),
+            "recent_trend": round(metrics["recent_trend"], 6),
+        },
+        "timeseries": [
+            (record["datetime"][:10], round(record["ndvi_mean"], 6))
+            for record in result.timeseries
+        ],
+    }
+
+
 def _scene(day: int, *, item_id: str | None = None, hour: int = 10) -> Scene:
     observed_at = datetime(2026, 7, day, hour, tzinfo=timezone.utc)
     item = SimpleNamespace(
@@ -28,7 +56,9 @@ def _scene(day: int, *, item_id: str | None = None, hour: int = 10) -> Scene:
     return Scene(item)
 
 
-def test_service_processes_candidates_before_final_temporal_limit(tmp_path) -> None:
+def test_sentinel_service_baseline_processes_candidates_before_final_temporal_limit(
+    tmp_path,
+) -> None:
     scenes = [_scene(day) for day in range(1, 15)] + [
         _scene(14, item_id="scene-15", hour=11)
     ]
@@ -118,3 +148,37 @@ def test_service_processes_candidates_before_final_temporal_limit(tmp_path) -> N
     rejected = next(record for record in captured["scenes"] if record["item_id"] == "scene-15")
     assert rejected["accepted_for_timeseries"] is False
     assert "insufficient_valid_pixels" in rejected["quality_reasons"]
+    assert _stable_baseline(result) == {
+        "status": "completed",
+        "decision": "cortar",
+        "confidence": "high",
+        "reasons": [
+            "current_percentile_at_or_above_high_threshold",
+            "positive_or_stable_high_recent_trend",
+            "no_recent_confirmed_significant_drop",
+        ],
+        "blocking_reasons": [],
+        "daily_observation_count": 12,
+        "analysis_quality": {"status": "high", "score": 99.2},
+        "metrics": {
+            "observation_count": 12,
+            "current_ndvi_mean": 0.439776,
+            "historical_median": 0.435427,
+            "current_percentile": 95.833,
+            "recent_trend": 0.000787,
+        },
+        "timeseries": [
+            ("2026-07-03", 0.43101),
+            ("2026-07-04", 0.431818),
+            ("2026-07-05", 0.432624),
+            ("2026-07-06", 0.433428),
+            ("2026-07-07", 0.434229),
+            ("2026-07-08", 0.435028),
+            ("2026-07-09", 0.435825),
+            ("2026-07-10", 0.43662),
+            ("2026-07-11", 0.437412),
+            ("2026-07-12", 0.438202),
+            ("2026-07-13", 0.43899),
+            ("2026-07-14", 0.439776),
+        ],
+    }

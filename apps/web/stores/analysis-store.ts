@@ -1,11 +1,16 @@
 import { create } from "zustand";
-import type { GeometryValidation } from "@/lib/schemas/analyses";
+import type { AnalysisResponse, GeometryValidation } from "@/lib/schemas/analyses";
 import { DEFAULT_MAP_STYLE_ID, MAP_CONFIG, type MapStyleId, type MapViewport } from "@/lib/map/config";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 
 export type GeometrySource = "drawn" | "pasted" | "uploaded" | "predefined";
 export type MapTool = "navigate" | "draw" | "edit";
 export type WorkspaceTab = "area" | "result";
+
+export type CurrentAnalysisResult = {
+  response: AnalysisResponse;
+  geometryRevision: number;
+};
 
 type AnalysisState = {
   geometry: PolygonGeometry | null;
@@ -21,8 +26,12 @@ type AnalysisState = {
   geometryText: string;
   fitRequestId: number;
   activeTab: WorkspaceTab;
+  currentResult: CurrentAnalysisResult | null;
   setGeometry: (geometry: PolygonGeometry, source: GeometrySource) => void;
   clearGeometry: () => void;
+  resetAnalysisSession: () => void;
+  applyAnalysisResult: (response: AnalysisResponse, revision: number) => void;
+  restoreHistoricalAnalysis: (geometry: PolygonGeometry, response: AnalysisResponse, validation?: GeometryValidation) => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
   setSelectedTool: (tool: MapTool) => void;
   setActiveMapStyle: (style: MapStyleId) => void;
@@ -49,6 +58,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   geometryText: "",
   fitRequestId: 0,
   activeTab: "area",
+  currentResult: null,
   setGeometry: (geometry, source) =>
     set((state) => ({
       geometry,
@@ -57,6 +67,10 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
       geometryValidation: null,
       isGeometryDirty: true,
       selectedTool: state.selectedTool,
+      lastValidatedGeometryRevision: null,
+      lastValidatedAt: null,
+      activeTab: "area",
+      currentResult: null,
     })),
   clearGeometry: () =>
     set((state) => ({
@@ -68,7 +82,54 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
       selectedTool: "navigate",
       lastValidatedGeometryRevision: null,
       lastValidatedAt: null,
+      geometryText: "",
+      activeTab: "area",
+      currentResult: null,
     })),
+  resetAnalysisSession: () =>
+    set((state) => ({
+      geometry: null,
+      geometryRevision: state.geometryRevision + 1,
+      geometrySource: null,
+      geometryValidation: null,
+      isGeometryDirty: false,
+      selectedTool: "navigate",
+      lastValidatedGeometryRevision: null,
+      lastValidatedAt: null,
+      geometryText: "",
+      activeTab: "area",
+      currentResult: null,
+    })),
+  applyAnalysisResult: (response, revision) =>
+    set((state) =>
+      revision === state.geometryRevision &&
+      Boolean(state.geometry) &&
+      state.geometryValidation?.valid === true &&
+      state.lastValidatedGeometryRevision === revision
+        ? {
+            currentResult: { response, geometryRevision: revision },
+            activeTab: "result",
+          }
+        : {},
+    ),
+  restoreHistoricalAnalysis: (geometry, response, validation) =>
+    set((state) => {
+      const geometryRevision = state.geometryRevision + 1;
+      const validated = validation?.valid === true;
+      return {
+        geometry,
+        geometryRevision,
+        geometrySource: "predefined",
+        geometryValidation: validation ?? null,
+        isGeometryDirty: false,
+        selectedTool: "navigate",
+        lastValidatedGeometryRevision: validated ? geometryRevision : null,
+        lastValidatedAt: validated ? new Date().toISOString() : null,
+        geometryText: JSON.stringify(geometry, null, 2),
+        activeTab: "result",
+        currentResult: { response, geometryRevision },
+      };
+    }),
   applyGeometryValidation: (validation, revision) =>
     set((state) =>
       revision === state.geometryRevision
@@ -93,4 +154,10 @@ export function isCurrentGeometryValidated(state: AnalysisState): boolean {
       state.geometryValidation?.valid &&
       state.geometryRevision === state.lastValidatedGeometryRevision,
   );
+}
+
+export function getCurrentAnalysisResponse(state: AnalysisState): AnalysisResponse | undefined {
+  return state.currentResult?.geometryRevision === state.geometryRevision
+    ? state.currentResult.response
+    : undefined;
 }

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { PolygonGeometry } from "@/lib/map/geometry";
-import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import type { AnalysisResponse, GeometryValidation } from "@/lib/schemas/analyses";
 
 export type HistoryEntry = {
   /** Identificador da análise (analysis_id da resposta). */
@@ -10,13 +10,14 @@ export type HistoryEntry = {
   savedAt: string;
   response: AnalysisResponse;
   geometry: PolygonGeometry;
+  geometryValidation?: GeometryValidation;
 };
 
 const MAX_ENTRIES = 100;
 
 type HistoryState = {
   entries: HistoryEntry[];
-  addEntry: (response: AnalysisResponse, geometry: PolygonGeometry) => void;
+  addEntry: (response: AnalysisResponse, geometry: PolygonGeometry, validation?: GeometryValidation) => void;
   removeEntry: (id: string) => void;
   clear: () => void;
 };
@@ -25,13 +26,14 @@ export const useHistoryStore = create<HistoryState>()(
   persist(
     (set) => ({
       entries: [],
-      addEntry: (response, geometry) =>
+      addEntry: (response, geometry, geometryValidation) =>
         set((state) => {
           const entry: HistoryEntry = {
             id: response.analysis_id,
             savedAt: new Date().toISOString(),
             response,
             geometry,
+            geometryValidation,
           };
           const withoutDuplicate = state.entries.filter((item) => item.id !== entry.id);
           return { entries: [entry, ...withoutDuplicate].slice(0, MAX_ENTRIES) };

@@ -7,6 +7,7 @@ import { AnalysisResult } from "@/components/analysis/analysis-result";
 import * as api from "@/lib/api/analyses";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { useAnalysisStore } from "@/stores/analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 
 vi.mock("@/lib/api/analyses", () => ({ getHealth: vi.fn(), validateGeometry: vi.fn(), runAnalysis: vi.fn() }));
@@ -17,6 +18,11 @@ vi.mock("@/components/map/analysis-map", () => ({
 const polygon: PolygonGeometry = {
   type: "Polygon" as const,
   coordinates: [[[-46.962, -23.109], [-46.96, -23.109], [-46.96, -23.107], [-46.962, -23.107], [-46.962, -23.109]]],
+};
+
+const polygonB: PolygonGeometry = {
+  type: "Polygon" as const,
+  coordinates: [[[-46.958, -23.112], [-46.956, -23.112], [-46.956, -23.11], [-46.958, -23.11], [-46.958, -23.112]]],
 };
 
 const validation = {
@@ -55,8 +61,16 @@ beforeEach(() => {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", service: "motiva-vegetation-api", version: "0.1.0" });
   vi.mocked(api.validateGeometry).mockResolvedValue(validation);
   vi.mocked(api.runAnalysis).mockResolvedValue(result);
-  useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", fitRequestId: 0, activeTab: "area" });
+  useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", fitRequestId: 0, activeTab: "area", currentResult: null });
+  useHistoryStore.setState({ entries: [] });
 });
+
+async function completeCurrentAnalysis() {
+  fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
+  await screen.findByText("Área validada");
+  fireEvent.click(screen.getByRole("button", { name: "Executar análise" }));
+  await screen.findAllByText("Vegetação abaixo do nível alto local.");
+}
 
 describe("workspace geoespacial", () => {
   it("renderiza a página, o mapa, o produto e o status da API", async () => {
@@ -71,7 +85,7 @@ describe("workspace geoespacial", () => {
     expect(screen.getAllByText("API operacional")).toHaveLength(1);
   });
 
-  it("navega pelo shell sem desmontar a Nova análise", () => {
+  it("inicia uma sessão limpa ao voltar do Histórico para Nova análise", () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
 
@@ -89,13 +103,16 @@ describe("workspace geoespacial", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
     expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
-    expect(useAnalysisStore.getState().geometry).toEqual(polygon);
+    expect(useAnalysisStore.getState().geometry).toBeNull();
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
   });
 
   it("mostra somente as etapas Área e Resultado sem controles técnicos", () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("tab", { name: "Área" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Resultado" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Resultado" })).toBeDisabled();
     expect(screen.queryByRole("tab", { name: "Parâmetros" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Data inicial")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Data final")).not.toBeInTheDocument();
@@ -157,12 +174,136 @@ describe("workspace geoespacial", () => {
     expect(runButton).toBeEnabled();
     fireEvent.click(runButton);
     expect((await screen.findAllByText("Vegetação abaixo do nível alto local.")).length).toBeGreaterThan(0);
-    expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon }, expect.anything());
+    expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon });
     expect(screen.getAllByText("10/07/2026 a 10/08/2026").length).toBeGreaterThan(0);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
     const fitRequest = useAnalysisStore.getState().fitRequestId;
     fireEvent.click(screen.getByRole("button", { name: "Enquadrar área analisada" }));
     expect(useAnalysisStore.getState().fitRequestId).toBe(fitRequest + 1);
+  });
+
+  it("invalida o Resultado A assim que uma nova Geometria B é criada", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    await completeCurrentAnalysis();
+
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    act(() => useAnalysisStore.getState().setGeometry(polygonB, "drawn"));
+
+    expect(useAnalysisStore.getState().geometry).toEqual(polygonB);
+    expect(useAnalysisStore.getState().geometryValidation).toBeNull();
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(screen.queryByText("Vegetação abaixo do nível alto local.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Executar análise" })).toBeDisabled();
+    expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "editing");
+  });
+
+  it("invalida o resultado quando um vértice da geometria analisada é editado", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    await completeCurrentAnalysis();
+
+    const editedPolygon: PolygonGeometry = {
+      ...polygon,
+      coordinates: [[...polygon.coordinates[0].slice(0, 2), [-46.9595, -23.1065], ...polygon.coordinates[0].slice(3)]],
+    };
+    act(() => useAnalysisStore.getState().setGeometry(editedPolygon, "drawn"));
+
+    expect(useAnalysisStore.getState().geometryRevision).toBe(2);
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(screen.queryByText("Vegetação abaixo do nível alto local.")).not.toBeInTheDocument();
+  });
+
+  it("limpa geometria, validação e resultado sem apagar o histórico", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    await completeCurrentAnalysis();
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Área" }));
+    fireEvent.click(screen.getByRole("button", { name: "Limpar área" }));
+
+    expect(useAnalysisStore.getState().geometry).toBeNull();
+    expect(useAnalysisStore.getState().geometryValidation).toBeNull();
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
+    expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "editing");
+  });
+
+  it("reinicia a sessão ao clicar em Nova análise mesmo quando já está no workspace", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    await completeCurrentAnalysis();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+
+    expect(useAnalysisStore.getState().geometry).toBeNull();
+    expect(useAnalysisStore.getState().geometryValidation).toBeNull();
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useAnalysisStore.getState().selectedTool).toBe("navigate");
+    expect(screen.getByText("Nenhuma área delimitada")).toBeInTheDocument();
+    expect(screen.queryByText("Vegetação abaixo do nível alto local.")).not.toBeInTheDocument();
+  });
+
+  it("descarta a resposta da análise A quando a Geometria B passa a ser atual", async () => {
+    let resolve!: (value: AnalysisResponse) => void;
+    vi.mocked(api.runAnalysis).mockReturnValue(new Promise((done) => { resolve = done; }));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
+    await screen.findByText("Área validada");
+    fireEvent.click(screen.getByRole("button", { name: "Executar análise" }));
+
+    act(() => useAnalysisStore.getState().setGeometry(polygonB, "drawn"));
+    await act(async () => resolve(result));
+
+    expect(useAnalysisStore.getState().geometry).toEqual(polygonB);
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(0);
+    expect(screen.queryByText("Vegetação abaixo do nível alto local.")).not.toBeInTheDocument();
+  });
+
+  it("mantém uma nova sessão limpa quando a resposta anterior chega atrasada", async () => {
+    let resolve!: (value: AnalysisResponse) => void;
+    vi.mocked(api.runAnalysis).mockReturnValue(new Promise((done) => { resolve = done; }));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
+    await screen.findByText("Área validada");
+    fireEvent.click(screen.getByRole("button", { name: "Executar análise" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    await act(async () => resolve(result));
+
+    expect(useAnalysisStore.getState().geometry).toBeNull();
+    expect(useAnalysisStore.getState().currentResult).toBeNull();
+    expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(0);
+    expect(screen.getByText("Nenhuma área delimitada")).toBeInTheDocument();
+  });
+
+  it("preserva o histórico e restaura geometria e resultado explicitamente", async () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    await completeCurrentAnalysis();
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir análise" }));
+
+    expect(useAnalysisStore.getState().geometry).toEqual(polygon);
+    expect(useAnalysisStore.getState().currentResult?.response.analysis_id).toBe(result.analysis_id);
+    expect(useAnalysisStore.getState().currentResult?.geometryRevision).toBe(useAnalysisStore.getState().geometryRevision);
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
+    expect(screen.getAllByText("Vegetação abaixo do nível alto local.").length).toBeGreaterThan(0);
   });
 
   it("exibe loading durante a execução da análise", async () => {

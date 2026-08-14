@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .operational_profile import DEFAULT_ANALYSIS_TIMEZONE
+
+
+def _read_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value.")
 
 
 @dataclass(frozen=True)
@@ -22,8 +34,26 @@ class ApiSettings:
     analysis_timezone: str = os.getenv(
         "ANALYSIS_TIMEZONE", DEFAULT_ANALYSIS_TIMEZONE
     )
+    multisource_enabled: bool = field(
+        default_factory=lambda: _read_bool("MULTISOURCE_ENABLED")
+    )
+    gedi_enabled: bool = field(default_factory=lambda: _read_bool("GEDI_ENABLED"))
+    icesat2_enabled: bool = field(
+        default_factory=lambda: _read_bool("ICESAT2_ENABLED")
+    )
+    multisource_fusion_mode: str = field(
+        default_factory=lambda: os.getenv("MULTISOURCE_FUSION_MODE", "disabled")
+        .strip()
+        .lower()
+    )
     service_name: str = "motiva-vegetation-api"
     version: str = "0.1.0"
+
+    def __post_init__(self) -> None:
+        if self.multisource_fusion_mode not in {"disabled", "shadow"}:
+            raise ValueError(
+                "MULTISOURCE_FUSION_MODE must be 'disabled' or 'shadow'."
+            )
 
     @property
     def cors_origins(self) -> list[str]:

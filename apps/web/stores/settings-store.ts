@@ -4,7 +4,7 @@ export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "motiva.theme";
-const DEFAULT_PREFERENCE: ThemePreference = "dark";
+const DEFAULT_PREFERENCE: ResolvedTheme = "dark";
 
 function readStoredPreference(): ThemePreference {
   if (typeof window === "undefined") return DEFAULT_PREFERENCE;

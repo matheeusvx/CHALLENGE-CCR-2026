@@ -21,6 +21,16 @@ o diretorio de saida sao configurados por `API_CORS_ORIGINS` e
 `API_OUTPUT_ROOT`. `ANALYSIS_TIMEZONE` define o timezone da data oficial e usa
 `America/Sao_Paulo` por padrao.
 
+## Fundacao multissensor
+
+O Sentinel-2 continua sendo o baseline exclusivo da analise. A fundacao
+multissensor esta desabilitada por padrao; providers auxiliares serao opcionais
+e executados de forma fail-soft, sem derrubar o baseline quando falharem. O modo
+`shadow` esta reservado para validacao futura e ainda nao altera a decisao.
+
+As flags `MULTISOURCE_ENABLED`, `GEDI_ENABLED` e `ICESAT2_ENABLED` usam `false`
+por padrao. `MULTISOURCE_FUSION_MODE` aceita apenas `disabled` ou `shadow`.
+
 ## Endpoints
 
 - `GET /api/health`

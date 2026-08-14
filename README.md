@@ -84,6 +84,10 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
 - `ANALYSIS_TIMEZONE`: timezone da data oficial da analise (padrao `America/Sao_Paulo`);
+- `MULTISOURCE_ENABLED`, `GEDI_ENABLED` e `ICESAT2_ENABLED`: fundacao futura,
+  desabilitada por padrao e sem efeito sobre o baseline Sentinel-2;
+- `MULTISOURCE_FUSION_MODE`: aceita `disabled` ou `shadow`; nenhum modo altera
+  a decisao nesta etapa;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
 
 ### Workspace geoespacial

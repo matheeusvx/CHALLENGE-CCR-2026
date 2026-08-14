@@ -2,7 +2,6 @@
 
 import { CalendarRange, CheckCircle2, Crosshair, FileClock, Gauge, Leaf, MapPinned, Scissors, ShieldQuestion, Trash2 } from "lucide-react";
 import type { ComponentType } from "react";
-import type { AppView } from "@/components/layout/app-sidebar";
 import {
   analysisQualityStatus,
   analyzedAreaSquareMeters,
@@ -29,15 +28,15 @@ function formatSavedAt(iso: string) {
     : date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export function HistoryView({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+export function HistoryView({ onStartNewAnalysis, onOpenWorkspace }: { onStartNewAnalysis: () => void; onOpenWorkspace: () => void }) {
   const entries = useHistoryStore((state) => state.entries);
   const removeEntry = useHistoryStore((state) => state.removeEntry);
   const clear = useHistoryStore((state) => state.clear);
-  const setGeometry = useAnalysisStore((state) => state.setGeometry);
+  const restoreHistoricalAnalysis = useAnalysisStore((state) => state.restoreHistoricalAnalysis);
 
-  const openArea = (entry: HistoryEntry) => {
-    setGeometry(entry.geometry, "predefined");
-    onNavigate("analysis");
+  const openAnalysis = (entry: HistoryEntry) => {
+    restoreHistoricalAnalysis(entry.geometry, entry.response, entry.geometryValidation);
+    onOpenWorkspace();
   };
 
   const clearAll = () => {
@@ -57,7 +56,7 @@ export function HistoryView({ onNavigate }: { onNavigate: (view: AppView) => voi
           <FileClock size={30} aria-hidden="true" />
           <strong>Nenhuma análise registrada</strong>
           <p>Execute uma análise em “Nova análise” para que o resultado apareça neste histórico.</p>
-          <button type="button" className="secondary-button" onClick={() => onNavigate("analysis")}>
+          <button type="button" className="secondary-button" onClick={onStartNewAnalysis}>
             <Leaf size={16} aria-hidden="true" />Ir para Nova análise
           </button>
         </div>
@@ -98,8 +97,8 @@ export function HistoryView({ onNavigate }: { onNavigate: (view: AppView) => voi
                   </dl>
 
                   <div className="history-card-actions">
-                    <button type="button" className="text-action" onClick={() => openArea(entry)}>
-                      <Crosshair size={15} aria-hidden="true" />Ver área no mapa
+                    <button type="button" className="text-action" onClick={() => openAnalysis(entry)}>
+                      <Crosshair size={15} aria-hidden="true" />Abrir análise
                     </button>
                   </div>
                 </li>

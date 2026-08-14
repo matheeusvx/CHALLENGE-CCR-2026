@@ -1,38 +1,51 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnalysisMap } from "@/components/map/analysis-map";
 import { AreaPanel } from "@/components/analysis/area-panel";
 import { AnalysisResult } from "@/components/analysis/analysis-result";
 import { AnalysisResultSidebar } from "@/components/analysis/analysis-result-sidebar";
 import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
-import type { AnalysisResponse } from "@/lib/schemas/analyses";
-import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
+import { getCurrentAnalysisResponse, isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { useHistoryStore } from "@/stores/history-store";
 import { WorkspaceTabs } from "./workspace-tabs";
 
 export function GeospatialWorkspace() {
   const state = useAnalysisStore();
-  const [result, setResult] = useState<AnalysisResponse>();
+  const previousGeometryRevision = useRef(state.geometryRevision);
+  const [validationRevision, setValidationRevision] = useState<number | null>(null);
+  const [analysisRevision, setAnalysisRevision] = useState<number | null>(null);
+  const result = getCurrentAnalysisResponse(state);
   const validation = useMutation({
     mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => validateGeometry(geometry),
   });
   const addHistoryEntry = useHistoryStore((store) => store.addEntry);
   const analysis = useMutation({
-    mutationFn: runAnalysis,
+    mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => runAnalysis({ geometry }),
     onSuccess: (data, variables) => {
-      setResult(data);
-      state.setField("activeTab", "result");
-      addHistoryEntry(data, variables.geometry as NonNullable<typeof state.geometry>);
+      const current = useAnalysisStore.getState();
+      if (variables.revision !== current.geometryRevision || !isCurrentGeometryValidated(current)) return;
+      current.applyAnalysisResult(data, variables.revision);
+      addHistoryEntry(data, variables.geometry, current.geometryValidation ?? undefined);
     },
   });
+
+  useEffect(() => {
+    if (previousGeometryRevision.current === state.geometryRevision) return;
+    previousGeometryRevision.current = state.geometryRevision;
+    validation.reset();
+    analysis.reset();
+    // Mutation state belongs to the geometry revision that created it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.geometryRevision]);
 
   const handleValidate = () => {
     if (!state.geometry) return;
     validation.reset();
     const revision = state.geometryRevision;
+    setValidationRevision(revision);
     validation.mutate({ geometry: state.geometry, revision }, {
       onSuccess: (data) => state.applyGeometryValidation(data, revision),
     });
@@ -42,10 +55,17 @@ export function GeospatialWorkspace() {
     const current = useAnalysisStore.getState();
     if (!current.geometry || !isCurrentGeometryValidated(current)) return;
     analysis.reset();
-    analysis.mutate({ geometry: current.geometry });
+    setAnalysisRevision(current.geometryRevision);
+    analysis.mutate({ geometry: current.geometry, revision: current.geometryRevision });
   };
 
-  const error = validation.error ?? analysis.error;
+  const validationIsCurrent = validationRevision === state.geometryRevision;
+  const analysisIsCurrent = analysisRevision === state.geometryRevision;
+  const error = analysisIsCurrent && analysis.error
+    ? analysis.error
+    : validationIsCurrent
+      ? validation.error
+      : null;
   const errorMessage = error ? messageFrom(error) : undefined;
 
   return (
@@ -61,13 +81,13 @@ export function GeospatialWorkspace() {
         <section className="map-workspace" aria-label="Workspace geoespacial">
           <AnalysisMap
             result={result}
-            validationFailed={Boolean(validation.error && validation.variables?.revision === state.geometryRevision)}
+            validationFailed={Boolean(validation.error && validationIsCurrent)}
           />
         </section>
         <aside className="analysis-drawer" aria-label="Painel da análise">
           <WorkspaceTabs active={state.activeTab} onChange={(tab) => state.setField("activeTab", tab)} hasResult={Boolean(result)} />
           <div role="tabpanel">
-            {state.activeTab === "area" && <AreaPanel validating={validation.isPending} running={analysis.isPending} error={errorMessage} onValidate={handleValidate} onRun={handleRun} />}
+            {state.activeTab === "area" && <AreaPanel validating={validation.isPending && validationIsCurrent} running={analysis.isPending && analysisIsCurrent} error={errorMessage} onValidate={handleValidate} onRun={handleRun} />}
             {state.activeTab === "result" && <AnalysisResultSidebar result={result} onRetry={handleRun} />}
           </div>
         </aside>

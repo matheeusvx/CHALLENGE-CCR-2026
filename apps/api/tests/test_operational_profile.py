@@ -6,11 +6,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from apps.api.app.config import ApiSettings
+from apps.api.app.dependencies import get_analysis_service
 from apps.api.app.operational_profile import (
     DEFAULT_ANALYSIS_TIMEZONE,
     DEFAULT_OPERATIONAL_ANALYSIS_PROFILE,
     get_analysis_date_range,
 )
+from src.satellite_monitoring.service import run_monitoring_analysis
 
 
 @pytest.mark.parametrize(
@@ -63,3 +65,41 @@ def test_operational_profile_has_validated_experimental_values() -> None:
         "max_gap_days": 20,
         "recent_intervention_days": 20,
     }
+
+
+def test_multisource_feature_flags_are_disabled_by_default(monkeypatch) -> None:
+    for variable in (
+        "MULTISOURCE_ENABLED",
+        "GEDI_ENABLED",
+        "ICESAT2_ENABLED",
+        "MULTISOURCE_FUSION_MODE",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    configured = ApiSettings()
+
+    assert configured.multisource_enabled is False
+    assert configured.gedi_enabled is False
+    assert configured.icesat2_enabled is False
+    assert configured.multisource_fusion_mode == "disabled"
+
+
+def test_multisource_feature_flags_read_explicit_environment(monkeypatch) -> None:
+    monkeypatch.setenv("MULTISOURCE_ENABLED", "true")
+    monkeypatch.setenv("GEDI_ENABLED", "1")
+    monkeypatch.setenv("ICESAT2_ENABLED", "yes")
+    monkeypatch.setenv("MULTISOURCE_FUSION_MODE", "shadow")
+
+    configured = ApiSettings()
+
+    assert configured.multisource_enabled is True
+    assert configured.gedi_enabled is True
+    assert configured.icesat2_enabled is True
+    assert configured.multisource_fusion_mode == "shadow"
+
+
+def test_multisource_disabled_keeps_the_sentinel_service_unchanged(monkeypatch) -> None:
+    monkeypatch.setenv("MULTISOURCE_ENABLED", "false")
+
+    assert ApiSettings().multisource_enabled is False
+    assert get_analysis_service() is run_monitoring_analysis

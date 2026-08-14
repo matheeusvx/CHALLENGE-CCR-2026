@@ -16,7 +16,7 @@ import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
 import { MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { fitMapToGeometry } from "@/lib/map/fit-map-to-geometry";
-import type { PolygonGeometry } from "@/lib/map/geometry";
+import { calculateGeometryPreview, type PolygonGeometry } from "@/lib/map/geometry";
 import { getResultPopupPresentation } from "@/lib/map/result-popup";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
@@ -58,7 +58,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     editing: Boolean(geometry && (selectedTool === "draw" || selectedTool === "edit")),
     dirty: isGeometryDirty,
     validation: validationFailed ? "invalid" : validated ? "valid" : null,
-    recommendation: validated && !isGeometryDirty ? result?.recommendation.decision : undefined,
+    recommendation: geometry && !isGeometryDirty ? result?.recommendation.decision : undefined,
   }), [geometry, isGeometryDirty, result?.recommendation.decision, selectedTool, validated, validationFailed]);
 
   const geometryRef = useRef(geometry);
@@ -222,7 +222,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     popupRef.current?.remove();
     popupRef.current = null;
     const map = mapRef.current;
-    if (!map || !result || !geometry || !validated || isGeometryDirty || !geometryValidation) return;
+    if (!map || !result || !geometry || isGeometryDirty) return;
     const presentation = getResultPopupPresentation(result);
     const popupNode = document.createElement("div");
     const title = document.createElement("strong");
@@ -234,8 +234,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     popupNode.className = `map-result-popup ${presentation.state}`;
     popupNode.dataset.decision = presentation.state;
     popupNode.append(title, confidence, period);
+    const centroid = geometryValidation?.centroid ?? calculateGeometryPreview(geometry).centroid;
     popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 14, className: "analysis-result-map-popup" })
-      .setLngLat([geometryValidation.centroid.longitude, geometryValidation.centroid.latitude])
+      .setLngLat([centroid.longitude, centroid.latitude])
       .setDOMContent(popupNode)
       .addTo(map);
   }, [geometry, geometryValidation, isGeometryDirty, result, validated]);
