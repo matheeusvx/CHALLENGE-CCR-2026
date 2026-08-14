@@ -2,7 +2,9 @@
 
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { SecondaryView } from "@/components/workspace/secondary-view";
+import { HistoryView } from "@/components/views/history-view";
+import { SettingsView } from "@/components/views/settings-view";
+import { SourcesView } from "@/components/views/sources-view";
 import { AppHeader } from "./app-header";
 import { AppSidebar, type AppView } from "./app-sidebar";
 
@@ -18,7 +20,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className={activeView === "analysis" ? "shell-view active" : "shell-view inactive"} aria-hidden={activeView !== "analysis"}>
             {children}
           </div>
-          {activeView !== "analysis" ? <SecondaryView view={activeView} onBack={() => setActiveView("analysis")} /> : null}
+          {activeView === "history" ? <HistoryView onNavigate={setActiveView} /> : null}
+          {activeView === "sources" ? <SourcesView /> : null}
+          {activeView === "settings" ? <SettingsView /> : null}
         </main>
       </div>
     </div>

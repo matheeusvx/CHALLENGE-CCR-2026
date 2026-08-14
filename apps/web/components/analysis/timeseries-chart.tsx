@@ -3,10 +3,18 @@
 import ReactECharts from "echarts-for-react";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { formatDateBR } from "@/lib/utils/recommendation";
+import { resolveTheme, useSettingsStore } from "@/stores/settings-store";
 
 const numeric = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
 
+const palettes = {
+  dark: { axisLabel: "#a4a5ae", axisLine: "#3a3a43", splitLine: "#2f2f37", sliderBorder: "#3a3a43", sliderText: "#a4a5ae" },
+  light: { axisLabel: "#6b7280", axisLine: "#cfd3dc", splitLine: "#e8eaf0", sliderBorder: "#d8dbe4", sliderText: "#6b7280" },
+} as const;
+
 export function TimeseriesChart({ result }: { result: AnalysisResponse }) {
+  const themePreference = useSettingsStore((state) => state.themePreference);
+  const palette = palettes[resolveTheme(themePreference)];
   const records = [...result.timeseries].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
   const dates = records.map((record) => String(record.datetime).slice(0, 10));
   const option = {
@@ -28,23 +36,23 @@ export function TimeseriesChart({ result }: { result: AnalysisResponse }) {
       type: "category",
       data: dates.map(formatDateBR),
       boundaryGap: false,
-      axisLine: { lineStyle: { color: "#cfd3dc" } },
+      axisLine: { lineStyle: { color: palette.axisLine } },
       axisTick: { show: false },
-      axisLabel: { color: "#6b7280", fontSize: 11 },
+      axisLabel: { color: palette.axisLabel, fontSize: 11 },
     },
     yAxis: {
       type: "value",
       min: -1,
       max: 1,
       interval: 0.5,
-      axisLabel: { color: "#6b7280", fontSize: 11 },
+      axisLabel: { color: palette.axisLabel, fontSize: 11 },
       axisLine: { show: false },
       axisTick: { show: false },
-      splitLine: { lineStyle: { color: "#e8eaf0" } },
+      splitLine: { lineStyle: { color: palette.splitLine } },
     },
     dataZoom: [
       { type: "inside" },
-      { type: "slider", height: 18, bottom: 12, borderColor: "#d8dbe4", fillerColor: "rgba(124,58,237,.14)", handleStyle: { color: "#7c3aed" } },
+      { type: "slider", height: 18, bottom: 12, borderColor: palette.sliderBorder, fillerColor: "rgba(124,58,237,.22)", handleStyle: { color: "#7c3aed" }, textStyle: { color: palette.sliderText } },
     ],
     series: [
       {
@@ -61,7 +69,7 @@ export function TimeseriesChart({ result }: { result: AnalysisResponse }) {
           symbol: "pin",
           symbolSize: 40,
           label: { color: "#ffffff", fontSize: 10 },
-          itemStyle: { color: "#1d1b25" },
+          itemStyle: { color: "#7c3aed" },
           data: [{ name: "Atual", coord: [dates.length - 1, numeric(records.at(-1)?.ndvi_mean)] }],
         } : undefined,
       },

@@ -10,6 +10,7 @@ import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
 import { WorkspaceTabs } from "./workspace-tabs";
 
 export function GeospatialWorkspace() {
@@ -18,7 +19,15 @@ export function GeospatialWorkspace() {
   const validation = useMutation({
     mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => validateGeometry(geometry),
   });
-  const analysis = useMutation({ mutationFn: runAnalysis, onSuccess: (data) => { setResult(data); state.setField("activeTab", "result"); } });
+  const addHistoryEntry = useHistoryStore((store) => store.addEntry);
+  const analysis = useMutation({
+    mutationFn: runAnalysis,
+    onSuccess: (data, variables) => {
+      setResult(data);
+      state.setField("activeTab", "result");
+      addHistoryEntry(data, variables.geometry as NonNullable<typeof state.geometry>);
+    },
+  });
 
   const handleValidate = () => {
     if (!state.geometry) return;
@@ -43,6 +52,7 @@ export function GeospatialWorkspace() {
     <div className="geospatial-page">
       <div className="product-hero">
         <div className="product-hero-copy">
+          <span className="product-hero-eyebrow">Painel operacional</span>
           <h1>Motiva Faixa Verde</h1>
           <p>Monitoramento inteligente da vegetação lateral rodoviária</p>
         </div>

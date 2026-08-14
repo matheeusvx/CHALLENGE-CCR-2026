@@ -14,8 +14,10 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+  // O tema inicia em escuro (padrão do produto). O ThemeProvider ajusta para a
+  // preferência salva do usuário (claro/escuro/sistema) após a hidratação.
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
       <body className={`${inter.variable} ${plex.variable}`}>
         <Providers>{children}</Providers>
       </body>
