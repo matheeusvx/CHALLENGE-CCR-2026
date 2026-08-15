@@ -12,3 +12,5 @@ shapely
 pyproj
 pandas
 pytest
+earthaccess
+h5py

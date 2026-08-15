@@ -63,6 +63,21 @@ def test_builds_icesat2_atl08_v007_historical_query() -> None:
     assert "temporal" not in query
 
 
+def test_builds_atl08ql_v007_query() -> None:
+    spatial = load_aoi(AOI_PATH)
+    query = parse_qs(urlparse(build_cmr_query(
+        PRODUCTS[2],
+        spatial,
+        start_date=date(2026, 4, 17),
+        end_date=date(2026, 8, 14),
+    )).query)
+
+    assert query["short_name"] == ["ATL08QL"]
+    assert query["version"] == ["007"]
+    assert query["sort_key"] == ["-start_date"]
+    assert query["temporal"] == ["2026-04-17T00:00:00Z,2026-08-14T23:59:59Z"]
+
+
 def test_parses_candidate_granules_without_dumping_full_cmr_response() -> None:
     entry = {
         "id": "G123-TEST",
