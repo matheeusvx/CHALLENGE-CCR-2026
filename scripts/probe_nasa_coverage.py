@@ -565,6 +565,35 @@ def classify_spatial_relation(
     return "outside_relevance", round(distance, 3)
 
 
+def diagnostic_distance_class(distance_meters: float | None) -> str | None:
+    if distance_meters is None:
+        return None
+    if distance_meters <= 50:
+        return "VERY_CLOSE"
+    if distance_meters <= 200:
+        return "CLOSE"
+    if distance_meters <= 1000:
+        return "MODERATE_DISTANCE"
+    return "DISTANT"
+
+
+def _keep_nearest(
+    nearest_segments: list[dict[str, object]],
+    segment: dict[str, object],
+    *,
+    limit: int = 5,
+) -> None:
+    nearest_segments.append(segment)
+    nearest_segments.sort(key=lambda item: (
+        float(item["distance_to_aoi_m"]),
+        str(item.get("granule_id", "")),
+        str(item.get("beam", "")),
+        float(item.get("latitude", 0)),
+        float(item.get("longitude", 0)),
+    ))
+    del nearest_segments[limit:]
+
+
 def _beam_segment_arrays(
     beam_group,
 ) -> tuple[dict[str, np.ndarray], int, list[str], str | None, str]:
@@ -659,6 +688,7 @@ def parse_icesat2_hdf5(
     product = _product_from_granule_id(granule_path.name)
     projected_geometry, transformer = _projected_aoi(geometry)
     relevant_segments: list[dict[str, object]] = []
+    nearest_segments: list[dict[str, object]] = []
     beam_schemas: dict[str, object] = {}
     segment_total = 0
     inside_count = 0
@@ -706,10 +736,14 @@ def parse_icesat2_hdf5(
                         transformer,
                         near_distance_meters,
                     )
-                    if relation == "outside_relevance":
+                    is_nearest_candidate = (
+                        len(nearest_segments) < 5
+                        or distance <= float(
+                            nearest_segments[-1]["distance_to_aoi_m"]
+                        )
+                    )
+                    if relation == "outside_relevance" and not is_nearest_candidate:
                         continue
-                    inside_count += relation == "inside_aoi"
-                    near_count += relation == "near_aoi"
                     terrain_height = _finite_or_none(
                         arrays["terrain_height"][row, column]
                     )
@@ -731,6 +765,25 @@ def parse_icesat2_hdf5(
                         vegetation_height,
                         raw_flags,
                     )
+                    nearest_segment = {
+                        "granule_id": granule_path.name,
+                        "product": product.short_name,
+                        "beam": beam,
+                        "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
+                        "latitude": round(latitude, 8),
+                        "longitude": round(longitude, 8),
+                        "distance_to_aoi_m": distance,
+                        "spatial_support_m": spatial_support,
+                        "terrain_height_m": terrain_height,
+                        "vegetation_height_m": vegetation_height,
+                        "quality_status": quality_status,
+                    }
+                    if is_nearest_candidate:
+                        _keep_nearest(nearest_segments, nearest_segment)
+                    if relation == "outside_relevance":
+                        continue
+                    inside_count += relation == "inside_aoi"
+                    near_count += relation == "near_aoi"
                     relevant_segments.append({
                         "product": product.short_name,
                         "product_role": product.product_role,
@@ -766,6 +819,10 @@ def parse_icesat2_hdf5(
         "segments_inside_aoi": inside_count,
         "segments_near_aoi": near_count,
         "segments_outside_relevance": segment_total - inside_count - near_count,
+        "minimum_distance_to_aoi_m": (
+            nearest_segments[0]["distance_to_aoi_m"] if nearest_segments else None
+        ),
+        "nearest_segments": nearest_segments,
         "usable_segments": usable,
         "relevant_segments": relevant_segments,
         "schema": {"beams": beam_schemas},
@@ -844,6 +901,9 @@ def _empty_validation(
         "segments_inside_aoi": 0,
         "segments_near_aoi": 0,
         "segments_outside_relevance": 0,
+        "minimum_distance_to_aoi_m": None,
+        "diagnostic_distance_class": None,
+        "nearest_segments": [],
         "usable_segments": 0,
         "latest_usable_observation": None,
         "granules": [],
@@ -872,6 +932,20 @@ def _summarize_product_validation(
         (str(segment.get("observed_at")) for segment in usable_segments),
         default=None,
     )
+    nearest_segments: list[dict[str, object]] = []
+    for granule in granules:
+        for segment in granule.get("nearest_segments", []):
+            if isinstance(segment, dict):
+                _keep_nearest(nearest_segments, dict(segment))
+    minimum_distance = (
+        float(nearest_segments[0]["distance_to_aoi_m"])
+        if nearest_segments
+        else None
+    )
+    serialized_granules = [
+        {key: value for key, value in granule.items() if key != "nearest_segments"}
+        for granule in granules
+    ]
     if usable_segments:
         decision = "GO_TO_PROVIDER_IMPLEMENTATION"
     elif granules:
@@ -895,9 +969,12 @@ def _summarize_product_validation(
         "segments_outside_relevance": sum(
             int(item.get("segments_outside_relevance", 0)) for item in granules
         ),
+        "minimum_distance_to_aoi_m": minimum_distance,
+        "diagnostic_distance_class": diagnostic_distance_class(minimum_distance),
+        "nearest_segments": nearest_segments,
         "usable_segments": len(usable_segments),
         "latest_usable_observation": latest,
-        "granules": list(granules),
+        "granules": serialized_granules,
         "decision": decision,
     }
 
@@ -982,6 +1059,8 @@ def validate_icesat2_segments(
                         "segments_inside_aoi": 0,
                         "segments_near_aoi": 0,
                         "segments_outside_relevance": 0,
+                        "minimum_distance_to_aoi_m": None,
+                        "nearest_segments": [],
                         "usable_segments": 0,
                         "relevant_segments": [],
                         "error_type": type(exc).__name__,
@@ -1014,6 +1093,8 @@ def validate_icesat2_segments(
                         "segments_inside_aoi": 0,
                         "segments_near_aoi": 0,
                         "segments_outside_relevance": 0,
+                        "minimum_distance_to_aoi_m": None,
+                        "nearest_segments": [],
                         "usable_segments": 0,
                         "relevant_segments": [],
                         "error_type": type(exc).__name__,

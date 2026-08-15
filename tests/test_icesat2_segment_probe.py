@@ -7,11 +7,14 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 from shapely.geometry import Polygon
 
 from scripts.probe_nasa_coverage import (
     _observation_key,
+    _summarize_product_validation,
     calculate_age_days,
+    diagnostic_distance_class,
     parse_icesat2_hdf5,
     validate_icesat2_segments,
 )
@@ -119,6 +122,25 @@ def _write_100m_only_granule(path: Path) -> None:
         terrain.create_dataset("h_te_best_fit", data=np.array([710.0]))
 
 
+def _write_distance_granule(path: Path) -> None:
+    with h5py.File(path, "w") as handle:
+        land = handle.create_group("gt1l/land_segments")
+        longitudes = np.array([
+            [0.0012, 0.0014, 0.0016, 0.0018, 0.0020],
+            [0.0022, 0.0024, 0.0026, 0.0028, np.nan],
+        ])
+        land.create_dataset("longitude_20m", data=longitudes)
+        land.create_dataset("latitude_20m", data=np.zeros((2, 5)))
+        land.create_dataset("terrain_flg", data=np.array([0, 0], dtype=np.uint8))
+        canopy = land.create_group("canopy")
+        terrain = land.create_group("terrain")
+        canopy.create_dataset("h_canopy_20m", data=np.arange(10).reshape(2, 5))
+        terrain.create_dataset(
+            "h_te_best_fit_20m",
+            data=np.arange(100, 110).reshape(2, 5),
+        )
+
+
 def test_parses_atl08_multiple_beams_and_spatial_relations(tmp_path: Path) -> None:
     path = tmp_path / "ATL08_20260801010203_01230102_007_01.h5"
     _write_granule(path, multiple_beams=True)
@@ -222,6 +244,101 @@ def test_falls_back_to_100m_only_when_20m_datasets_are_unavailable(
     assert parsed["relevant_segments"][0]["fallback_reason"] == (
         "20m_datasets_unavailable"
     )
+
+
+def test_minimum_distance_and_nearest_five_ignore_invalid_coordinates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ATL08_20260801010203_01230102_007_01.h5"
+    _write_distance_granule(path)
+
+    parsed = parse_icesat2_hdf5(
+        path,
+        geometry=_test_aoi(),
+        observed_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        generated_at=datetime(2026, 8, 14, tzinfo=timezone.utc),
+        near_distance_meters=0,
+    )
+
+    nearest = parsed["nearest_segments"]
+    assert parsed["segments_total"] == 9
+    assert parsed["minimum_distance_to_aoi_m"] == pytest.approx(22.264, abs=0.1)
+    assert len(nearest) == 5
+    assert [item["distance_to_aoi_m"] for item in nearest] == sorted(
+        item["distance_to_aoi_m"] for item in nearest
+    )
+    assert [item["longitude"] for item in nearest] == [
+        0.0012,
+        0.0014,
+        0.0016,
+        0.0018,
+        0.002,
+    ]
+
+
+def test_product_summary_keeps_global_nearest_five() -> None:
+    def segment(distance: float, granule: str) -> dict[str, object]:
+        return {
+            "granule_id": granule,
+            "product": "ATL08",
+            "beam": "gt1l",
+            "observed_at": "2026-08-01T00:00:00+00:00",
+            "latitude": 0.0,
+            "longitude": distance / 100000,
+            "distance_to_aoi_m": distance,
+            "spatial_support_m": 20,
+            "terrain_height_m": 100.0,
+            "vegetation_height_m": 1.0,
+            "quality_status": "usable_candidate",
+        }
+
+    granules = [
+        {
+            "nearest_segments": [segment(value, "first.h5") for value in (300, 50, 5)],
+            "relevant_segments": [],
+        },
+        {
+            "nearest_segments": [
+                segment(value, "second.h5") for value in (2000, 1000, 100)
+            ],
+            "relevant_segments": [],
+        },
+    ]
+    source = {
+        "short_name": "ATL08",
+        "historical": {"candidate_granule_count": 2, "sample": []},
+    }
+
+    summary = _summarize_product_validation(source, granules)
+
+    assert summary["minimum_distance_to_aoi_m"] == 5
+    assert summary["diagnostic_distance_class"] == "VERY_CLOSE"
+    assert [item["distance_to_aoi_m"] for item in summary["nearest_segments"]] == [
+        5,
+        50,
+        100,
+        300,
+        1000,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("distance", "expected"),
+    [
+        (50, "VERY_CLOSE"),
+        (50.001, "CLOSE"),
+        (200, "CLOSE"),
+        (200.001, "MODERATE_DISTANCE"),
+        (1000, "MODERATE_DISTANCE"),
+        (1000.001, "DISTANT"),
+        (None, None),
+    ],
+)
+def test_diagnostic_distance_classification(
+    distance: float | None,
+    expected: str | None,
+) -> None:
+    assert diagnostic_distance_class(distance) == expected
 
 
 def test_final_and_quick_look_share_observation_key_without_product_confusion() -> None:
