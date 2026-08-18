@@ -16,6 +16,11 @@ from .cut_recommendation import (
     recommend_cut,
 )
 from .geometry import resolve_aoi
+from .height_estimation import (
+    disabled_height_estimation,
+    estimate_height_class,
+    unavailable_height_estimation,
+)
 from .indices import InsufficientValidPixelsError, analyze_ndvi
 from .outputs import create_run_directory, to_json_compatible, write_outputs
 from .quality import (
@@ -24,7 +29,7 @@ from .quality import (
     select_quality_assessed_observations,
     summarize_scene_quality,
 )
-from .raster_processing import read_scene_bands
+from .raster_processing import physical_reflectance_medians, read_scene_bands
 from .stac_client import Scene, search_scenes
 from .temporal_quality import calculate_analysis_quality, diagnose_temporal_consistency
 
@@ -48,6 +53,8 @@ class PipelineDependencies:
 
     search_scenes: Callable[..., Any] = search_scenes
     read_scene_bands: Callable[..., Any] = read_scene_bands
+    extract_height_features: Callable[..., dict[str, Any]] = physical_reflectance_medians
+    estimate_height: Callable[..., dict[str, Any]] = estimate_height_class
     write_outputs: Callable[..., dict[str, Path]] = write_outputs
 
 
@@ -61,6 +68,7 @@ class AnalysisResult:
     summary: dict[str, Any]
     timeseries: list[dict[str, Any]]
     scenes: list[dict[str, Any]]
+    height_estimation: dict[str, Any] = field(default_factory=disabled_height_estimation)
     artifacts: dict[str, Path] = field(default_factory=dict)
     warnings: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -83,6 +91,7 @@ class AnalysisResult:
             "analysis_id": self.analysis_id,
             "status": self.status,
             "recommendation": self.recommendation,
+            "height_estimation": self.height_estimation,
             "aoi": self.aoi,
             "summary": self.summary,
             "timeseries": self.timeseries,
@@ -119,6 +128,11 @@ def _new_scene_record(scene: Scene) -> dict[str, Any]:
             "ndvi_mean": None,
             "ndvi_median": None,
             "ndvi_std": None,
+            "red_median_reflectance": None,
+            "nir_median_reflectance": None,
+            "reflectance_scale_source": None,
+            "reflectance_scale": None,
+            "reflectance_offset": None,
             "scene_quality_score": None,
             "min_pixel_requirement_met": False,
             "aoi_coverage_requirement_met": False,
@@ -227,6 +241,21 @@ def run_monitoring_analysis(
                 except InsufficientValidPixelsError:
                     pass
 
+                height_features: dict[str, Any] = {}
+                if config.height_estimation_enabled and statistics is not None:
+                    try:
+                        height_features = deps.extract_height_features(
+                            scene.item, raster_data
+                        )
+                    except Exception as exc:
+                        warnings.append(
+                            {
+                                "code": "HEIGHT_FEATURES_UNAVAILABLE",
+                                "item_id": scene.item_id,
+                                "message": f"Features experimentais indisponiveis: {exc}",
+                            }
+                        )
+
                 valid_pixel_count = statistics.valid_pixel_count if statistics else 0
                 valid_pixel_percentage = statistics.valid_pixel_percentage if statistics else 0.0
                 assessment = assess_scene_quality(
@@ -260,6 +289,17 @@ def run_monitoring_analysis(
                         "ndvi_mean": statistics.mean if statistics else None,
                         "ndvi_median": statistics.median if statistics else None,
                         "ndvi_std": statistics.std if statistics else None,
+                        "red_median_reflectance": height_features.get(
+                            "red_median_reflectance"
+                        ),
+                        "nir_median_reflectance": height_features.get(
+                            "nir_median_reflectance"
+                        ),
+                        "reflectance_scale_source": height_features.get(
+                            "reflectance_scale_source"
+                        ),
+                        "reflectance_scale": height_features.get("reflectance_scale"),
+                        "reflectance_offset": height_features.get("reflectance_offset"),
                         "scene_quality_score": assessment.scene_quality_score,
                         "min_pixel_requirement_met": assessment.min_pixel_requirement_met,
                         "aoi_coverage_requirement_met": assessment.aoi_coverage_requirement_met,
@@ -290,6 +330,12 @@ def run_monitoring_analysis(
                             "ndvi_mean": statistics.mean,
                             "ndvi_median": statistics.median,
                             "ndvi_std": statistics.std,
+                            "red_median_reflectance": height_features.get(
+                                "red_median_reflectance"
+                            ),
+                            "nir_median_reflectance": height_features.get(
+                                "nir_median_reflectance"
+                            ),
                             "ndvi_min": statistics.minimum,
                             "ndvi_max": statistics.maximum,
                             "valid_pixel_count": statistics.valid_pixel_count,
@@ -437,6 +483,43 @@ def run_monitoring_analysis(
         )
     )
     recommendation = recommendation_result.to_dict()
+    if config.height_estimation_enabled:
+        height_source_records = [
+            record
+            for record in scene_records
+            if record.get("included_in_analysis")
+            and record.get("red_median_reflectance") is not None
+            and record.get("nir_median_reflectance") is not None
+            and record.get("ndvi_median") is not None
+        ]
+        if height_source_records:
+            height_source = max(
+                height_source_records, key=lambda record: str(record.get("datetime") or "")
+            )
+            try:
+                height_estimation = deps.estimate_height(
+                    {
+                        "red_reflectance": height_source[
+                            "red_median_reflectance"
+                        ],
+                        "nir_reflectance": height_source[
+                            "nir_median_reflectance"
+                        ],
+                        "ndvi": height_source["ndvi_median"],
+                    }
+                )
+            except Exception as exc:
+                height_estimation = unavailable_height_estimation()
+                warnings.append(
+                    {
+                        "code": "HEIGHT_ESTIMATION_UNAVAILABLE",
+                        "message": f"Estimativa experimental indisponivel: {exc}",
+                    }
+                )
+        else:
+            height_estimation = unavailable_height_estimation()
+    else:
+        height_estimation = disabled_height_estimation()
     overall_status = determine_overall_status(
         fatal_error=fatal_error,
         processed_scene_count=len(processed_item_ids),
@@ -517,6 +600,7 @@ def run_monitoring_analysis(
         "analysis_quality": analysis_quality,
         "recommendation_thresholds": config.recommendation_thresholds,
         "cut_recommendation": recommendation_result.to_summary_dict(),
+        "height_estimation": height_estimation,
         "scenes_discarded_by_limit": [
             *discarded_candidate_scenes,
             *[
@@ -560,6 +644,7 @@ def run_monitoring_analysis(
             to_json_compatible(summary),
             to_json_compatible(analysis_records),
             to_json_compatible(scene_records),
+            height_estimation=height_estimation,
             warnings=warnings,
             errors=errors,
             run_directory=run_directory,
@@ -590,6 +675,7 @@ def run_monitoring_analysis(
         to_json_compatible(summary),
         to_json_compatible(analysis_records),
         to_json_compatible(scene_records),
+        height_estimation=height_estimation,
         artifacts=public_artifacts,
         warnings=warnings,
         errors=errors,

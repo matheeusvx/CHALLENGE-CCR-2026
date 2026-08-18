@@ -41,6 +41,9 @@ class ApiSettings:
     icesat2_enabled: bool = field(
         default_factory=lambda: _read_bool("ICESAT2_ENABLED")
     )
+    height_estimation_enabled: bool = field(
+        default_factory=lambda: _read_bool("HEIGHT_ESTIMATION_ENABLED")
+    )
     multisource_fusion_mode: str = field(
         default_factory=lambda: os.getenv("MULTISOURCE_FUSION_MODE", "disabled")
         .strip()

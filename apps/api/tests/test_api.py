@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.app.dependencies import analysis_registry, get_analysis_service
@@ -70,6 +71,14 @@ def test_run_uses_injected_service(
     assert body["analysis_id"]
     assert body["recommendation"]["decision"] == "nao_cortar"
     assert body["recommendation"]["confidence"] == "high"
+    assert body["height_estimation"] == {
+        "status": "disabled",
+        "estimated_class": None,
+        "probability_gt_30_cm": None,
+        "confidence": None,
+        "reference_threshold_cm": 30,
+        "model_version": None,
+    }
     assert body["analysis_period"] == {
         "start_date": "2026-05-01",
         "end_date": "2026-08-04",
@@ -77,6 +86,59 @@ def test_run_uses_injected_service(
         "strategy": "explicit",
     }
     assert "output_root" not in body["summary"]["parameters"]
+
+
+@pytest.mark.parametrize(
+    "height_estimation",
+    [
+        {
+            "status": "experimental",
+            "estimated_class": "le_30_cm",
+            "probability_gt_30_cm": 0.2,
+            "confidence": "medium",
+            "reference_threshold_cm": 30,
+            "model_version": "height-estimator-v0",
+        },
+        {
+            "status": "experimental",
+            "estimated_class": "inconclusive",
+            "probability_gt_30_cm": 0.5,
+            "confidence": "low",
+            "reference_threshold_cm": 30,
+            "model_version": "height-estimator-v0",
+        },
+        {
+            "status": "unavailable",
+            "estimated_class": None,
+            "probability_gt_30_cm": None,
+            "confidence": None,
+            "reference_threshold_cm": 30,
+            "model_version": None,
+        },
+        {
+            "status": "disabled",
+            "estimated_class": None,
+            "probability_gt_30_cm": None,
+            "confidence": None,
+            "reference_threshold_cm": 30,
+            "model_version": None,
+        },
+    ],
+)
+def test_height_estimation_contract_is_additive(
+    client: TestClient, valid_payload: dict, height_estimation: dict
+) -> None:
+    def service(config, *, analysis_id: str, **__):
+        result = make_result(analysis_id)
+        result.height_estimation = height_estimation
+        return result
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    response = client.post("/api/analyses/run", json=valid_payload)
+
+    assert response.status_code == 200
+    assert response.json()["height_estimation"] == height_estimation
+    assert response.json()["recommendation"]["decision"] == "nao_cortar"
 
 
 def test_run_without_technical_parameters_applies_operational_profile(

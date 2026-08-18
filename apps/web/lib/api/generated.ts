@@ -103,6 +103,7 @@ export interface components {
             /** Status */
             status: string;
             recommendation: components["schemas"]["RecommendationResponse"];
+            height_estimation: components["schemas"]["HeightEstimationResponse"];
             analysis_period: components["schemas"]["AnalysisPeriodResponse"];
             /** Aoi */
             aoi: {
@@ -220,6 +221,28 @@ export interface components {
             service: string;
             /** Version */
             version: string;
+        };
+        /** HeightEstimationResponse */
+        HeightEstimationResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "experimental" | "unavailable" | "disabled";
+            /** Estimated Class */
+            estimated_class: ("le_30_cm" | "gt_30_cm" | "inconclusive") | null;
+            /** Probability Gt 30 Cm */
+            probability_gt_30_cm?: number | null;
+            /** Confidence */
+            confidence: ("low" | "medium") | null;
+            /**
+             * Reference Threshold Cm
+             * @default 30
+             * @constant
+             */
+            reference_threshold_cm: 30;
+            /** Model Version */
+            model_version: string | null;
         };
         /** RecommendationResponse */
         RecommendationResponse: {

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from functools import lru_cache
+import math
 from typing import Any
+import urllib.request
+from xml.etree import ElementTree
 
 import numpy as np
 import rasterio
@@ -37,6 +41,13 @@ class RasterProcessingError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ReflectanceScaling:
+    source: str
+    scale: float
+    offset: float
+
+
+@dataclass(frozen=True)
 class RasterSceneData:
     red: np.ndarray
     nir: np.ndarray
@@ -49,6 +60,8 @@ class RasterSceneData:
     scl_asset: str | None
     scl_class_percentages: dict[str, float]
     quality_messages: list[str]
+    red_raw: np.ndarray | None = None
+    nir_raw: np.ndarray | None = None
 
 
 def calculate_scl_class_percentages(
@@ -112,6 +125,119 @@ def _scale_and_offset(asset: Any) -> tuple[float, float, float | None]:
         float(band.get("offset", 0.0)),
         band.get("nodata"),
     )
+
+
+def apply_reflectance_scaling(
+    values: np.ndarray, *, scale: float, offset: float
+) -> np.ndarray:
+    """Converte DN para reflectancia sem modificar os arrays operacionais."""
+    if not math.isfinite(scale) or scale <= 0:
+        raise ValueError("Reflectance scale must be finite and positive.")
+    if not math.isfinite(offset):
+        raise ValueError("Reflectance offset must be finite.")
+    return np.asarray(values, dtype=float) * scale + offset
+
+
+def _local_xml_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+@lru_cache(maxsize=64)
+def _product_metadata_scaling(metadata_href: str) -> ReflectanceScaling:
+    try:
+        xml_data = urllib.request.urlopen(metadata_href, timeout=30).read()
+        root = ElementTree.fromstring(xml_data)
+        quantification_values = [
+            float((node.text or "").strip())
+            for node in root.iter()
+            if _local_xml_name(node.tag) == "BOA_QUANTIFICATION_VALUE"
+            and (node.text or "").strip()
+        ]
+        offsets = [
+            float((node.text or "").strip())
+            for node in root.iter()
+            if _local_xml_name(node.tag) == "BOA_ADD_OFFSET"
+            and (node.text or "").strip()
+        ]
+    except Exception as exc:
+        raise RasterProcessingError(
+            "Nao foi possivel ler os metadados fisicos de reflectancia: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    if len(quantification_values) != 1 or quantification_values[0] <= 0:
+        raise RasterProcessingError("BOA_QUANTIFICATION_VALUE ausente ou invalido.")
+    if not offsets or len(set(offsets)) != 1:
+        raise RasterProcessingError(
+            "BOA_ADD_OFFSET ausente ou diferente entre bandas; escala insegura."
+        )
+    quantification = quantification_values[0]
+    return ReflectanceScaling(
+        source="product_metadata_BOA_QUANTIFICATION_VALUE_and_BOA_ADD_OFFSET",
+        scale=1.0 / quantification,
+        offset=offsets[0] / quantification,
+    )
+
+
+def resolve_physical_reflectance_scaling(
+    item: Any,
+    *,
+    asset_key: str | None = None,
+    dataset_scale: float = 1.0,
+    dataset_offset: float = 0.0,
+) -> ReflectanceScaling:
+    """Resolve scale/offset explicitos sem presumir cegamente DN/10000."""
+    key = asset_key or find_asset_key(item, {"red"}, ("red", "B04"))
+    if key is None:
+        raise RasterProcessingError("Asset espectral ausente para resolver reflectancia.")
+    raster_bands = item.assets[key].extra_fields.get("raster:bands", [])
+    if isinstance(raster_bands, dict):
+        raster_bands = [raster_bands]
+    if raster_bands and "scale" in raster_bands[0] and "offset" in raster_bands[0]:
+        return ReflectanceScaling(
+            source="asset_raster_bands",
+            scale=float(raster_bands[0]["scale"]),
+            offset=float(raster_bands[0]["offset"]),
+        )
+    if dataset_scale != 1.0 or dataset_offset != 0.0:
+        return ReflectanceScaling(
+            source="geotiff_dataset_scale_offset",
+            scale=float(dataset_scale),
+            offset=float(dataset_offset),
+        )
+    metadata_asset = item.assets.get("product-metadata")
+    if metadata_asset is None:
+        raise RasterProcessingError(
+            "Scale/offset ausentes no asset/GeoTIFF e product-metadata indisponivel."
+        )
+    return _product_metadata_scaling(str(metadata_asset.href))
+
+
+def physical_reflectance_medians(
+    item: Any, raster_data: RasterSceneData
+) -> dict[str, float | str]:
+    """Extrai RED/NIR fisicos sobre a mesma mascara valida do NDVI existente."""
+    if raster_data.red_raw is None or raster_data.nir_raw is None:
+        raise RasterProcessingError("Arrays raw RED/NIR nao foram preservados.")
+    scaling = resolve_physical_reflectance_scaling(
+        item, asset_key=raster_data.red_asset
+    )
+    red = apply_reflectance_scaling(
+        raster_data.red_raw, scale=scaling.scale, offset=scaling.offset
+    )
+    nir = apply_reflectance_scaling(
+        raster_data.nir_raw, scale=scaling.scale, offset=scaling.offset
+    )
+    mask = np.asarray(raster_data.valid_mask, dtype=bool)
+    mask &= np.isfinite(red) & np.isfinite(nir)
+    if not np.any(mask):
+        raise RasterProcessingError("Nenhum pixel valido para features de altura.")
+    return {
+        "red_median_reflectance": float(np.median(red[mask])),
+        "nir_median_reflectance": float(np.median(nir[mask])),
+        "reflectance_scale_source": scaling.source,
+        "reflectance_scale": scaling.scale,
+        "reflectance_offset": scaling.offset,
+    }
 
 
 def _prepare_reflectance(data: np.ma.MaskedArray, asset: Any) -> tuple[np.ndarray, np.ndarray]:
@@ -277,4 +403,6 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
         scl_asset=scl_key,
         scl_class_percentages=scl_class_percentages,
         quality_messages=quality_messages,
+        red_raw=np.asarray(red_raw.data, dtype=np.float32),
+        nir_raw=np.asarray(nir_raw.data, dtype=np.float32),
     )

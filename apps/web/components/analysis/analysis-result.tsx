@@ -1,5 +1,6 @@
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { OperationalContext } from "./operational-context";
+import { HeightEstimationCard } from "./height-estimation-card";
 import { RecommendationPanel } from "./recommendation-panel";
 import { ResultReasons } from "./result-reasons";
 import { TimeseriesChart } from "./timeseries-chart";
@@ -15,6 +16,10 @@ export function AnalysisResult({ result }: { result: AnalysisResponse }) {
         </div>
       </header>
       <RecommendationPanel result={result} />
+      <HeightEstimationCard
+        heightEstimation={result.height_estimation}
+        recommendation={result.recommendation.decision}
+      />
       <div className="result-executive-grid">
         <OperationalContext result={result} />
         <ResultReasons result={result} />

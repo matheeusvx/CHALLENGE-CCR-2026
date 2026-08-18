@@ -123,6 +123,7 @@ def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisRe
             "limitations": recommendation.get("limitations") or [],
             "metrics": recommendation.get("metrics") or {},
         },
+        height_estimation=result.height_estimation,
         aoi=result.aoi,
         summary=public_summary,
         timeseries=result.timeseries,
@@ -201,6 +202,7 @@ def run_analysis(
                 profile.recent_intervention_days,
             ),
             output_root=settings.output_root,
+            height_estimation_enabled=settings.height_estimation_enabled,
         )
         result = service(config, analysis_id=str(uuid4()))
     except InvalidAnalysisGeometryError as exc:

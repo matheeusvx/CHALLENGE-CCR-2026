@@ -205,6 +205,9 @@
           "recommendation": {
             "$ref": "#/components/schemas/RecommendationResponse"
           },
+          "height_estimation": {
+            "$ref": "#/components/schemas/HeightEstimationResponse"
+          },
           "analysis_period": {
             "$ref": "#/components/schemas/AnalysisPeriodResponse"
           },
@@ -264,6 +267,7 @@
           "analysis_id",
           "status",
           "recommendation",
+          "height_estimation",
           "analysis_period",
           "aoi",
           "summary",
@@ -625,6 +629,89 @@
           "version"
         ],
         "title": "HealthResponse"
+      },
+      "HeightEstimationResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "experimental",
+              "unavailable",
+              "disabled"
+            ],
+            "title": "Status"
+          },
+          "estimated_class": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "le_30_cm",
+                  "gt_30_cm",
+                  "inconclusive"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Class"
+          },
+          "probability_gt_30_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability Gt 30 Cm"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "reference_threshold_cm": {
+            "type": "integer",
+            "const": 30,
+            "title": "Reference Threshold Cm",
+            "default": 30
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "estimated_class",
+          "confidence",
+          "model_version"
+        ],
+        "title": "HeightEstimationResponse"
       },
       "RecommendationResponse": {
         "properties": {

@@ -15,6 +15,7 @@ COPY apps/api/requirements.txt ./apps/api/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -r apps/api/requirements.txt
 
 COPY src ./src
+COPY models ./models
 COPY apps/__init__.py ./apps/__init__.py
 COPY apps/api ./apps/api
 

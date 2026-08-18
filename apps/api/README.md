@@ -31,6 +31,11 @@ e executados de forma fail-soft, sem derrubar o baseline quando falharem. O modo
 As flags `MULTISOURCE_ENABLED`, `GEDI_ENABLED` e `ICESAT2_ENABLED` usam `false`
 por padrao. `MULTISOURCE_FUSION_MODE` aceita apenas `disabled` ou `shadow`.
 
+A estimativa binaria de faixa de altura v0 tambem usa `false` por padrao. Para
+habilita-la localmente antes de iniciar a API, defina
+`$env:HEIGHT_ESTIMATION_ENABLED = "true"`. O resultado e evidencia experimental
+adicional e nao altera a recommendation.
+
 ## Endpoints
 
 - `GET /api/health`

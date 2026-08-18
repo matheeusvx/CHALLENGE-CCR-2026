@@ -16,6 +16,7 @@ outputs/*
 # modelos treinados
 models/*
 !models/.gitkeep
+!models/height_estimator_v0.json
 
 # notebooks temporários
 .ipynb_checkpoints/

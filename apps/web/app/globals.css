@@ -262,6 +262,12 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 .recommendation[data-quality="medium"] .result-statuses div:last-child strong { color: #94600c; }
 .recommendation[data-quality="low"] .result-statuses div:last-child strong { color: var(--red); }
 .recommendation > p { grid-column: 1 / -1; max-width: 790px; margin: 0; color: #575b65; font-size: 14px; line-height: 1.55; }
+.height-estimation-card { padding: 15px 18px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-sm); }
+.height-estimation-icon { width: 36px; height: 36px; flex: 0 0 auto; border-radius: 6px; background: #f1eefb; color: var(--purple-dark); display: grid; place-items: center; }
+.height-estimation-card > div:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.height-estimation-card > div:nth-child(2) span { font: 600 10px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.height-estimation-card > div:nth-child(2) strong { font: 700 20px/1.2 var(--font-mono); }
+.experimental-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font: 600 10px/1.2 var(--font-mono); }
 .operational-context { min-width: 0; border-block: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; }
 .operational-context > div { min-width: 0; min-height: 86px; padding: 16px 20px; display: grid; grid-template-columns: 26px minmax(0, 1fr); align-content: center; gap: 4px 8px; }
 .operational-context > div + div { border-left: 1px solid var(--border); }
@@ -547,6 +553,8 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 :root[data-theme="dark"] .recommendation.cortar .recommendation-icon { background: #432b24; color: #f2a17f; }
 :root[data-theme="dark"] .recommendation.nao_cortar .recommendation-icon { background: #21382d; color: #79cda1; }
 :root[data-theme="dark"] .recommendation.inconclusivo .recommendation-icon { background: #40351f; color: #e2b85d; }
+:root[data-theme="dark"] .height-estimation-card { background: #25252d; border-color: #3e3e49; }
+:root[data-theme="dark"] .height-estimation-icon { background: #332d4c; color: #bcaaff; }
 :root[data-theme="dark"] .map-loading { background: #282930; }
 :root[data-theme="dark"] .geometry-state.dirty, :root[data-theme="dark"] .panel-warnings { background: #332b21; }
 :root[data-theme="dark"] .geometry-state.valid { background: #1e3128; }

@@ -77,6 +77,7 @@ class MonitoringConfig:
     temporal_outlier_min_deviation: float = DEFAULT_TEMPORAL_OUTLIER_MIN_DEVIATION
     temporal_outlier_mad_multiplier: float = DEFAULT_TEMPORAL_OUTLIER_MAD_MULTIPLIER
     temporal_return_ratio: float = DEFAULT_TEMPORAL_RETURN_RATIO
+    height_estimation_enabled: bool = False
 
     def __post_init__(self) -> None:
         circular_values = (self.latitude, self.longitude, self.radius_meters)

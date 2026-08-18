@@ -182,3 +182,164 @@ def test_sentinel_service_baseline_processes_candidates_before_final_temporal_li
             ("2026-07-14", 0.439776),
         ],
     }
+
+
+def test_height_estimator_does_not_change_recommendation(tmp_path) -> None:
+    scenes = [_scene(day) for day in (1, 8, 15, 22)]
+    extraction_calls = 0
+
+    def fake_search(config, geometry):
+        return SceneSearchResult(scenes=scenes, discarded_scenes=[], total_matches=4)
+
+    def fake_raster(item, geometry):
+        return RasterSceneData(
+            red=np.full((10, 10), 0.2, dtype=np.float32),
+            nir=np.full((10, 10), 0.5, dtype=np.float32),
+            valid_mask=np.ones((10, 10), dtype=bool),
+            total_pixel_count=100,
+            aoi_coverage_percentage=100.0,
+            partial_raster_coverage=False,
+            red_asset="B04",
+            nir_asset="B08",
+            scl_asset="SCL",
+            scl_class_percentages={"vegetation": 100.0},
+            quality_messages=[],
+        )
+
+    def extract_features(item, raster):
+        nonlocal extraction_calls
+        extraction_calls += 1
+        return {
+            "red_median_reflectance": 0.12,
+            "nir_median_reflectance": 0.31,
+            "reflectance_scale_source": "test",
+            "reflectance_scale": 0.0001,
+            "reflectance_offset": -0.1,
+        }
+
+    def estimator(features):
+        return {
+            "status": "experimental",
+            "estimated_class": "le_30_cm",
+            "probability_gt_30_cm": 0.2,
+            "confidence": "medium",
+            "reference_threshold_cm": 30,
+            "model_version": "height-estimator-v0",
+        }
+
+    def fake_write(run_directory, *args, **kwargs):
+        names = {
+            "scenes": "scenes.csv",
+            "timeseries": "ndvi_timeseries.csv",
+            "raw_timeseries": "raw_daily_timeseries.csv",
+            "summary": "summary.json",
+            "quality_report": "quality_report.json",
+            "plot": "ndvi_timeseries.png",
+            "aoi": "aoi.geojson",
+            "recommendation_json": "cut_recommendation.json",
+            "recommendation_csv": "cut_recommendation.csv",
+        }
+        return {key: Path(run_directory) / value for key, value in names.items()}
+
+    def run(enabled: bool, directory: str):
+        config = MonitoringConfig(
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-47, -23], [-46.99, -23], [-46.99, -22.99], [-47, -23]]
+                ],
+            },
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 7, 31),
+            max_cloud_cover=30,
+            min_valid_pixel_count=30,
+            min_observations=4,
+            output_root=tmp_path / directory,
+            height_estimation_enabled=enabled,
+        )
+        return run_monitoring_analysis(
+            config,
+            dependencies=PipelineDependencies(
+                search_scenes=fake_search,
+                read_scene_bands=fake_raster,
+                extract_height_features=extract_features,
+                estimate_height=estimator,
+                write_outputs=fake_write,
+            ),
+        )
+
+    disabled = run(False, "disabled")
+    assert extraction_calls == 0
+    enabled = run(True, "enabled")
+
+    assert disabled.recommendation == enabled.recommendation
+    assert disabled.height_estimation["status"] == "disabled"
+    assert enabled.height_estimation["status"] == "experimental"
+    assert extraction_calls == 4
+
+
+def test_height_estimator_exception_is_fail_soft(tmp_path) -> None:
+    scene = _scene(1)
+
+    def fake_raster(item, geometry):
+        return RasterSceneData(
+            red=np.full((10, 10), 0.2, dtype=np.float32),
+            nir=np.full((10, 10), 0.5, dtype=np.float32),
+            valid_mask=np.ones((10, 10), dtype=bool),
+            total_pixel_count=100,
+            aoi_coverage_percentage=100.0,
+            partial_raster_coverage=False,
+            red_asset="B04",
+            nir_asset="B08",
+            scl_asset="SCL",
+            scl_class_percentages={"vegetation": 100.0},
+            quality_messages=[],
+        )
+
+    config = MonitoringConfig(
+        geometry={
+            "type": "Polygon",
+            "coordinates": [[[-47, -23], [-46.99, -23], [-46.99, -22.99], [-47, -23]]],
+        },
+        start_date=date(2026, 7, 1),
+        end_date=date(2026, 7, 31),
+        min_observations=1,
+        output_root=tmp_path,
+        height_estimation_enabled=True,
+    )
+    result = run_monitoring_analysis(
+        config,
+        dependencies=PipelineDependencies(
+            search_scenes=lambda *_: SceneSearchResult(
+                scenes=[scene], discarded_scenes=[], total_matches=1
+            ),
+            read_scene_bands=fake_raster,
+            extract_height_features=lambda *_: {
+                "red_median_reflectance": 0.12,
+                "nir_median_reflectance": 0.31,
+            },
+            estimate_height=lambda *_: (_ for _ in ()).throw(RuntimeError("boom")),
+            write_outputs=lambda run_directory, *_, **__: {
+                key: Path(run_directory) / name
+                for key, name in {
+                    "scenes": "scenes.csv",
+                    "timeseries": "timeseries.csv",
+                    "raw_timeseries": "raw.csv",
+                    "summary": "summary.json",
+                    "quality_report": "quality.json",
+                    "plot": "plot.png",
+                    "aoi": "aoi.geojson",
+                    "recommendation_json": "recommendation.json",
+                    "recommendation_csv": "recommendation.csv",
+                }.items()
+            },
+        ),
+    )
+
+    assert result.status != "failed"
+    assert result.height_estimation["status"] == "unavailable"
+    assert result.recommendation["recommendation"] in {
+        "cortar",
+        "nao_cortar",
+        "inconclusivo",
+    }

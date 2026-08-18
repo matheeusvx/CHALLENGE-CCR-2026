@@ -22,6 +22,15 @@ export const geometryValidationSchema = z.object({
 
 const recordSchema = z.record(z.string(), z.unknown());
 
+export const heightEstimationSchema = z.object({
+  status: z.enum(["experimental", "unavailable", "disabled"]),
+  estimated_class: z.enum(["le_30_cm", "gt_30_cm", "inconclusive"]).nullable(),
+  probability_gt_30_cm: z.number().min(0).max(1).nullable(),
+  confidence: z.enum(["low", "medium"]).nullable(),
+  reference_threshold_cm: z.literal(30),
+  model_version: z.string().nullable(),
+});
+
 export const analysisResponseSchema = z.object({
   analysis_id: z.string().uuid(),
   status: z.string(),
@@ -41,6 +50,7 @@ export const analysisResponseSchema = z.object({
     limitations: z.array(z.string()),
     metrics: recordSchema,
   }),
+  height_estimation: heightEstimationSchema.optional(),
   aoi: recordSchema,
   summary: recordSchema,
   timeseries: z.array(recordSchema),

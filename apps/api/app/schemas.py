@@ -70,6 +70,15 @@ class RecommendationResponse(StrictModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
 
 
+class HeightEstimationResponse(StrictModel):
+    status: Literal["experimental", "unavailable", "disabled"]
+    estimated_class: Literal["le_30_cm", "gt_30_cm", "inconclusive"] | None
+    probability_gt_30_cm: float | None = Field(None, ge=0, le=1)
+    confidence: Literal["low", "medium"] | None
+    reference_threshold_cm: Literal[30] = 30
+    model_version: str | None
+
+
 class AnalysisPeriodResponse(StrictModel):
     start_date: date
     end_date: date
@@ -81,6 +90,7 @@ class AnalysisResponse(StrictModel):
     analysis_id: str
     status: str
     recommendation: RecommendationResponse
+    height_estimation: HeightEstimationResponse
     analysis_period: AnalysisPeriodResponse
     aoi: dict[str, Any]
     summary: dict[str, Any]

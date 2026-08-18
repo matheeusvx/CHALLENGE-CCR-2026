@@ -39,8 +39,10 @@ from src.satellite_monitoring.quality import assess_scene_quality
 from src.satellite_monitoring.raster_processing import (
     RasterProcessingError,
     SCL_EXCLUDED_CLASSES,
+    apply_reflectance_scaling,
     find_asset_key,
     read_scene_bands,
+    resolve_physical_reflectance_scaling,
 )
 from src.satellite_monitoring.stac_client import NoScenesError, Scene, search_scenes
 
@@ -484,13 +486,6 @@ class SpectralSceneFeatures:
     reflectance_scale_source: str
     reflectance_scale: float
     reflectance_offset: float
-
-
-@dataclass(frozen=True)
-class ReflectanceScaling:
-    source: str
-    scale: float
-    offset: float
 
 
 def hypothesis_window(target_date: date) -> tuple[date, date]:
@@ -1948,95 +1943,6 @@ def calculate_spectral_indices(
     }
 
 
-def apply_reflectance_scaling(
-    values: np.ndarray, *, scale: float, offset: float
-) -> np.ndarray:
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError("Reflectance scale must be finite and positive.")
-    if not math.isfinite(offset):
-        raise ValueError("Reflectance offset must be finite.")
-    return np.asarray(values, dtype=float) * scale + offset
-
-
-_REFLECTANCE_SCALING_CACHE: dict[str, ReflectanceScaling] = {}
-
-
-def resolve_reflectance_scaling(
-    item: Any,
-    *,
-    dataset_scale: float = 1.0,
-    dataset_offset: float = 0.0,
-) -> ReflectanceScaling:
-    """Resolve scale/offset por metadata explicita; nao presume DN/10000 cegamente."""
-    item_id = str(getattr(item, "id", "") or "")
-    if item_id in _REFLECTANCE_SCALING_CACHE:
-        return _REFLECTANCE_SCALING_CACHE[item_id]
-
-    red_key = _spectral_asset_key(item, {"red"}, ("B04", "red"))
-    if red_key is None:
-        raise RasterProcessingError("Cannot inspect reflectance scaling without B04.")
-    raster_bands = item.assets[red_key].extra_fields.get("raster:bands", [])
-    if isinstance(raster_bands, dict):
-        raster_bands = [raster_bands]
-    if raster_bands and (
-        "scale" in raster_bands[0] or "offset" in raster_bands[0]
-    ):
-        scaling = ReflectanceScaling(
-            source="asset_raster_bands",
-            scale=float(raster_bands[0].get("scale", 1.0)),
-            offset=float(raster_bands[0].get("offset", 0.0)),
-        )
-        _REFLECTANCE_SCALING_CACHE[item_id] = scaling
-        return scaling
-    if dataset_scale != 1.0 or dataset_offset != 0.0:
-        scaling = ReflectanceScaling(
-            source="geotiff_dataset_scale_offset",
-            scale=float(dataset_scale),
-            offset=float(dataset_offset),
-        )
-        _REFLECTANCE_SCALING_CACHE[item_id] = scaling
-        return scaling
-
-    metadata_asset = item.assets.get("product-metadata")
-    if metadata_asset is None:
-        raise RasterProcessingError(
-            "Reflectance scale is absent from asset/GeoTIFF and product metadata is unavailable."
-        )
-    try:
-        import urllib.request
-
-        xml_data = urllib.request.urlopen(metadata_asset.href, timeout=30).read()
-        root = ElementTree.fromstring(xml_data)
-        quantification_values = [
-            float((node.text or "").strip())
-            for node in root.iter()
-            if _local_name(node.tag) == "BOA_QUANTIFICATION_VALUE"
-            and (node.text or "").strip()
-        ]
-        offsets = [
-            float((node.text or "").strip())
-            for node in root.iter()
-            if _local_name(node.tag) == "BOA_ADD_OFFSET"
-            and (node.text or "").strip()
-        ]
-    except Exception as exc:
-        raise RasterProcessingError(
-            f"Cannot read product reflectance metadata: {type(exc).__name__}: {exc}"
-        ) from exc
-    if len(quantification_values) != 1 or quantification_values[0] <= 0:
-        raise RasterProcessingError("Invalid BOA_QUANTIFICATION_VALUE metadata.")
-    if not offsets or len(set(offsets)) != 1:
-        raise RasterProcessingError("BOA_ADD_OFFSET is missing or differs between bands.")
-    quantification = quantification_values[0]
-    scaling = ReflectanceScaling(
-        source="product_metadata_BOA_QUANTIFICATION_VALUE_and_BOA_ADD_OFFSET",
-        scale=1.0 / quantification,
-        offset=offsets[0] / quantification,
-    )
-    _REFLECTANCE_SCALING_CACHE[item_id] = scaling
-    return scaling
-
-
 def _spectral_asset_key(
     item: Any, common_names: set[str], fallback_keys: tuple[str, ...]
 ) -> str | None:
@@ -2079,8 +1985,9 @@ def read_multispectral_features(
     try:
         with rasterio.Env(**env_options), ExitStack() as stack:
             reference = stack.enter_context(rasterio.open(red_asset.href))
-            scaling = resolve_reflectance_scaling(
+            scaling = resolve_physical_reflectance_scaling(
                 item,
+                asset_key=resolved_keys["red"],
                 dataset_scale=float(reference.scales[0]),
                 dataset_offset=float(reference.offsets[0]),
             )

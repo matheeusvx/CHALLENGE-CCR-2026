@@ -40,6 +40,7 @@ const result: AnalysisResponse = {
   status: "completed",
   analysis_period: { start_date: "2026-07-10", end_date: "2026-08-10", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
   recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Vegetação abaixo do nível alto local.", reasons: ["current_percentile_below_or_equal_50"], blocking_reasons: [], limitations: ["Validação de campo necessária."], metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 } },
+  height_estimation: { status: "experimental", estimated_class: "le_30_cm", probability_gt_30_cm: 0.23, confidence: "medium", reference_threshold_cm: 30, model_version: "height-estimator-v0" },
   aoi: { source: "geojson_inline", area_square_meters: 12450 },
   summary: {
     date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" },
@@ -177,6 +178,10 @@ describe("workspace geoespacial", () => {
     expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon });
     expect(screen.getAllByText("10/07/2026 a 10/08/2026").length).toBeGreaterThan(0);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
+    expect(screen.getByText("Altura estimada")).toBeInTheDocument();
+    expect(screen.getByText("Até 30 cm")).toBeInTheDocument();
+    expect(screen.queryByText("0.23")).not.toBeInTheDocument();
+    expect(screen.queryByText("height-estimator-v0")).not.toBeInTheDocument();
     const fitRequest = useAnalysisStore.getState().fitRequestId;
     fireEvent.click(screen.getByRole("button", { name: "Enquadrar área analisada" }));
     expect(useAnalysisStore.getState().fitRequestId).toBe(fitRequest + 1);
@@ -396,6 +401,26 @@ describe("workspace geoespacial", () => {
     const variant = { ...result, recommendation: { ...result.recommendation, decision } };
     render(<AnalysisResult result={variant} />);
     expect(screen.getByRole("region", { name: label })).toHaveAttribute("data-decision", decision);
+  });
+
+  it("torna a altura visual inconclusiva quando conflita com a recommendation", () => {
+    const conflicting = {
+      ...result,
+      height_estimation: {
+        ...result.height_estimation!,
+        estimated_class: "gt_30_cm" as const,
+        probability_gt_30_cm: 0.71,
+      },
+    };
+
+    render(<AnalysisResult result={conflicting} />);
+
+    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
+    expect(screen.getByText("Inconclusiva")).toBeInTheDocument();
+    expect(screen.queryByText("Acima de 30 cm")).not.toBeInTheDocument();
+    expect(screen.queryByText("0.71")).not.toBeInTheDocument();
+    expect(conflicting.height_estimation.estimated_class).toBe("gt_30_cm");
+    expect(conflicting.height_estimation.probability_gt_30_cm).toBe(0.71);
   });
 
   it("apresenta baixa qualidade sem transmitir certeza alta", () => {

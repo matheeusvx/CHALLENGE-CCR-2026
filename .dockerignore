@@ -7,6 +7,8 @@ node_modules
 .pytest_tmp*
 outputs
 models
+!models/
+!models/height_estimator_v0.json
 notebooks
 *.pyc
 __pycache__
