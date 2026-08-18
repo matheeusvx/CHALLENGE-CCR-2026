@@ -13,6 +13,7 @@ import math
 import random
 import re
 import sys
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -45,6 +46,11 @@ HYPOTHESES: dict[str, date] = {
     "H_A": date(2025, 3, 28),
     "H_B1": date(2026, 3, 13),
     "H_B2": date(2026, 3, 20),
+}
+DISTANCE_SCENARIOS: dict[str, float] = {
+    "D20": 20.0,
+    "D50": 50.0,
+    "D100": 100.0,
 }
 HEIGHT_LABELS = {
     1: "<10 cm",
@@ -115,6 +121,73 @@ SPATIAL_DIAGNOSTIC_FIELDS = (
     "spatial_match_status",
     "spatial_match_reason",
 )
+CANDIDATE_NDVI_FIELDS = (
+    "sample_id",
+    "km",
+    "height_class",
+    "sample_component",
+    "hypothesis",
+    "target_date",
+    "distance_scenario",
+    "distance_limit_m",
+    "candidate_polygon_id",
+    "candidate_polygon_type",
+    "candidate_polygon_km",
+    "candidate_distance_m",
+    "semantic_match_reason",
+    "spatial_uncertainty_status",
+    "ground_truth_assignment",
+    "sentinel_scene_date",
+    "temporal_delta_days",
+    "item_id",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "ndvi_min",
+    "ndvi_max",
+    "valid_pixel_percentage",
+    "valid_pixel_count",
+    "aoi_coverage_percentage",
+    "cloud_cover",
+    "scene_quality_score",
+    "quality_status",
+    "scene_selection_status",
+)
+SAMPLE_UNCERTAINTY_FIELDS = (
+    "sample_id",
+    "km",
+    "height_class",
+    "sample_component",
+    "hypothesis",
+    "target_date",
+    "distance_scenario",
+    "distance_limit_m",
+    "candidate_polygon_count",
+    "candidate_with_valid_scene_count",
+    "ndvi_candidate_min",
+    "ndvi_candidate_q1",
+    "ndvi_candidate_median",
+    "ndvi_candidate_q3",
+    "ndvi_candidate_max",
+    "ndvi_candidate_std",
+    "ndvi_candidate_iqr",
+    "ndvi_candidate_range",
+    "spatial_uncertainty_status",
+    "ground_truth_assignment",
+)
+HEIGHT_CLASS_CANDIDATE_FIELDS = (
+    "hypothesis",
+    "distance_scenario",
+    "height_class",
+    "n_total",
+    "n_with_candidates",
+    "n_with_valid_sentinel",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "ndvi_q1",
+    "ndvi_q3",
+)
 
 
 @dataclass(frozen=True)
@@ -144,6 +217,15 @@ class KmMarker:
     latitude: float
     longitude: float
     source_id: str
+
+
+@dataclass(frozen=True)
+class CandidatePolygon:
+    """Poligono elegivel em um cenario, sem implicar associacao ground truth."""
+
+    feature: ManagementFeature
+    distance_m: float
+    semantic_match_reason: str
 
 
 def hypothesis_window(target_date: date) -> tuple[date, date]:
@@ -566,6 +648,69 @@ def semantic_polygon_compatibility(
             else "km_and_optional_mowing_method_only"
         ),
     }
+
+
+def build_candidate_polygon_sets(
+    samples: Sequence[Mapping[str, str]],
+    features: Sequence[ManagementFeature],
+    markers: Mapping[int, KmMarker],
+    *,
+    scenarios: Mapping[str, float] = DISTANCE_SCENARIOS,
+) -> dict[str, dict[str, list[CandidatePolygon]]]:
+    """Monta conjuntos cumulativos por distancia sem escolher um poligono unico."""
+    if not markers:
+        raise ValueError("No valid KM markers were found.")
+    if not scenarios or any(limit <= 0 for limit in scenarios.values()):
+        raise ValueError("Distance scenarios must have positive limits.")
+    if max(scenarios.values()) > 100.0:
+        raise ValueError("Exploratory candidate polygons cannot exceed 100 metres.")
+
+    center_latitude = float(np.mean([marker.latitude for marker in markers.values()]))
+    center_longitude = float(np.mean([marker.longitude for marker in markers.values()]))
+    projected_crs = CRS.from_proj4(
+        f"+proj=aeqd +lat_0={center_latitude} +lon_0={center_longitude} "
+        "+datum=WGS84 +units=m +no_defs"
+    )
+    transformer = Transformer.from_crs("EPSG:4326", projected_crs, always_xy=True)
+    projected_features = {
+        feature.feature_id: transform(transformer.transform, feature.geometry)
+        for feature in features
+    }
+
+    result: dict[str, dict[str, list[CandidatePolygon]]] = {}
+    maximum_distance = max(scenarios.values())
+    for sample in samples:
+        sample_id = str(sample.get("sample_id") or "")
+        eligible: list[CandidatePolygon] = []
+        found, latitude, longitude, _ = _sample_reference_point(sample, markers)
+        if found and latitude is not None and longitude is not None:
+            x_value, y_value = transformer.transform(longitude, latitude)
+            point = Point(x_value, y_value)
+            for feature in features:
+                compatibility = semantic_polygon_compatibility(sample, feature)
+                if not compatibility["compatible"]:
+                    continue
+                distance_m = float(
+                    projected_features[feature.feature_id].distance(point)
+                )
+                if distance_m <= maximum_distance:
+                    eligible.append(
+                        CandidatePolygon(
+                            feature=feature,
+                            distance_m=distance_m,
+                            semantic_match_reason=str(compatibility["reason"]),
+                        )
+                    )
+        eligible.sort(key=lambda item: (item.distance_m, item.feature.feature_id))
+        result[sample_id] = {
+            scenario: [
+                candidate
+                for candidate in eligible
+                if candidate.distance_m <= distance_limit
+            ]
+            for scenario, distance_limit in scenarios.items()
+        }
+    return result
 
 
 def _distance_distribution(values: Sequence[float]) -> dict[str, Any]:
@@ -1160,6 +1305,249 @@ def analyze_sample(
     return rows, errors
 
 
+def _analyze_candidate_feature(
+    feature: ManagementFeature,
+    *,
+    query_scenes: Callable[[Any, date, date], tuple[list[dict[str, Any]], str | None]],
+) -> tuple[dict[str, dict[str, Any] | None], list[dict[str, str]]]:
+    """Processa as duas janelas necessarias uma vez para um poligono."""
+    a_start, a_end = hypothesis_window(HYPOTHESES["H_A"])
+    b_start, _ = hypothesis_window(HYPOTHESES["H_B1"])
+    _, b_end = hypothesis_window(HYPOTHESES["H_B2"])
+    a_records, a_error = query_scenes(feature.geometry, a_start, a_end)
+    b_records, b_error = query_scenes(feature.geometry, b_start, b_end)
+    errors: list[dict[str, str]] = []
+    if a_error:
+        errors.append(
+            {"feature_id": feature.feature_id, "window": "H_A", "error": a_error}
+        )
+    if b_error:
+        errors.append(
+            {
+                "feature_id": feature.feature_id,
+                "window": "H_B_SHARED",
+                "error": b_error,
+            }
+        )
+    return (
+        {
+            name: select_best_scene(a_records if name == "H_A" else b_records, target)
+            for name, target in HYPOTHESES.items()
+        },
+        errors,
+    )
+
+
+def build_candidate_polygon_ndvi_rows(
+    samples: Sequence[Mapping[str, str]],
+    candidate_sets: Mapping[str, Mapping[str, Sequence[CandidatePolygon]]],
+    *,
+    query_scenes: Callable[[Any, date, date], tuple[list[dict[str, Any]], str | None]] = (
+        _query_and_process_scenes
+    ),
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], int]:
+    """Avalia candidatos com cache por poligono e preserva a ambiguidade."""
+    feature_cache: dict[str, dict[str, dict[str, Any] | None]] = {}
+    errors: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
+    for sample in samples:
+        sample_id = str(sample.get("sample_id") or "")
+        for scenario, distance_limit in DISTANCE_SCENARIOS.items():
+            for candidate in candidate_sets.get(sample_id, {}).get(scenario, []):
+                feature = candidate.feature
+                if feature.feature_id not in feature_cache:
+                    selected, feature_errors = _analyze_candidate_feature(
+                        feature, query_scenes=query_scenes
+                    )
+                    feature_cache[feature.feature_id] = selected
+                    errors.extend(feature_errors)
+                for hypothesis, target in HYPOTHESES.items():
+                    scene = feature_cache[feature.feature_id][hypothesis]
+                    row: dict[str, Any] = {
+                        "sample_id": sample_id,
+                        "km": sample.get("km"),
+                        "height_class": _height_level(sample),
+                        "sample_component": sample.get("asset_component"),
+                        "hypothesis": hypothesis,
+                        "target_date": target.isoformat(),
+                        "distance_scenario": scenario,
+                        "distance_limit_m": distance_limit,
+                        "candidate_polygon_id": feature.feature_id,
+                        "candidate_polygon_type": feature.name,
+                        "candidate_polygon_km": _management_km(feature),
+                        "candidate_distance_m": round(candidate.distance_m, 3),
+                        "semantic_match_reason": candidate.semantic_match_reason,
+                        "spatial_uncertainty_status": "AMBIGUOUS_CANDIDATE_SET",
+                        "ground_truth_assignment": False,
+                        "sentinel_scene_date": None,
+                        "temporal_delta_days": None,
+                        "item_id": None,
+                        "ndvi_mean": None,
+                        "ndvi_median": None,
+                        "ndvi_std": None,
+                        "ndvi_min": None,
+                        "ndvi_max": None,
+                        "valid_pixel_percentage": None,
+                        "valid_pixel_count": None,
+                        "aoi_coverage_percentage": None,
+                        "cloud_cover": None,
+                        "scene_quality_score": None,
+                        "quality_status": None,
+                        "scene_selection_status": "NO_VALID_SCENE",
+                    }
+                    if scene is not None:
+                        for key in (
+                            "sentinel_scene_date",
+                            "temporal_delta_days",
+                            "item_id",
+                            "ndvi_mean",
+                            "ndvi_median",
+                            "ndvi_std",
+                            "ndvi_min",
+                            "ndvi_max",
+                            "valid_pixel_percentage",
+                            "valid_pixel_count",
+                            "aoi_coverage_percentage",
+                            "cloud_cover",
+                            "scene_quality_score",
+                            "quality_status",
+                        ):
+                            row[key] = scene.get(key)
+                        row["scene_selection_status"] = "VALID_SCENE_SELECTED"
+                    rows.append(row)
+    return rows, errors, len(feature_cache)
+
+
+def _finite_values(values: Iterable[Any]) -> np.ndarray:
+    numbers: list[float] = []
+    for value in values:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            numbers.append(number)
+    return np.asarray(numbers, dtype=float)
+
+
+def aggregate_candidate_ndvi(
+    samples: Sequence[Mapping[str, str]],
+    candidate_sets: Mapping[str, Mapping[str, Sequence[CandidatePolygon]]],
+    candidate_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resume a incerteza entre candidatos por amostra, hipotese e cenario."""
+    grouped_rows: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for row in candidate_rows:
+        key = (
+            str(row.get("sample_id") or ""),
+            str(row.get("hypothesis") or ""),
+            str(row.get("distance_scenario") or ""),
+        )
+        grouped_rows.setdefault(key, []).append(row)
+
+    aggregates: list[dict[str, Any]] = []
+    for sample in samples:
+        sample_id = str(sample.get("sample_id") or "")
+        for hypothesis, target in HYPOTHESES.items():
+            for scenario, distance_limit in DISTANCE_SCENARIOS.items():
+                candidates = list(candidate_sets.get(sample_id, {}).get(scenario, []))
+                group = grouped_rows.get((sample_id, hypothesis, scenario), [])
+                valid = [
+                    row
+                    for row in group
+                    if row.get("scene_selection_status") == "VALID_SCENE_SELECTED"
+                    and _finite_values([row.get("ndvi_median")]).size == 1
+                ]
+                values = _finite_values(row.get("ndvi_median") for row in valid)
+                q1 = float(np.quantile(values, 0.25)) if values.size else None
+                q3 = float(np.quantile(values, 0.75)) if values.size else None
+                minimum = float(np.min(values)) if values.size else None
+                maximum = float(np.max(values)) if values.size else None
+                aggregates.append(
+                    {
+                        "sample_id": sample_id,
+                        "km": sample.get("km"),
+                        "height_class": _height_level(sample),
+                        "sample_component": sample.get("asset_component"),
+                        "hypothesis": hypothesis,
+                        "target_date": target.isoformat(),
+                        "distance_scenario": scenario,
+                        "distance_limit_m": distance_limit,
+                        "candidate_polygon_count": len(candidates),
+                        "candidate_with_valid_scene_count": len(valid),
+                        "ndvi_candidate_min": minimum,
+                        "ndvi_candidate_q1": q1,
+                        "ndvi_candidate_median": (
+                            float(np.median(values)) if values.size else None
+                        ),
+                        "ndvi_candidate_q3": q3,
+                        "ndvi_candidate_max": maximum,
+                        "ndvi_candidate_std": (
+                            float(np.std(values, ddof=0)) if values.size else None
+                        ),
+                        "ndvi_candidate_iqr": (
+                            q3 - q1 if q1 is not None and q3 is not None else None
+                        ),
+                        "ndvi_candidate_range": (
+                            maximum - minimum
+                            if minimum is not None and maximum is not None
+                            else None
+                        ),
+                        "spatial_uncertainty_status": (
+                            "AMBIGUOUS_CANDIDATE_SET"
+                            if candidates
+                            else "NO_ELIGIBLE_CANDIDATES"
+                        ),
+                        "ground_truth_assignment": False,
+                    }
+                )
+    return aggregates
+
+
+def summarize_candidate_ndvi_by_class(
+    aggregates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for hypothesis in HYPOTHESES:
+        for scenario in DISTANCE_SCENARIOS:
+            for height_class in sorted(HEIGHT_LABELS):
+                group = [
+                    row
+                    for row in aggregates
+                    if row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                    and row.get("height_class") == height_class
+                ]
+                valid = _finite_values(
+                    row.get("ndvi_candidate_median") for row in group
+                )
+                summaries.append(
+                    {
+                        "hypothesis": hypothesis,
+                        "distance_scenario": scenario,
+                        "height_class": height_class,
+                        "n_total": len(group),
+                        "n_with_candidates": sum(
+                            int(row.get("candidate_polygon_count") or 0) > 0
+                            for row in group
+                        ),
+                        "n_with_valid_sentinel": int(valid.size),
+                        "ndvi_mean": float(np.mean(valid)) if valid.size else None,
+                        "ndvi_median": float(np.median(valid)) if valid.size else None,
+                        "ndvi_std": (
+                            float(np.std(valid, ddof=1)) if valid.size >= 2 else None
+                        ),
+                        "ndvi_q1": (
+                            float(np.quantile(valid, 0.25)) if valid.size else None
+                        ),
+                        "ndvi_q3": (
+                            float(np.quantile(valid, 0.75)) if valid.size else None
+                        ),
+                    }
+                )
+    return summaries
+
+
 def summarize_by_class(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for hypothesis in HYPOTHESES:
@@ -1265,6 +1653,207 @@ def _auc(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         }
 
 
+def _candidate_metric_rows(
+    aggregates: Sequence[Mapping[str, Any]], hypothesis: str, scenario: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "height_class": row.get("height_class"),
+            "ndvi_median": row.get("ndvi_candidate_median"),
+        }
+        for row in aggregates
+        if row.get("hypothesis") == hypothesis
+        and row.get("distance_scenario") == scenario
+    ]
+
+
+def _sign(value: Any) -> str | None:
+    if value is None:
+        return None
+    number = float(value)
+    if number > 0:
+        return "POSITIVE"
+    if number < 0:
+        return "NEGATIVE"
+    return "ZERO"
+
+
+def build_candidate_sensitivity_report(
+    samples: Sequence[Mapping[str, str]],
+    aggregates: Sequence[Mapping[str, Any]],
+    class_summaries: Sequence[Mapping[str, Any]],
+    *,
+    dataset: str | Path,
+    management_kmz: str | Path,
+    km_markers_kmz: str | Path,
+    unique_polygons_processed: int,
+    errors: Sequence[Mapping[str, str]],
+    elapsed_seconds: float,
+) -> dict[str, Any]:
+    hypotheses: dict[str, Any] = {}
+    for hypothesis, target in HYPOTHESES.items():
+        scenario_results: dict[str, Any] = {}
+        orders: dict[str, list[int] | None] = {}
+        correlations: list[float] = []
+        auc_values: list[float] = []
+        class_values: dict[int, list[float]] = {
+            height_class: [] for height_class in HEIGHT_LABELS
+        }
+        for scenario, distance_limit in DISTANCE_SCENARIOS.items():
+            group = [
+                row
+                for row in aggregates
+                if row.get("hypothesis") == hypothesis
+                and row.get("distance_scenario") == scenario
+            ]
+            metrics_rows = _candidate_metric_rows(aggregates, hypothesis, scenario)
+            spearman = _spearman(metrics_rows)
+            auc = _auc(metrics_rows)
+            if spearman["correlation"] is not None:
+                correlations.append(float(spearman["correlation"]))
+            if auc["auc"] is not None:
+                auc_values.append(float(auc["auc"]))
+            dispersion = {
+                field: _finite_values(row.get(field) for row in group)
+                for field in (
+                    "ndvi_candidate_std",
+                    "ndvi_candidate_iqr",
+                    "ndvi_candidate_range",
+                )
+            }
+            summaries = [
+                dict(summary)
+                for summary in class_summaries
+                if summary.get("hypothesis") == hypothesis
+                and summary.get("distance_scenario") == scenario
+            ]
+            medians = {
+                int(summary["height_class"]): summary.get("ndvi_median")
+                for summary in summaries
+            }
+            if all(medians.get(level) is not None for level in HEIGHT_LABELS):
+                orders[scenario] = sorted(
+                    HEIGHT_LABELS,
+                    key=lambda level: (float(medians[level]), level),
+                )
+            else:
+                orders[scenario] = None
+            for level, value in medians.items():
+                if value is not None:
+                    class_values[level].append(float(value))
+            scenario_results[scenario] = {
+                "distance_limit_m": distance_limit,
+                "samples_with_candidates": sum(
+                    int(row.get("candidate_polygon_count") or 0) > 0 for row in group
+                ),
+                "samples_with_valid_sentinel": sum(
+                    int(row.get("candidate_with_valid_scene_count") or 0) > 0
+                    for row in group
+                ),
+                "statistics_by_height_class": summaries,
+                "spearman_height_class_vs_ndvi_candidate_median": spearman,
+                "auc_height_gt_30cm_vs_ndvi_candidate_median": auc,
+                "typical_intra_sample_dispersion": {
+                    "median_candidate_std": (
+                        float(np.median(dispersion["ndvi_candidate_std"]))
+                        if dispersion["ndvi_candidate_std"].size
+                        else None
+                    ),
+                    "median_candidate_iqr": (
+                        float(np.median(dispersion["ndvi_candidate_iqr"]))
+                        if dispersion["ndvi_candidate_iqr"].size
+                        else None
+                    ),
+                    "median_candidate_range": (
+                        float(np.median(dispersion["ndvi_candidate_range"]))
+                        if dispersion["ndvi_candidate_range"].size
+                        else None
+                    ),
+                },
+            }
+        available_orders = [tuple(order) for order in orders.values() if order is not None]
+        signs = [_sign(value) for value in correlations]
+        hypotheses[hypothesis] = {
+            "target_date": target.isoformat(),
+            "window_start": hypothesis_window(target)[0].isoformat(),
+            "window_end": hypothesis_window(target)[1].isoformat(),
+            "scenarios": scenario_results,
+            "spatial_sensitivity": {
+                "class_median_span_across_scenarios": {
+                    str(level): (
+                        max(values) - min(values) if len(values) >= 2 else None
+                    )
+                    for level, values in class_values.items()
+                },
+                "class_order_low_to_high_ndvi": orders,
+                "class_order_is_stable_when_calculable": (
+                    len(set(available_orders)) == 1 if available_orders else None
+                ),
+                "spearman_sign_by_scenario": {
+                    scenario: _sign(
+                        scenario_results[scenario][
+                            "spearman_height_class_vs_ndvi_candidate_median"
+                        ]["correlation"]
+                    )
+                    for scenario in DISTANCE_SCENARIOS
+                },
+                "spearman_sign_is_stable_when_calculable": (
+                    len(set(signs)) == 1 if signs else None
+                ),
+                "auc_range_across_scenarios": (
+                    max(auc_values) - min(auc_values)
+                    if len(auc_values) >= 2
+                    else None
+                ),
+                "coverage_by_scenario": {
+                    scenario: {
+                        "with_candidates": scenario_results[scenario][
+                            "samples_with_candidates"
+                        ],
+                        "with_valid_sentinel": scenario_results[scenario][
+                            "samples_with_valid_sentinel"
+                        ],
+                    }
+                    for scenario in DISTANCE_SCENARIOS
+                },
+                "typical_dispersion_by_scenario": {
+                    scenario: scenario_results[scenario][
+                        "typical_intra_sample_dispersion"
+                    ]
+                    for scenario in DISTANCE_SCENARIOS
+                },
+            },
+        }
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "analysis_type": "offline_exploratory_candidate_polygon_sensitivity",
+        "documented_date_confirmation": False,
+        "ground_truth_polygon_assignment": False,
+        "automatic_scenario_winner": None,
+        "distance_scenarios_are_operational_thresholds": False,
+        "distance_scenarios_m": dict(DISTANCE_SCENARIOS),
+        "representative_sample_value": "median of candidate polygon NDVI medians",
+        "dispersion_definition": (
+            "Population standard deviation (ddof=0), interquartile range and range "
+            "across valid candidate-polygon NDVI medians."
+        ),
+        "sample_size": len(samples),
+        "unique_candidate_polygons_processed": unique_polygons_processed,
+        "inputs": {
+            "dataset": str(dataset),
+            "management_kmz": str(management_kmz),
+            "km_markers_kmz": str(km_markers_kmz),
+        },
+        "hypotheses": hypotheses,
+        "execution_errors": list(errors),
+        "elapsed_seconds": elapsed_seconds,
+        "limitations": [
+            "Every polygon remains an ambiguous candidate and is not ground truth.",
+            "D20, D50 and D100 are exploratory sensitivity distances, not operational thresholds.",
+            "No vegetation height in centimetres is inferred from NDVI.",
+            "Spearman and AUC are exploratory associations, not system accuracy.",
+        ],
+    }
 def build_comparison(
     rows: Sequence[Mapping[str, Any]],
     summaries: Sequence[Mapping[str, Any]],
@@ -1434,6 +2023,144 @@ def _write_boxplots(rows: Sequence[Mapping[str, Any]], output_dir: Path) -> list
     return paths
 
 
+def _write_candidate_boxplots(
+    aggregates: Sequence[Mapping[str, Any]], output_dir: Path
+) -> list[Path]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    paths: list[Path] = []
+    for hypothesis, target in HYPOTHESES.items():
+        for scenario in DISTANCE_SCENARIOS:
+            groups = [
+                [
+                    float(row["ndvi_candidate_median"])
+                    for row in aggregates
+                    if row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                    and row.get("height_class") == level
+                    and row.get("ndvi_candidate_median") is not None
+                ]
+                for level in sorted(HEIGHT_LABELS)
+            ]
+            figure, axis = plt.subplots(figsize=(8, 5))
+            if any(groups):
+                axis.boxplot(
+                    groups,
+                    tick_labels=[HEIGHT_LABELS[level] for level in sorted(HEIGHT_LABELS)],
+                )
+                axis.set_ylabel("Median NDVI across candidate polygons")
+                axis.set_xlabel("Field vegetation height class")
+            else:
+                axis.text(
+                    0.5,
+                    0.5,
+                    "Insufficient valid Sentinel-2 candidate data for this plot",
+                    ha="center",
+                    va="center",
+                    transform=axis.transAxes,
+                )
+                axis.set_xticks([])
+                axis.set_yticks([])
+            axis.set_title(
+                f"{hypothesis}_{scenario} — target {target.isoformat()} "
+                "(ambiguous candidate sets)"
+            )
+            figure.tight_layout()
+            path = output_dir / f"ndvi_boxplot_{hypothesis}_{scenario}.png"
+            figure.savefig(path, dpi=150)
+            plt.close(figure)
+            paths.append(path)
+    return paths
+
+
+def run_candidate_set_analysis(
+    dataset: str | Path,
+    management_kmz: str | Path,
+    km_markers_kmz: str | Path,
+    sample_size: int,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    selected = stratified_sample(load_calibration_rows(dataset), sample_size)
+    features = load_management_features(management_kmz)
+    markers = load_km_markers(km_markers_kmz)
+    candidate_sets = build_candidate_polygon_sets(selected, features, markers)
+    candidate_rows, errors, unique_polygons_processed = (
+        build_candidate_polygon_ndvi_rows(selected, candidate_sets)
+    )
+    aggregates = aggregate_candidate_ndvi(selected, candidate_sets, candidate_rows)
+    class_summaries = summarize_candidate_ndvi_by_class(aggregates)
+
+    candidate_path = output / "candidate_polygon_ndvi.csv"
+    aggregates_path = output / "sample_uncertainty_aggregates.csv"
+    class_summary_path = output / "height_class_summary.csv"
+    sensitivity_path = output / "temporal_hypothesis_sensitivity.json"
+    _write_csv(candidate_path, candidate_rows, CANDIDATE_NDVI_FIELDS)
+    _write_csv(aggregates_path, aggregates, SAMPLE_UNCERTAINTY_FIELDS)
+    _write_csv(class_summary_path, class_summaries, HEIGHT_CLASS_CANDIDATE_FIELDS)
+    chart_paths = _write_candidate_boxplots(aggregates, output)
+    elapsed_seconds = time.perf_counter() - started
+    report = build_candidate_sensitivity_report(
+        selected,
+        aggregates,
+        class_summaries,
+        dataset=dataset,
+        management_kmz=management_kmz,
+        km_markers_kmz=km_markers_kmz,
+        unique_polygons_processed=unique_polygons_processed,
+        errors=errors,
+        elapsed_seconds=elapsed_seconds,
+    )
+    sensitivity_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    scenario_counts = {
+        scenario: {
+            "samples_with_candidates": sum(
+                bool(candidate_sets[str(sample["sample_id"])][scenario])
+                for sample in selected
+            ),
+            "valid_ndvi_by_hypothesis": {
+                hypothesis: sum(
+                    row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                    and int(row.get("candidate_with_valid_scene_count") or 0) > 0
+                    for row in aggregates
+                )
+                for hypothesis in HYPOTHESES
+            },
+        }
+        for scenario in DISTANCE_SCENARIOS
+    }
+    return {
+        "candidate_polygon_ndvi_csv": str(candidate_path),
+        "sample_uncertainty_aggregates_csv": str(aggregates_path),
+        "height_class_summary_csv": str(class_summary_path),
+        "temporal_hypothesis_sensitivity_json": str(sensitivity_path),
+        "charts": [str(path) for path in chart_paths],
+        "sample_size": len(selected),
+        "selected_by_class": {
+            str(level): [
+                str(sample["sample_id"])
+                for sample in selected
+                if _height_level(sample) == level
+            ]
+            for level in sorted(HEIGHT_LABELS)
+        },
+        "unique_candidate_polygons_processed": unique_polygons_processed,
+        "scenario_counts": scenario_counts,
+        "candidate_rows": len(candidate_rows),
+        "aggregate_rows": len(aggregates),
+        "execution_errors": len(errors),
+        "elapsed_seconds": elapsed_seconds,
+    }
+
+
 def run_analysis(
     dataset: str | Path,
     management_kmz: str | Path,
@@ -1521,10 +2248,19 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--km-markers-kmz", required=True, type=Path)
     parser.add_argument("--sample-size", type=int, default=30)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--spatial-diagnostics-only",
         action="store_true",
         help="Generate spatial diagnostics without querying Sentinel-2.",
+    )
+    modes.add_argument(
+        "--candidate-set-analysis",
+        action="store_true",
+        help=(
+            "Analyze ambiguous candidate polygon sets at D20/D50/D100 without "
+            "changing operational matching."
+        ),
     )
     arguments = parser.parse_args()
     if arguments.sample_size <= 0:
@@ -1534,7 +2270,12 @@ def _arguments() -> argparse.Namespace:
 
 def main() -> int:
     arguments = _arguments()
-    runner = run_spatial_diagnostics if arguments.spatial_diagnostics_only else run_analysis
+    if arguments.spatial_diagnostics_only:
+        runner = run_spatial_diagnostics
+    elif arguments.candidate_set_analysis:
+        runner = run_candidate_set_analysis
+    else:
+        runner = run_analysis
     result = runner(
         arguments.dataset,
         arguments.management_kmz,
