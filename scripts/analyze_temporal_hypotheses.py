@@ -52,6 +52,15 @@ DISTANCE_SCENARIOS: dict[str, float] = {
     "D50": 50.0,
     "D100": 100.0,
 }
+EXPANDED_SPATIAL_SCENARIOS: dict[str, float] = {
+    "D50": 50.0,
+    "D100": 100.0,
+}
+EXPANDED_HYPOTHESES = ("H_EMBEDDED", "H_FILENAME")
+EMBEDDED_TARGET_DATE = date(2025, 3, 28)
+FILENAME_TARGET_DATES = {date(2026, 3, 13), date(2026, 3, 20)}
+BOOTSTRAP_ITERATIONS = 1000
+BOOTSTRAP_SEED = 20260404
 HEIGHT_LABELS = {
     1: "<10 cm",
     2: "10-30 cm",
@@ -180,6 +189,98 @@ HEIGHT_CLASS_CANDIDATE_FIELDS = (
     "distance_scenario",
     "height_class",
     "n_total",
+    "n_with_candidates",
+    "n_with_valid_sentinel",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "ndvi_q1",
+    "ndvi_q3",
+)
+EXPANDED_CANDIDATE_FIELDS = (
+    "sample_id",
+    "source_file",
+    "source_snapshot_date",
+    "height_class",
+    "km",
+    "sample_component",
+    "hypothesis",
+    "target_date",
+    "target_date_source",
+    "distance_scenario",
+    "distance_limit_m",
+    "candidate_geometry_id",
+    "candidate_polygon_type",
+    "candidate_distance_m",
+    "semantic_match_reason",
+    "ground_truth_assignment",
+    "sentinel_item_id",
+    "sentinel_scene_date",
+    "temporal_delta_days",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "ndvi_min",
+    "ndvi_max",
+    "valid_pixel_percentage",
+    "valid_pixel_count",
+    "aoi_coverage_percentage",
+    "cloud_cover",
+    "scene_quality_score",
+    "quality_status",
+    "scene_selection_status",
+    "shared_geometry_count",
+    "shared_scene_count",
+    "shared_km_geometry_count",
+)
+EXPANDED_SAMPLE_FIELDS = (
+    "sample_id",
+    "source_file",
+    "source_snapshot_date",
+    "height_class",
+    "km",
+    "sample_component",
+    "hypothesis",
+    "target_date",
+    "target_date_source",
+    "distance_scenario",
+    "distance_limit_m",
+    "candidate_polygon_count",
+    "candidate_with_valid_scene_count",
+    "candidate_geometry_id",
+    "sentinel_item_id",
+    "shared_geometry_count",
+    "shared_scene_count",
+    "shared_km_geometry_count",
+    "ndvi_candidate_min",
+    "ndvi_candidate_q1",
+    "ndvi_candidate_median",
+    "ndvi_candidate_q3",
+    "ndvi_candidate_max",
+    "ndvi_candidate_std",
+    "ndvi_candidate_iqr",
+    "ndvi_candidate_range",
+    "spatial_uncertainty_status",
+    "ground_truth_assignment",
+)
+EXPANDED_HEIGHT_CLASS_FIELDS = (
+    "hypothesis",
+    "distance_scenario",
+    "height_class",
+    "n_selected",
+    "n_with_candidates",
+    "n_with_valid_sentinel",
+    "ndvi_mean",
+    "ndvi_median",
+    "ndvi_std",
+    "ndvi_q1",
+    "ndvi_q3",
+)
+BINARY_HEIGHT_FIELDS = (
+    "hypothesis",
+    "distance_scenario",
+    "binary_height_group",
+    "n_selected",
     "n_with_candidates",
     "n_with_valid_sentinel",
     "ndvi_mean",
@@ -711,6 +812,255 @@ def build_candidate_polygon_sets(
             for scenario, distance_limit in scenarios.items()
         }
     return result
+
+
+def resolve_filename_target_date(
+    sample: Mapping[str, str],
+) -> tuple[date, str]:
+    """Resolve H_FILENAME pela proveniencia mais explicita disponivel."""
+    raw_snapshot = str(sample.get("source_snapshot_date") or "").strip()
+    if raw_snapshot:
+        try:
+            parsed = date.fromisoformat(raw_snapshot)
+        except ValueError as exc:
+            raise ValueError(f"Invalid source_snapshot_date: {raw_snapshot}") from exc
+        if parsed not in FILENAME_TARGET_DATES:
+            raise ValueError(f"Unsupported source_snapshot_date: {raw_snapshot}")
+        return parsed, "source_snapshot_date"
+
+    source_file = str(sample.get("source_file") or "")
+    match = re.search(r"(2026-03-(?:13|20))", source_file)
+    if match:
+        return date.fromisoformat(match.group(1)), "source_file"
+    raise ValueError("H_FILENAME provenance date is unavailable.")
+
+
+def expanded_target_date(sample: Mapping[str, str], hypothesis: str) -> date:
+    if hypothesis == "H_EMBEDDED":
+        return EMBEDDED_TARGET_DATE
+    if hypothesis == "H_FILENAME":
+        return resolve_filename_target_date(sample)[0]
+    raise ValueError(f"Unknown expanded hypothesis: {hypothesis}")
+
+
+def _expanded_eligible_rows(
+    rows: Sequence[Mapping[str, str]],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    eligible: list[dict[str, str]] = []
+    excluded: list[dict[str, str]] = []
+    for source_row in rows:
+        row = dict(source_row)
+        if (
+            _height_level(row) is None
+            or not str(row.get("sample_id") or "").strip()
+            or str(row.get("usable_for_height_classification") or "YES").upper()
+            != "YES"
+        ):
+            continue
+        try:
+            resolve_filename_target_date(row)
+        except ValueError as exc:
+            excluded.append(
+                {"sample_id": str(row.get("sample_id") or ""), "reason": str(exc)}
+            )
+            continue
+        eligible.append(row)
+    return eligible, excluded
+
+
+def build_expanded_preflight(
+    rows: Sequence[Mapping[str, str]],
+    features: Sequence[ManagementFeature],
+    markers: Mapping[int, KmMarker],
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, str]],
+    dict[str, dict[str, list[CandidatePolygon]]],
+]:
+    eligible, excluded = _expanded_eligible_rows(rows)
+    candidate_sets = build_candidate_polygon_sets(
+        eligible, features, markers, scenarios=EXPANDED_SPATIAL_SCENARIOS
+    )
+    by_class: dict[str, Any] = {}
+    for height_class in sorted(HEIGHT_LABELS):
+        class_rows = [row for row in eligible if _height_level(row) == height_class]
+        snapshots = sorted(
+            {str(row.get("source_snapshot_date") or "UNKNOWN") for row in class_rows}
+        )
+        by_class[str(height_class)] = {
+            "height_label": HEIGHT_LABELS[height_class],
+            "total_records_available": len(class_rows),
+            "scenarios": {
+                scenario: {
+                    "records_with_candidate_polygon": sum(
+                        bool(candidate_sets[str(row["sample_id"])][scenario])
+                        for row in class_rows
+                    ),
+                    "snapshot_distribution": {
+                        snapshot: {
+                            "total_records": sum(
+                                str(row.get("source_snapshot_date") or "UNKNOWN")
+                                == snapshot
+                                for row in class_rows
+                            ),
+                            "records_with_candidate_polygon": sum(
+                                str(row.get("source_snapshot_date") or "UNKNOWN")
+                                == snapshot
+                                and bool(
+                                    candidate_sets[str(row["sample_id"])][scenario]
+                                )
+                                for row in class_rows
+                            ),
+                        }
+                        for snapshot in snapshots
+                    },
+                }
+                for scenario in EXPANDED_SPATIAL_SCENARIOS
+            },
+        }
+    balanced_per_class = {
+        scenario: min(
+            by_class[str(level)]["scenarios"][scenario][
+                "records_with_candidate_polygon"
+            ]
+            for level in HEIGHT_LABELS
+        )
+        for scenario in EXPANDED_SPATIAL_SCENARIOS
+    }
+    selected_per_class = min(30, balanced_per_class["D50"])
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "analysis_type": "expanded_temporal_calibration_preflight",
+        "sentinel_2_queried": False,
+        "documented_date_confirmation": False,
+        "filename_hypothesis_provenance_field": "source_snapshot_date",
+        "spatial_scenarios_m": dict(EXPANDED_SPATIAL_SCENARIOS),
+        "spatial_scenarios_are_operational_thresholds": False,
+        "selection_basis": "D50 primary exploratory scenario",
+        "eligible_record_count": len(eligible),
+        "excluded_for_missing_or_invalid_provenance": excluded,
+        "availability_by_height_class": by_class,
+        "maximum_balanced_per_class_by_scenario": balanced_per_class,
+        "recommended_balanced_sample": {
+            "records_per_class": selected_per_class,
+            "total_records": selected_per_class * len(HEIGHT_LABELS),
+            "maximum_total_cap": 90,
+            "duplicates_allowed": False,
+        },
+    }
+    return report, eligible, candidate_sets
+
+
+def run_expanded_preflight(
+    dataset: str | Path,
+    management_kmz: str | Path,
+    km_markers_kmz: str | Path,
+    sample_size: int,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    del sample_size  # O tamanho e derivado conservadoramente da disponibilidade D50.
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    report, _, _ = build_expanded_preflight(
+        load_calibration_rows(dataset),
+        load_management_features(management_kmz),
+        load_km_markers(km_markers_kmz),
+    )
+    path = output / "preflight_availability.json"
+    path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return {"preflight_availability_json": str(path), **report}
+
+
+def _select_spatially_distributed(
+    rows: Sequence[Mapping[str, str]], count: int, *, seed: int
+) -> list[dict[str, str]]:
+    groups: dict[float | str, list[dict[str, str]]] = {}
+    for source_row in sorted(rows, key=lambda row: str(row.get("sample_id") or "")):
+        row = dict(source_row)
+        try:
+            key: float | str = round(float(str(row.get("km") or "")), 6)
+        except ValueError:
+            key = str(row.get("sample_id") or "")
+        groups.setdefault(key, []).append(row)
+    rng = random.Random(seed)
+    keys = sorted(groups, key=str)
+    rng.shuffle(keys)
+    for values in groups.values():
+        rng.shuffle(values)
+    selected: list[dict[str, str]] = []
+    while len(selected) < count:
+        progressed = False
+        for key in keys:
+            if groups[key] and len(selected) < count:
+                selected.append(groups[key].pop())
+                progressed = True
+        if not progressed:
+            break
+    return selected
+
+
+def select_expanded_balanced_sample(
+    eligible: Sequence[Mapping[str, str]],
+    candidate_sets: Mapping[str, Mapping[str, Sequence[CandidatePolygon]]],
+    *,
+    maximum_total: int = 90,
+    seed: int = RANDOM_SEED,
+) -> list[dict[str, str]]:
+    """Equilibra classes e snapshots usando apenas registros elegiveis em D50."""
+    available = [
+        dict(row)
+        for row in eligible
+        if candidate_sets.get(str(row.get("sample_id") or ""), {}).get("D50")
+    ]
+    per_class_cap = maximum_total // len(HEIGHT_LABELS)
+    quota = min(
+        per_class_cap,
+        *(sum(_height_level(row) == level for row in available) for level in HEIGHT_LABELS),
+    )
+    if quota <= 0:
+        return []
+
+    selected: list[dict[str, str]] = []
+    for height_class in sorted(HEIGHT_LABELS):
+        class_rows = [row for row in available if _height_level(row) == height_class]
+        snapshot_groups: dict[str, list[dict[str, str]]] = {}
+        for row in class_rows:
+            snapshot_groups.setdefault(str(row["source_snapshot_date"]), []).append(row)
+        snapshot_quota = {snapshot: 0 for snapshot in snapshot_groups}
+        while sum(snapshot_quota.values()) < quota:
+            options = [
+                snapshot
+                for snapshot, rows in snapshot_groups.items()
+                if snapshot_quota[snapshot] < len(rows)
+            ]
+            if not options:
+                break
+            chosen = min(options, key=lambda value: (snapshot_quota[value], value))
+            snapshot_quota[chosen] += 1
+        class_selection: list[dict[str, str]] = []
+        for snapshot in sorted(snapshot_groups):
+            class_selection.extend(
+                _select_spatially_distributed(
+                    snapshot_groups[snapshot],
+                    snapshot_quota[snapshot],
+                    seed=seed + height_class * 1000 + sum(map(ord, snapshot)),
+                )
+            )
+        class_selection.sort(
+            key=lambda row: (
+                str(row.get("source_snapshot_date") or ""),
+                float(str(row.get("km") or "inf")),
+                str(row.get("sample_id") or ""),
+            )
+        )
+        selected.extend(class_selection)
+    if len({str(row["sample_id"]) for row in selected}) != len(selected):
+        raise ValueError("Expanded sample selection produced duplicate sample IDs.")
+    for position, row in enumerate(selected, start=1):
+        row["selection_order"] = str(position)
+    return selected
 
 
 def _distance_distribution(values: Sequence[float]) -> dict[str, Any]:
@@ -1418,6 +1768,164 @@ def build_candidate_polygon_ndvi_rows(
     return rows, errors, len(feature_cache)
 
 
+def _analyze_expanded_candidate_feature(
+    feature: ManagementFeature,
+    *,
+    query_scenes: Callable[[Any, date, date], tuple[list[dict[str, Any]], str | None]],
+) -> tuple[dict[date, dict[str, Any] | None], list[dict[str, str]]]:
+    embedded_start, embedded_end = hypothesis_window(EMBEDDED_TARGET_DATE)
+    filename_start = hypothesis_window(min(FILENAME_TARGET_DATES))[0]
+    filename_end = hypothesis_window(max(FILENAME_TARGET_DATES))[1]
+    embedded_records, embedded_error = query_scenes(
+        feature.geometry, embedded_start, embedded_end
+    )
+    filename_records, filename_error = query_scenes(
+        feature.geometry, filename_start, filename_end
+    )
+    errors: list[dict[str, str]] = []
+    if embedded_error:
+        errors.append(
+            {
+                "feature_id": feature.feature_id,
+                "window": "H_EMBEDDED",
+                "error": embedded_error,
+            }
+        )
+    if filename_error:
+        errors.append(
+            {
+                "feature_id": feature.feature_id,
+                "window": "H_FILENAME_SHARED",
+                "error": filename_error,
+            }
+        )
+    return (
+        {
+            EMBEDDED_TARGET_DATE: select_best_scene(
+                embedded_records, EMBEDDED_TARGET_DATE
+            ),
+            **{
+                target: select_best_scene(filename_records, target)
+                for target in FILENAME_TARGET_DATES
+            },
+        },
+        errors,
+    )
+
+
+def build_expanded_candidate_rows(
+    samples: Sequence[Mapping[str, str]],
+    candidate_sets: Mapping[str, Mapping[str, Sequence[CandidatePolygon]]],
+    *,
+    query_scenes: Callable[[Any, date, date], tuple[list[dict[str, Any]], str | None]] = (
+        _query_and_process_scenes
+    ),
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], int, int]:
+    feature_cache: dict[str, dict[date, dict[str, Any] | None]] = {}
+    errors: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
+    for sample in samples:
+        sample_id = str(sample["sample_id"])
+        filename_date, filename_source = resolve_filename_target_date(sample)
+        for scenario, distance_limit in EXPANDED_SPATIAL_SCENARIOS.items():
+            for candidate in candidate_sets[sample_id][scenario]:
+                feature = candidate.feature
+                if feature.feature_id not in feature_cache:
+                    selected, feature_errors = _analyze_expanded_candidate_feature(
+                        feature, query_scenes=query_scenes
+                    )
+                    feature_cache[feature.feature_id] = selected
+                    errors.extend(feature_errors)
+                for hypothesis in EXPANDED_HYPOTHESES:
+                    target = (
+                        EMBEDDED_TARGET_DATE
+                        if hypothesis == "H_EMBEDDED"
+                        else filename_date
+                    )
+                    scene = feature_cache[feature.feature_id][target]
+                    row: dict[str, Any] = {
+                        "sample_id": sample_id,
+                        "source_file": sample.get("source_file"),
+                        "source_snapshot_date": sample.get("source_snapshot_date"),
+                        "height_class": _height_level(sample),
+                        "km": sample.get("km"),
+                        "sample_component": sample.get("asset_component"),
+                        "hypothesis": hypothesis,
+                        "target_date": target.isoformat(),
+                        "target_date_source": (
+                            "embedded_constant_2025-03-28"
+                            if hypothesis == "H_EMBEDDED"
+                            else filename_source
+                        ),
+                        "distance_scenario": scenario,
+                        "distance_limit_m": distance_limit,
+                        "candidate_geometry_id": feature.feature_id,
+                        "candidate_polygon_type": feature.name,
+                        "candidate_distance_m": round(candidate.distance_m, 3),
+                        "semantic_match_reason": candidate.semantic_match_reason,
+                        "ground_truth_assignment": False,
+                        "sentinel_item_id": None,
+                        "sentinel_scene_date": None,
+                        "temporal_delta_days": None,
+                        "ndvi_mean": None,
+                        "ndvi_median": None,
+                        "ndvi_std": None,
+                        "ndvi_min": None,
+                        "ndvi_max": None,
+                        "valid_pixel_percentage": None,
+                        "valid_pixel_count": None,
+                        "aoi_coverage_percentage": None,
+                        "cloud_cover": None,
+                        "scene_quality_score": None,
+                        "quality_status": None,
+                        "scene_selection_status": "NO_VALID_SCENE",
+                    }
+                    if scene is not None:
+                        row["sentinel_item_id"] = scene.get("item_id")
+                        for key in (
+                            "sentinel_scene_date",
+                            "temporal_delta_days",
+                            "ndvi_mean",
+                            "ndvi_median",
+                            "ndvi_std",
+                            "ndvi_min",
+                            "ndvi_max",
+                            "valid_pixel_percentage",
+                            "valid_pixel_count",
+                            "aoi_coverage_percentage",
+                            "cloud_cover",
+                            "scene_quality_score",
+                            "quality_status",
+                        ):
+                            row[key] = scene.get(key)
+                        row["scene_selection_status"] = "VALID_SCENE_SELECTED"
+                    rows.append(row)
+
+    geometry_users: dict[str, set[str]] = {}
+    scene_users: dict[str, set[str]] = {}
+    km_geometry_users: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        geometry_id = str(row["candidate_geometry_id"])
+        geometry_users.setdefault(geometry_id, set()).add(sample_id)
+        km_geometry_users.setdefault((str(row.get("km")), geometry_id), set()).add(
+            sample_id
+        )
+        if row.get("sentinel_item_id"):
+            scene_users.setdefault(str(row["sentinel_item_id"]), set()).add(sample_id)
+    for row in rows:
+        geometry_id = str(row["candidate_geometry_id"])
+        scene_id = row.get("sentinel_item_id")
+        row["shared_geometry_count"] = len(geometry_users[geometry_id])
+        row["shared_scene_count"] = (
+            len(scene_users[str(scene_id)]) if scene_id else 0
+        )
+        row["shared_km_geometry_count"] = len(
+            km_geometry_users[(str(row.get("km")), geometry_id)]
+        )
+    return rows, errors, len(feature_cache), len(scene_users)
+
+
 def _finite_values(values: Iterable[Any]) -> np.ndarray:
     numbers: list[float] = []
     for value in values:
@@ -1428,6 +1936,202 @@ def _finite_values(values: Iterable[Any]) -> np.ndarray:
         if math.isfinite(number):
             numbers.append(number)
     return np.asarray(numbers, dtype=float)
+
+
+def aggregate_expanded_candidate_ndvi(
+    samples: Sequence[Mapping[str, str]],
+    candidate_sets: Mapping[str, Mapping[str, Sequence[CandidatePolygon]]],
+    candidate_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for row in candidate_rows:
+        key = (
+            str(row["sample_id"]),
+            str(row["hypothesis"]),
+            str(row["distance_scenario"]),
+        )
+        grouped.setdefault(key, []).append(row)
+    aggregates: list[dict[str, Any]] = []
+    for sample in samples:
+        sample_id = str(sample["sample_id"])
+        _, filename_source = resolve_filename_target_date(sample)
+        for hypothesis in EXPANDED_HYPOTHESES:
+            target = expanded_target_date(sample, hypothesis)
+            for scenario, distance_limit in EXPANDED_SPATIAL_SCENARIOS.items():
+                candidates = list(candidate_sets[sample_id][scenario])
+                rows = grouped.get((sample_id, hypothesis, scenario), [])
+                valid = [
+                    row
+                    for row in rows
+                    if row.get("scene_selection_status") == "VALID_SCENE_SELECTED"
+                    and _finite_values([row.get("ndvi_median")]).size == 1
+                ]
+                values = _finite_values(row.get("ndvi_median") for row in valid)
+                q1 = float(np.quantile(values, 0.25)) if values.size else None
+                q3 = float(np.quantile(values, 0.75)) if values.size else None
+                minimum = float(np.min(values)) if values.size else None
+                maximum = float(np.max(values)) if values.size else None
+                geometry_ids = sorted(
+                    {str(candidate.feature.feature_id) for candidate in candidates}
+                )
+                scene_ids = sorted(
+                    {
+                        str(row["sentinel_item_id"])
+                        for row in valid
+                        if row.get("sentinel_item_id")
+                    }
+                )
+                aggregates.append(
+                    {
+                        "sample_id": sample_id,
+                        "source_file": sample.get("source_file"),
+                        "source_snapshot_date": sample.get("source_snapshot_date"),
+                        "height_class": _height_level(sample),
+                        "km": sample.get("km"),
+                        "sample_component": sample.get("asset_component"),
+                        "hypothesis": hypothesis,
+                        "target_date": target.isoformat(),
+                        "target_date_source": (
+                            "embedded_constant_2025-03-28"
+                            if hypothesis == "H_EMBEDDED"
+                            else filename_source
+                        ),
+                        "distance_scenario": scenario,
+                        "distance_limit_m": distance_limit,
+                        "candidate_polygon_count": len(candidates),
+                        "candidate_with_valid_scene_count": len(valid),
+                        "candidate_geometry_id": ";".join(geometry_ids),
+                        "sentinel_item_id": ";".join(scene_ids),
+                        "shared_geometry_count": max(
+                            (int(row["shared_geometry_count"]) for row in rows),
+                            default=0,
+                        ),
+                        "shared_scene_count": max(
+                            (int(row["shared_scene_count"]) for row in valid),
+                            default=0,
+                        ),
+                        "shared_km_geometry_count": max(
+                            (int(row["shared_km_geometry_count"]) for row in rows),
+                            default=0,
+                        ),
+                        "ndvi_candidate_min": minimum,
+                        "ndvi_candidate_q1": q1,
+                        "ndvi_candidate_median": (
+                            float(np.median(values)) if values.size else None
+                        ),
+                        "ndvi_candidate_q3": q3,
+                        "ndvi_candidate_max": maximum,
+                        "ndvi_candidate_std": (
+                            float(np.std(values, ddof=0)) if values.size else None
+                        ),
+                        "ndvi_candidate_iqr": (
+                            q3 - q1 if q1 is not None and q3 is not None else None
+                        ),
+                        "ndvi_candidate_range": (
+                            maximum - minimum
+                            if minimum is not None and maximum is not None
+                            else None
+                        ),
+                        "spatial_uncertainty_status": "AMBIGUOUS_CANDIDATE_SET",
+                        "ground_truth_assignment": False,
+                    }
+                )
+    return aggregates
+
+
+def summarize_expanded_height_classes(
+    aggregates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for hypothesis in EXPANDED_HYPOTHESES:
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            for height_class in sorted(HEIGHT_LABELS):
+                group = [
+                    row
+                    for row in aggregates
+                    if row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                    and row.get("height_class") == height_class
+                ]
+                values = _finite_values(
+                    row.get("ndvi_candidate_median") for row in group
+                )
+                summaries.append(
+                    {
+                        "hypothesis": hypothesis,
+                        "distance_scenario": scenario,
+                        "height_class": height_class,
+                        "n_selected": len(group),
+                        "n_with_candidates": sum(
+                            int(row.get("candidate_polygon_count") or 0) > 0
+                            for row in group
+                        ),
+                        "n_with_valid_sentinel": int(values.size),
+                        "ndvi_mean": float(np.mean(values)) if values.size else None,
+                        "ndvi_median": (
+                            float(np.median(values)) if values.size else None
+                        ),
+                        "ndvi_std": (
+                            float(np.std(values, ddof=1)) if values.size >= 2 else None
+                        ),
+                        "ndvi_q1": (
+                            float(np.quantile(values, 0.25)) if values.size else None
+                        ),
+                        "ndvi_q3": (
+                            float(np.quantile(values, 0.75)) if values.size else None
+                        ),
+                    }
+                )
+    return summaries
+
+
+def summarize_binary_height_groups(
+    aggregates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for hypothesis in EXPANDED_HYPOTHESES:
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            scenario_rows = [
+                row
+                for row in aggregates
+                if row.get("hypothesis") == hypothesis
+                and row.get("distance_scenario") == scenario
+            ]
+            for label, predicate in (
+                ("LOW_OR_ACCEPTABLE", lambda value: int(value) <= 2),
+                ("HIGH", lambda value: int(value) == 3),
+            ):
+                group = [row for row in scenario_rows if predicate(row["height_class"])]
+                values = _finite_values(
+                    row.get("ndvi_candidate_median") for row in group
+                )
+                summaries.append(
+                    {
+                        "hypothesis": hypothesis,
+                        "distance_scenario": scenario,
+                        "binary_height_group": label,
+                        "n_selected": len(group),
+                        "n_with_candidates": sum(
+                            int(row.get("candidate_polygon_count") or 0) > 0
+                            for row in group
+                        ),
+                        "n_with_valid_sentinel": int(values.size),
+                        "ndvi_mean": float(np.mean(values)) if values.size else None,
+                        "ndvi_median": (
+                            float(np.median(values)) if values.size else None
+                        ),
+                        "ndvi_std": (
+                            float(np.std(values, ddof=1)) if values.size >= 2 else None
+                        ),
+                        "ndvi_q1": (
+                            float(np.quantile(values, 0.25)) if values.size else None
+                        ),
+                        "ndvi_q3": (
+                            float(np.quantile(values, 0.75)) if values.size else None
+                        ),
+                    }
+                )
+    return summaries
 
 
 def aggregate_candidate_ndvi(
@@ -1653,6 +2357,144 @@ def _auc(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         }
 
 
+def _auc_from_groups(low: np.ndarray, high: np.ndarray, *, negate: bool = False) -> float:
+    scores = np.concatenate((low, high))
+    if negate:
+        scores = -scores
+    order = np.argsort(scores, kind="mergesort")
+    ranks = np.empty(scores.size, dtype=float)
+    position = 0
+    while position < scores.size:
+        end = position + 1
+        while end < scores.size and scores[order[end]] == scores[order[position]]:
+            end += 1
+        average_rank = (position + 1 + end) / 2.0
+        ranks[order[position:end]] = average_rank
+        position = end
+    positive_ranks = float(np.sum(ranks[low.size :]))
+    return (
+        positive_ranks - high.size * (high.size + 1) / 2.0
+    ) / (high.size * low.size)
+
+
+def bootstrap_binary_metrics(
+    low: Sequence[float],
+    high: Sequence[float],
+    *,
+    iterations: int = BOOTSTRAP_ITERATIONS,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    low_values = _finite_values(low)
+    high_values = _finite_values(high)
+    if low_values.size < 2 or high_values.size < 2 or iterations <= 0:
+        return {
+            "status": "INSUFFICIENT_SAMPLE",
+            "iterations": 0,
+            "seed": seed,
+            "median_difference_high_minus_low_ci95": None,
+            "auc_ndvi_ci95": None,
+            "auc_negative_ndvi_ci95": None,
+        }
+    rng = np.random.default_rng(seed)
+    differences = np.empty(iterations, dtype=float)
+    auc_ndvi = np.empty(iterations, dtype=float)
+    auc_negative = np.empty(iterations, dtype=float)
+    for index in range(iterations):
+        low_sample = rng.choice(low_values, size=low_values.size, replace=True)
+        high_sample = rng.choice(high_values, size=high_values.size, replace=True)
+        differences[index] = float(np.median(high_sample) - np.median(low_sample))
+        auc_ndvi[index] = _auc_from_groups(low_sample, high_sample)
+        auc_negative[index] = _auc_from_groups(low_sample, high_sample, negate=True)
+
+    def interval(values: np.ndarray) -> dict[str, float]:
+        return {
+            "lower": float(np.quantile(values, 0.025)),
+            "upper": float(np.quantile(values, 0.975)),
+        }
+
+    return {
+        "status": "CALCULATED",
+        "iterations": iterations,
+        "seed": seed,
+        "median_difference_high_minus_low_ci95": interval(differences),
+        "auc_ndvi_ci95": interval(auc_ndvi),
+        "auc_negative_ndvi_ci95": interval(auc_negative),
+    }
+
+
+def calculate_binary_metrics(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    bootstrap_seed: int = BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    low = _finite_values(
+        row.get("ndvi_candidate_median")
+        for row in rows
+        if int(row["height_class"]) <= 2
+    )
+    high = _finite_values(
+        row.get("ndvi_candidate_median")
+        for row in rows
+        if int(row["height_class"]) == 3
+    )
+
+    def distribution(values: np.ndarray) -> dict[str, Any]:
+        return {
+            "n": int(values.size),
+            "mean": float(np.mean(values)) if values.size else None,
+            "median": float(np.median(values)) if values.size else None,
+            "std": float(np.std(values, ddof=1)) if values.size >= 2 else None,
+            "q1": float(np.quantile(values, 0.25)) if values.size else None,
+            "q3": float(np.quantile(values, 0.75)) if values.size else None,
+        }
+
+    sufficient = low.size >= 2 and high.size >= 2
+    median_difference = (
+        float(np.median(high) - np.median(low)) if low.size and high.size else None
+    )
+    mann_whitney: dict[str, Any]
+    if sufficient:
+        try:
+            from scipy.stats import mannwhitneyu
+
+            result = mannwhitneyu(high, low, alternative="two-sided")
+            mann_whitney = {
+                "status": "CALCULATED",
+                "u_statistic": float(result.statistic),
+                "p_value": float(result.pvalue),
+            }
+        except (ImportError, ValueError):
+            mann_whitney = {
+                "status": "UNAVAILABLE",
+                "u_statistic": None,
+                "p_value": None,
+            }
+    else:
+        mann_whitney = {
+            "status": "INSUFFICIENT_SAMPLE",
+            "u_statistic": None,
+            "p_value": None,
+        }
+    return {
+        "low_or_acceptable_le_30cm": distribution(low),
+        "high_gt_30cm": distribution(high),
+        "median_difference_high_minus_low": median_difference,
+        "mann_whitney_u": mann_whitney,
+        "auc_ndvi": {
+            "status": "CALCULATED" if sufficient else "INSUFFICIENT_SAMPLE",
+            "value": _auc_from_groups(low, high) if sufficient else None,
+        },
+        "auc_negative_ndvi": {
+            "status": "CALCULATED" if sufficient else "INSUFFICIENT_SAMPLE",
+            "value": (
+                _auc_from_groups(low, high, negate=True) if sufficient else None
+            ),
+            "interpretation": "Direction-only exploratory analysis; not a selected model.",
+        },
+        "bootstrap_95": bootstrap_binary_metrics(
+            low, high, seed=bootstrap_seed
+        ),
+    }
 def _candidate_metric_rows(
     aggregates: Sequence[Mapping[str, Any]], hypothesis: str, scenario: str
 ) -> list[dict[str, Any]]:
@@ -1854,6 +2696,337 @@ def build_candidate_sensitivity_report(
             "Spearman and AUC are exploratory associations, not system accuracy.",
         ],
     }
+def _expanded_dependency_diagnostics(
+    candidate_rows: Sequence[Mapping[str, Any]], hypothesis: str, scenario: str
+) -> dict[str, Any]:
+    rows = [
+        row
+        for row in candidate_rows
+        if row.get("hypothesis") == hypothesis
+        and row.get("distance_scenario") == scenario
+        and row.get("scene_selection_status") == "VALID_SCENE_SELECTED"
+    ]
+    geometry_users: dict[str, set[str]] = {}
+    scene_users: dict[str, set[str]] = {}
+    km_geometry_users: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        geometry_id = str(row["candidate_geometry_id"])
+        scene_id = str(row["sentinel_item_id"])
+        geometry_users.setdefault(geometry_id, set()).add(sample_id)
+        scene_users.setdefault(scene_id, set()).add(sample_id)
+        km_geometry_users.setdefault((str(row.get("km")), geometry_id), set()).add(
+            sample_id
+        )
+    return {
+        "unique_candidate_geometries_with_valid_scene": len(geometry_users),
+        "unique_sentinel_items": len(scene_users),
+        "shared_geometry_groups": sum(
+            len(users) > 1 for users in geometry_users.values()
+        ),
+        "shared_scene_groups": sum(len(users) > 1 for users in scene_users.values()),
+        "shared_km_geometry_groups": sum(
+            len(users) > 1 for users in km_geometry_users.values()
+        ),
+        "maximum_samples_sharing_geometry": max(
+            (len(users) for users in geometry_users.values()), default=0
+        ),
+        "maximum_samples_sharing_scene": max(
+            (len(users) for users in scene_users.values()), default=0
+        ),
+        "maximum_samples_sharing_km_and_geometry": max(
+            (len(users) for users in km_geometry_users.values()), default=0
+        ),
+        "independence_note": (
+            "Repeated geometry or Sentinel item use is reported dependency, not an "
+            "additional independent observation."
+        ),
+    }
+
+
+def _stable_binary_direction(scenarios: Mapping[str, Mapping[str, Any]]) -> bool:
+    differences = [
+        scenarios[scenario]["binary_analysis"][
+            "median_difference_high_minus_low"
+        ]
+        for scenario in EXPANDED_SPATIAL_SCENARIOS
+    ]
+    return all(value is not None for value in differences) and len(
+        {_sign(value) for value in differences}
+    ) == 1
+
+
+def _expanded_temporal_support(hypotheses: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    for hypothesis in EXPANDED_HYPOTHESES:
+        scenarios = hypotheses[hypothesis]["scenarios"]
+        directional_auc = [
+            max(
+                float(scenarios[scenario]["binary_analysis"]["auc_ndvi"]["value"]),
+                float(
+                    scenarios[scenario]["binary_analysis"]["auc_negative_ndvi"][
+                        "value"
+                    ]
+                ),
+            )
+            if scenarios[scenario]["binary_analysis"]["auc_ndvi"]["value"]
+            is not None
+            else None
+            for scenario in EXPANDED_SPATIAL_SCENARIOS
+        ]
+        diagnostics[hypothesis] = {
+            "stable_binary_direction": _stable_binary_direction(scenarios),
+            "directional_auc_by_scenario": dict(
+                zip(EXPANDED_SPATIAL_SCENARIOS, directional_auc)
+            ),
+            "valid_sample_coverage_by_scenario": {
+                scenario: scenarios[scenario]["coverage"]["n_with_valid_sentinel"]
+                for scenario in EXPANDED_SPATIAL_SCENARIOS
+            },
+        }
+
+    embedded = diagnostics["H_EMBEDDED"]
+    filename = diagnostics["H_FILENAME"]
+
+    def dominates(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+        return (
+            left["stable_binary_direction"]
+            and all(
+                left["directional_auc_by_scenario"][scenario] is not None
+                and right["directional_auc_by_scenario"][scenario] is not None
+                and left["directional_auc_by_scenario"][scenario]
+                >= right["directional_auc_by_scenario"][scenario] + 0.05
+                and left["valid_sample_coverage_by_scenario"][scenario]
+                >= right["valid_sample_coverage_by_scenario"][scenario]
+                for scenario in EXPANDED_SPATIAL_SCENARIOS
+            )
+        )
+
+    if dominates(embedded, filename):
+        conclusion = "STRONGER_EXPLORATORY_SUPPORT_FOR_H_EMBEDDED"
+    elif dominates(filename, embedded):
+        conclusion = "STRONGER_EXPLORATORY_SUPPORT_FOR_H_FILENAME"
+    else:
+        conclusion = "NO_CLEAR_TEMPORAL_HYPOTHESIS_ADVANTAGE"
+    return {
+        "conclusion": conclusion,
+        "rule": (
+            "A hypothesis is stronger only if binary direction is stable across D50/D100, "
+            "directional AUC exceeds the other hypothesis by at least 0.05 in both "
+            "scenarios, and valid-sample coverage is no lower in either scenario."
+        ),
+        "diagnostics": diagnostics,
+    }
+
+
+def _model_experiment_decision(hypotheses: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    qualifying: list[str] = []
+    for hypothesis in EXPANDED_HYPOTHESES:
+        scenarios = hypotheses[hypothesis]["scenarios"]
+        if not _stable_binary_direction(scenarios):
+            continue
+        spearman_signs = {
+            _sign(scenarios[scenario]["spearman"]["correlation"])
+            for scenario in EXPANDED_SPATIAL_SCENARIOS
+            if scenarios[scenario]["spearman"]["correlation"] is not None
+        }
+        checks = []
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            binary = scenarios[scenario]["binary_analysis"]
+            interval = binary["bootstrap_95"][
+                "median_difference_high_minus_low_ci95"
+            ]
+            auc_values = (
+                binary["auc_ndvi"]["value"],
+                binary["auc_negative_ndvi"]["value"],
+            )
+            directional_auc = (
+                max(float(value) for value in auc_values if value is not None)
+                if any(value is not None for value in auc_values)
+                else None
+            )
+            checks.append(
+                binary["low_or_acceptable_le_30cm"]["n"] >= 10
+                and binary["high_gt_30cm"]["n"] >= 8
+                and directional_auc is not None
+                and directional_auc >= 0.60
+                and interval is not None
+                and not (interval["lower"] <= 0 <= interval["upper"])
+            )
+        if len(spearman_signs) == 1 and all(checks):
+            qualifying.append(hypothesis)
+    return {
+        "decision": (
+            "GO_TO_MODEL_EXPERIMENT"
+            if qualifying
+            else "INSUFFICIENT_OR_UNSTABLE_SIGNAL"
+        ),
+        "qualifying_hypotheses": qualifying,
+        "rule": (
+            "GO requires one hypothesis to retain the same binary and Spearman direction "
+            "in D50/D100, at least 10 valid <=30 cm and 8 valid >30 cm samples per "
+            "scenario, directional AUC >=0.60, and a bootstrap median-difference CI "
+            "excluding zero in both scenarios."
+        ),
+        "scope": "Decision only on whether a later model experiment is warranted.",
+    }
+
+
+def build_expanded_comparison(
+    selected: Sequence[Mapping[str, str]],
+    aggregates: Sequence[Mapping[str, Any]],
+    candidate_rows: Sequence[Mapping[str, Any]],
+    height_summaries: Sequence[Mapping[str, Any]],
+    binary_summaries: Sequence[Mapping[str, Any]],
+    preflight: Mapping[str, Any],
+    *,
+    unique_polygons_processed: int,
+    unique_sentinel_items: int,
+    elapsed_seconds: float,
+    errors: Sequence[Mapping[str, str]],
+) -> dict[str, Any]:
+    hypotheses: dict[str, Any] = {}
+    for hypothesis in EXPANDED_HYPOTHESES:
+        scenarios: dict[str, Any] = {}
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            group = [
+                row
+                for row in aggregates
+                if row.get("hypothesis") == hypothesis
+                and row.get("distance_scenario") == scenario
+            ]
+            valid_count = sum(
+                row.get("ndvi_candidate_median") is not None for row in group
+            )
+            metric_rows = [
+                {
+                    "height_class": row["height_class"],
+                    "ndvi_median": row.get("ndvi_candidate_median"),
+                }
+                for row in group
+            ]
+            scenario_seed = (
+                BOOTSTRAP_SEED
+                + sum(map(ord, hypothesis))
+                + sum(map(ord, scenario))
+            )
+            scenarios[scenario] = {
+                "distance_limit_m": EXPANDED_SPATIAL_SCENARIOS[scenario],
+                "coverage": {
+                    "n_selected": len(group),
+                    "n_with_candidates": sum(
+                        int(row.get("candidate_polygon_count") or 0) > 0
+                        for row in group
+                    ),
+                    "n_with_valid_sentinel": valid_count,
+                    "percentage_with_valid_sentinel": (
+                        valid_count / len(group) * 100 if group else 0.0
+                    ),
+                },
+                "height_class_summary": [
+                    dict(row)
+                    for row in height_summaries
+                    if row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                ],
+                "binary_height_summary": [
+                    dict(row)
+                    for row in binary_summaries
+                    if row.get("hypothesis") == hypothesis
+                    and row.get("distance_scenario") == scenario
+                ],
+                "binary_analysis": calculate_binary_metrics(
+                    group, bootstrap_seed=scenario_seed
+                ),
+                "spearman": _spearman(metric_rows),
+                "dependency_diagnostics": _expanded_dependency_diagnostics(
+                    candidate_rows, hypothesis, scenario
+                ),
+            }
+        hypotheses[hypothesis] = {
+            "target_date_rule": (
+                "2025-03-28 for every selected record"
+                if hypothesis == "H_EMBEDDED"
+                else "source_snapshot_date of each selected record"
+            ),
+            "scenarios": scenarios,
+            "robustness_D50_vs_D100": {
+                "binary_direction_stable": _stable_binary_direction(scenarios),
+                "spearman_sign_stable": len(
+                    {
+                        _sign(scenarios[scenario]["spearman"]["correlation"])
+                        for scenario in EXPANDED_SPATIAL_SCENARIOS
+                        if scenarios[scenario]["spearman"]["correlation"] is not None
+                    }
+                )
+                == 1,
+                "valid_coverage_change_D100_minus_D50": (
+                    scenarios["D100"]["coverage"]["n_with_valid_sentinel"]
+                    - scenarios["D50"]["coverage"]["n_with_valid_sentinel"]
+                ),
+                "auc_ndvi_change_D100_minus_D50": (
+                    scenarios["D100"]["binary_analysis"]["auc_ndvi"]["value"]
+                    - scenarios["D50"]["binary_analysis"]["auc_ndvi"]["value"]
+                    if scenarios["D100"]["binary_analysis"]["auc_ndvi"]["value"]
+                    is not None
+                    and scenarios["D50"]["binary_analysis"]["auc_ndvi"]["value"]
+                    is not None
+                    else None
+                ),
+            },
+        }
+    temporal_support = _expanded_temporal_support(hypotheses)
+    model_decision = _model_experiment_decision(hypotheses)
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "analysis_type": "expanded_temporal_calibration_candidate_sets",
+        "documented_date_confirmation": False,
+        "ground_truth_polygon_assignment": False,
+        "hypotheses": hypotheses,
+        "temporal_hypothesis_comparison": temporal_support,
+        "model_experiment_decision": model_decision,
+        "preflight": dict(preflight),
+        "selection": {
+            "sample_count": len(selected),
+            "random_seed": RANDOM_SEED,
+            "selected_by_class": {
+                str(level): sum(_height_level(row) == level for row in selected)
+                for level in HEIGHT_LABELS
+            },
+            "selected_by_snapshot_and_class": {
+                snapshot: {
+                    str(level): sum(
+                        str(row.get("source_snapshot_date")) == snapshot
+                        and _height_level(row) == level
+                        for row in selected
+                    )
+                    for level in HEIGHT_LABELS
+                }
+                for snapshot in sorted(
+                    {str(row.get("source_snapshot_date")) for row in selected}
+                )
+            },
+            "duplicate_sample_ids": len(selected)
+            - len({str(row["sample_id"]) for row in selected}),
+        },
+        "performance": {
+            "unique_polygons_processed": unique_polygons_processed,
+            "unique_sentinel_items_used": unique_sentinel_items,
+            "elapsed_seconds": elapsed_seconds,
+        },
+        "execution_errors": list(errors),
+        "interpretation_constraints": [
+            "Neither temporal hypothesis is a documented date confirmation.",
+            "D50 and D100 are exploratory sensitivity distances, not operational thresholds.",
+            "Candidate polygons are ambiguous and never ground truth.",
+            "AUC and AUC(-NDVI) are exploratory discrimination metrics, not accuracy.",
+            "AUC(-NDVI) is direction analysis only and is not an automatically selected model.",
+            "A p-value alone is not scientific proof.",
+            "NDVI is not converted to vegetation height in centimetres.",
+        ],
+    }
+
+
 def build_comparison(
     rows: Sequence[Mapping[str, Any]],
     summaries: Sequence[Mapping[str, Any]],
@@ -2076,6 +3249,207 @@ def _write_candidate_boxplots(
     return paths
 
 
+def _write_expanded_boxplots(
+    aggregates: Sequence[Mapping[str, Any]], output_dir: Path
+) -> tuple[list[Path], list[str]]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    paths: list[Path] = []
+    skipped: list[str] = []
+    for hypothesis in EXPANDED_HYPOTHESES:
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            group = [
+                row
+                for row in aggregates
+                if row.get("hypothesis") == hypothesis
+                and row.get("distance_scenario") == scenario
+                and row.get("ndvi_candidate_median") is not None
+            ]
+            class_groups = [
+                [
+                    float(row["ndvi_candidate_median"])
+                    for row in group
+                    if int(row["height_class"]) == level
+                ]
+                for level in sorted(HEIGHT_LABELS)
+            ]
+            class_name = f"{hypothesis}_{scenario}_height_classes"
+            if all(class_groups):
+                figure, axis = plt.subplots(figsize=(8, 5))
+                axis.boxplot(
+                    class_groups,
+                    tick_labels=[HEIGHT_LABELS[level] for level in sorted(HEIGHT_LABELS)],
+                )
+                axis.set_ylabel("Median NDVI across candidate polygons")
+                axis.set_xlabel("Field vegetation height class")
+                axis.set_title(f"{hypothesis}_{scenario} — ambiguous candidate sets")
+                figure.tight_layout()
+                path = output_dir / f"boxplot_{class_name}.png"
+                figure.savefig(path, dpi=150)
+                plt.close(figure)
+                paths.append(path)
+            else:
+                skipped.append(f"{class_name}: insufficient data in one or more classes")
+
+            binary_groups = [
+                [
+                    float(row["ndvi_candidate_median"])
+                    for row in group
+                    if int(row["height_class"]) <= 2
+                ],
+                [
+                    float(row["ndvi_candidate_median"])
+                    for row in group
+                    if int(row["height_class"]) == 3
+                ],
+            ]
+            binary_name = f"{hypothesis}_{scenario}_binary_height"
+            if all(binary_groups):
+                figure, axis = plt.subplots(figsize=(8, 5))
+                axis.boxplot(binary_groups, tick_labels=["<=30 cm", ">30 cm"])
+                axis.set_ylabel("Median NDVI across candidate polygons")
+                axis.set_xlabel("Exploratory binary field-height group")
+                axis.set_title(f"{hypothesis}_{scenario} — ambiguous candidate sets")
+                figure.tight_layout()
+                path = output_dir / f"boxplot_{binary_name}.png"
+                figure.savefig(path, dpi=150)
+                plt.close(figure)
+                paths.append(path)
+            else:
+                skipped.append(f"{binary_name}: insufficient binary-group data")
+    return paths, skipped
+
+
+def run_expanded_calibration(
+    dataset: str | Path,
+    management_kmz: str | Path,
+    km_markers_kmz: str | Path,
+    sample_size: int,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    rows = load_calibration_rows(dataset)
+    features = load_management_features(management_kmz)
+    markers = load_km_markers(km_markers_kmz)
+    preflight, eligible, all_candidate_sets = build_expanded_preflight(
+        rows, features, markers
+    )
+    preflight_path = output / "preflight_availability.json"
+    preflight_path.write_text(
+        json.dumps(preflight, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    selected = select_expanded_balanced_sample(
+        eligible, all_candidate_sets, maximum_total=min(sample_size, 90)
+    )
+    if not selected:
+        raise ValueError("Preflight found no balanced D50 sample.")
+    selected_ids = {str(row["sample_id"]) for row in selected}
+    candidate_sets = {
+        sample_id: all_candidate_sets[sample_id] for sample_id in selected_ids
+    }
+    candidate_rows, errors, unique_polygons, unique_items = (
+        build_expanded_candidate_rows(selected, candidate_sets)
+    )
+    aggregates = aggregate_expanded_candidate_ndvi(
+        selected, candidate_sets, candidate_rows
+    )
+    height_summaries = summarize_expanded_height_classes(aggregates)
+    binary_summaries = summarize_binary_height_groups(aggregates)
+
+    selected_rows: list[dict[str, Any]] = []
+    for sample in selected:
+        sample_row: dict[str, Any] = dict(sample)
+        sample_id = str(sample["sample_id"])
+        for scenario in EXPANDED_SPATIAL_SCENARIOS:
+            sample_row[f"candidate_polygon_count_{scenario}"] = len(
+                candidate_sets[sample_id][scenario]
+            )
+        sample_row["H_EMBEDDED_target_date"] = EMBEDDED_TARGET_DATE.isoformat()
+        sample_row["H_FILENAME_target_date"] = expanded_target_date(
+            sample, "H_FILENAME"
+        ).isoformat()
+        sample_row["H_FILENAME_target_date_source"] = resolve_filename_target_date(
+            sample
+        )[1]
+        selected_rows.append(sample_row)
+
+    selected_path = output / "selected_samples_expanded.csv"
+    candidate_path = output / "candidate_polygon_ndvi_expanded.csv"
+    sample_path = output / "sample_calibration_expanded.csv"
+    height_path = output / "height_class_summary_expanded.csv"
+    binary_path = output / "binary_height_summary.csv"
+    comparison_path = output / "temporal_hypothesis_comparison_expanded.json"
+    selected_fields = list(selected_rows[0]) if selected_rows else ["sample_id"]
+    _write_csv(selected_path, selected_rows, selected_fields)
+    _write_csv(candidate_path, candidate_rows, EXPANDED_CANDIDATE_FIELDS)
+    _write_csv(sample_path, aggregates, EXPANDED_SAMPLE_FIELDS)
+    _write_csv(height_path, height_summaries, EXPANDED_HEIGHT_CLASS_FIELDS)
+    _write_csv(binary_path, binary_summaries, BINARY_HEIGHT_FIELDS)
+    chart_paths, skipped_charts = _write_expanded_boxplots(aggregates, output)
+    comparison = build_expanded_comparison(
+        selected,
+        aggregates,
+        candidate_rows,
+        height_summaries,
+        binary_summaries,
+        preflight,
+        unique_polygons_processed=unique_polygons,
+        unique_sentinel_items=unique_items,
+        elapsed_seconds=time.perf_counter() - started,
+        errors=errors,
+    )
+    elapsed_seconds = time.perf_counter() - started
+    comparison["performance"]["elapsed_seconds"] = elapsed_seconds
+    comparison["charts"] = {
+        "generated": [str(path) for path in chart_paths],
+        "skipped": skipped_charts,
+    }
+    comparison_path.write_text(
+        json.dumps(comparison, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    coverage = {
+        hypothesis: {
+            scenario: comparison["hypotheses"][hypothesis]["scenarios"][scenario][
+                "coverage"
+            ]["n_with_valid_sentinel"]
+            for scenario in EXPANDED_SPATIAL_SCENARIOS
+        }
+        for hypothesis in EXPANDED_HYPOTHESES
+    }
+    return {
+        "preflight_availability_json": str(preflight_path),
+        "selected_samples_expanded_csv": str(selected_path),
+        "candidate_polygon_ndvi_expanded_csv": str(candidate_path),
+        "sample_calibration_expanded_csv": str(sample_path),
+        "height_class_summary_expanded_csv": str(height_path),
+        "binary_height_summary_csv": str(binary_path),
+        "temporal_hypothesis_comparison_expanded_json": str(comparison_path),
+        "sample_count": len(selected),
+        "selected_by_class": comparison["selection"]["selected_by_class"],
+        "selected_by_snapshot_and_class": comparison["selection"][
+            "selected_by_snapshot_and_class"
+        ],
+        "valid_sentinel_samples": coverage,
+        "unique_polygons_processed": unique_polygons,
+        "unique_sentinel_items_used": unique_items,
+        "elapsed_seconds": elapsed_seconds,
+        "temporal_hypothesis_conclusion": comparison[
+            "temporal_hypothesis_comparison"
+        ]["conclusion"],
+        "model_experiment_decision": comparison["model_experiment_decision"][
+            "decision"
+        ],
+        "execution_errors": len(errors),
+        "charts_generated": len(chart_paths),
+        "charts_skipped": skipped_charts,
+    }
+
+
 def run_candidate_set_analysis(
     dataset: str | Path,
     management_kmz: str | Path,
@@ -2262,6 +3636,16 @@ def _arguments() -> argparse.Namespace:
             "changing operational matching."
         ),
     )
+    modes.add_argument(
+        "--expanded-preflight-only",
+        action="store_true",
+        help="Compute D50/D100 expanded-analysis availability without Sentinel-2.",
+    )
+    modes.add_argument(
+        "--expanded-calibration-analysis",
+        action="store_true",
+        help="Run balanced H_EMBEDDED versus per-record H_FILENAME analysis.",
+    )
     arguments = parser.parse_args()
     if arguments.sample_size <= 0:
         parser.error("--sample-size must be greater than zero")
@@ -2272,6 +3656,10 @@ def main() -> int:
     arguments = _arguments()
     if arguments.spatial_diagnostics_only:
         runner = run_spatial_diagnostics
+    elif arguments.expanded_preflight_only:
+        runner = run_expanded_preflight
+    elif arguments.expanded_calibration_analysis:
+        runner = run_expanded_calibration
     elif arguments.candidate_set_analysis:
         runner = run_candidate_set_analysis
     else:
