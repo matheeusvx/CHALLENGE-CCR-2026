@@ -657,6 +657,19 @@
             ],
             "title": "Estimated Class"
           },
+          "score_gt_30_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Gt 30 Cm"
+          },
           "probability_gt_30_cm": {
             "anyOf": [
               {
@@ -668,7 +681,74 @@
                 "type": "null"
               }
             ],
-            "title": "Probability Gt 30 Cm"
+            "title": "Probability Gt 30 Cm",
+            "description": "Deprecated alias of score_gt_30_cm; not calibrated probability.",
+            "deprecated": true
+          },
+          "calibration_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "uncalibrated"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Status"
+          },
+          "vegetation_fraction": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vegetation Fraction"
+          },
+          "height_valid_pixel_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Valid Pixel Count"
+          },
+          "height_total_pixel_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Total Pixel Count"
+          },
+          "mixed_pixel_risk": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mixed Pixel Risk"
           },
           "confidence": {
             "anyOf": [
@@ -701,6 +781,18 @@
               }
             ],
             "title": "Model Version"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
           }
         },
         "additionalProperties": false,

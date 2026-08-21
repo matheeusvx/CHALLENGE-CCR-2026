@@ -7,13 +7,23 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
-MODEL_VERSION = "height-estimator-v0"
-MODEL_FEATURES = ("red_reflectance", "nir_reflectance", "ndvi")
-REFERENCE_THRESHOLD_CM = 30
-LOW_DECISION_THRESHOLD = 0.35
-HIGH_DECISION_THRESHOLD = 0.65
-MEDIUM_CONFIDENCE_LOW = 0.20
-MEDIUM_CONFIDENCE_HIGH = 0.80
+from .features.vegetation_mask import (
+    DEFAULT_MIN_HEIGHT_VALID_PIXELS,
+    DEFAULT_MIN_VEGETATION_FRACTION,
+)
+from .models.grass_threshold import (
+    CALIBRATION_STATUS,
+    HIGH_DECISION_THRESHOLD,
+    LOW_DECISION_THRESHOLD,
+    MODEL_FEATURES,
+    MODEL_VERSION,
+    REFERENCE_THRESHOLD_CM,
+    classify_height_score,
+    height_score_confidence,
+    model_feature_vector,
+    score_gt_30_cm,
+)
+
 DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "height_estimator_v0.json"
 
 
@@ -21,10 +31,18 @@ def _base_result(status: str) -> dict[str, Any]:
     return {
         "status": status,
         "estimated_class": None,
+        "score_gt_30_cm": None,
+        # Alias temporario para historicos/clientes v0; nao e probabilidade calibrada.
         "probability_gt_30_cm": None,
+        "calibration_status": CALIBRATION_STATUS,
+        "vegetation_fraction": None,
+        "height_valid_pixel_count": None,
+        "height_total_pixel_count": None,
+        "mixed_pixel_risk": None,
         "confidence": None,
         "reference_threshold_cm": REFERENCE_THRESHOLD_CM,
         "model_version": None,
+        "provenance": None,
     }
 
 
@@ -70,23 +88,49 @@ def load_height_model(path: str | Path = DEFAULT_MODEL_PATH) -> dict[str, Any]:
     }
 
 
-def _probability_gt_30(features: list[float], model: Mapping[str, Any]) -> float:
-    normalized = [
-        (value - mean) / scale
-        for value, mean, scale in zip(
-            features, model["scaler_mean"], model["scaler_scale"]
-        )
-    ]
-    logit = float(model["intercept"]) + sum(
-        coefficient * value
-        for coefficient, value in zip(model["coefficients"], normalized)
-    )
-    if logit >= 0:
-        probability = 1.0 / (1.0 + math.exp(-logit))
-    else:
-        exponential = math.exp(logit)
-        probability = exponential / (1.0 + exponential)
-    return min(1.0, max(0.0, probability))
+def _purity_metadata(features: Mapping[str, Any]) -> dict[str, Any]:
+    keys = {
+        "vegetation_fraction",
+        "height_valid_pixel_count",
+        "height_total_pixel_count",
+        "mixed_pixel_risk",
+        "height_purity_gate_passed",
+    }
+    if not keys.intersection(features):
+        # Compatibilidade para chamadas v0 e historicos sem diagnostico espacial.
+        return {
+            "available": False,
+            "passed": True,
+            "vegetation_fraction": None,
+            "height_valid_pixel_count": None,
+            "height_total_pixel_count": None,
+            "mixed_pixel_risk": None,
+            "reasons": [],
+        }
+    fraction = float(features["vegetation_fraction"])
+    valid_count = int(features["height_valid_pixel_count"])
+    total_count = int(features["height_total_pixel_count"])
+    risk = str(features["mixed_pixel_risk"])
+    if not math.isfinite(fraction) or not 0.0 <= fraction <= 1.0:
+        raise ValueError("vegetation_fraction must be finite and between zero and one.")
+    if valid_count < 0 or total_count < 0 or valid_count > total_count:
+        raise ValueError("Height pixel counts are inconsistent.")
+    if risk not in {"low", "medium", "high"}:
+        raise ValueError("mixed_pixel_risk is invalid.")
+    reasons = list(features.get("height_purity_gate_reasons") or [])
+    passed = bool(features.get("height_purity_gate_passed", True))
+    passed &= fraction >= DEFAULT_MIN_VEGETATION_FRACTION
+    passed &= valid_count >= DEFAULT_MIN_HEIGHT_VALID_PIXELS
+    passed &= risk != "high"
+    return {
+        "available": True,
+        "passed": passed,
+        "vegetation_fraction": fraction,
+        "height_valid_pixel_count": valid_count,
+        "height_total_pixel_count": total_count,
+        "mixed_pixel_risk": risk,
+        "reasons": reasons,
+    }
 
 
 def estimate_height_class(
@@ -96,30 +140,47 @@ def estimate_height_class(
 ) -> dict[str, Any]:
     """Retorna evidência experimental; qualquer falha resulta em unavailable."""
     try:
-        values = [float(features[name]) for name in MODEL_FEATURES]
-        if not all(math.isfinite(value) for value in values):
-            raise ValueError("Height features must be finite.")
+        purity = _purity_metadata(features)
+        provenance = {
+            "feature_pipeline": "height_valid_mask_v1",
+            "score_semantics": "uncalibrated_logistic_score",
+            "legacy_probability_alias": True,
+            "height_mask_configuration": features.get("height_mask_configuration"),
+            "purity_gate_reasons": purity["reasons"],
+        }
+        if not purity["passed"]:
+            return {
+                "status": "experimental",
+                "estimated_class": "inconclusive",
+                "score_gt_30_cm": None,
+                "probability_gt_30_cm": None,
+                "calibration_status": CALIBRATION_STATUS,
+                "vegetation_fraction": purity["vegetation_fraction"],
+                "height_valid_pixel_count": purity["height_valid_pixel_count"],
+                "height_total_pixel_count": purity["height_total_pixel_count"],
+                "mixed_pixel_risk": purity["mixed_pixel_risk"],
+                "confidence": "low",
+                "reference_threshold_cm": REFERENCE_THRESHOLD_CM,
+                "model_version": MODEL_VERSION,
+                "provenance": provenance,
+            }
+        values = model_feature_vector(features)
         model = load_height_model(model_path)
-        probability = _probability_gt_30(values, model)
-        if probability <= LOW_DECISION_THRESHOLD:
-            estimated_class = "le_30_cm"
-        elif probability >= HIGH_DECISION_THRESHOLD:
-            estimated_class = "gt_30_cm"
-        else:
-            estimated_class = "inconclusive"
-        confidence = (
-            "medium"
-            if probability <= MEDIUM_CONFIDENCE_LOW
-            or probability >= MEDIUM_CONFIDENCE_HIGH
-            else "low"
-        )
+        score = score_gt_30_cm(values, model)
         return {
             "status": "experimental",
-            "estimated_class": estimated_class,
-            "probability_gt_30_cm": probability,
-            "confidence": confidence,
+            "estimated_class": classify_height_score(score),
+            "score_gt_30_cm": score,
+            "probability_gt_30_cm": score,
+            "calibration_status": CALIBRATION_STATUS,
+            "vegetation_fraction": purity["vegetation_fraction"],
+            "height_valid_pixel_count": purity["height_valid_pixel_count"],
+            "height_total_pixel_count": purity["height_total_pixel_count"],
+            "mixed_pixel_risk": purity["mixed_pixel_risk"],
+            "confidence": height_score_confidence(score),
             "reference_threshold_cm": REFERENCE_THRESHOLD_CM,
             "model_version": MODEL_VERSION,
+            "provenance": provenance,
         }
     except Exception:
         return unavailable_height_estimation()

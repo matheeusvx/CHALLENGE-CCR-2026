@@ -14,45 +14,34 @@ from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 from shapely.geometry import mapping
-from sklearn.base import clone
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    balanced_accuracy_score,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.analyze_temporal_hypotheses import (
+from src.satellite_monitoring.datasets.spatial_matching import (
     CandidatePolygon,
     ManagementFeature,
-    _query_and_process_spectral_scenes,
     build_candidate_polygon_sets,
     load_calibration_rows,
     load_km_markers,
     load_management_features,
     resolve_filename_target_date,
 )
-from src.satellite_monitoring.height_estimation import MODEL_FEATURES, MODEL_VERSION
-from src.satellite_monitoring.indices import analyze_ndvi
-from src.satellite_monitoring.raster_processing import (
-    physical_reflectance_medians,
-    read_scene_bands,
+from src.satellite_monitoring.datasets.training_scenes import query_training_scenes
+from src.satellite_monitoring.features.vegetation_mask import extract_height_features
+from src.satellite_monitoring.models.grass_threshold import MODEL_FEATURES, MODEL_VERSION
+from src.satellite_monitoring.models.validation import (
+    build_training_pipeline as _shared_build_training_pipeline,
+    experimental_validation_metrics as _shared_experimental_validation_metrics,
+    grouped_validation_predictions as _shared_grouped_validation_predictions,
+    training_arrays as _shared_training_arrays,
 )
+from src.satellite_monitoring.raster_processing import read_scene_bands
 
 TRAINING_ALIGNMENT_DAYS = 5
 TRAINING_ALIGNMENT = "nearest_valid_scene_within_5_days"
 TRAINING_SCENARIOS = {"D50": 50.0}
-TRAINING_RANDOM_SEED = 20260818
-MAX_VALIDATION_FOLDS = 5
 
 
 def binary_height_target(height_class: Any) -> int:
@@ -179,6 +168,19 @@ def aggregate_sample_candidate_features(
         "candidate_polygon_count": len(candidates),
         "candidate_with_valid_scene_count": len(valid),
         "candidate_polygons_are_ground_truth": False,
+        "vegetation_fraction": float(
+            np.median([float(item["vegetation_fraction"]) for item in valid])
+        ),
+        "height_valid_pixel_count": int(
+            round(np.median([float(item["height_valid_pixel_count"]) for item in valid]))
+        ),
+        "height_total_pixel_count": int(
+            round(np.median([float(item["height_total_pixel_count"]) for item in valid]))
+        ),
+        "mixed_pixel_risk": max(
+            (str(item["mixed_pixel_risk"]) for item in valid),
+            key={"low": 0, "medium": 1, "high": 2}.__getitem__,
+        ),
         **{
             feature: float(np.median(values))
             for feature, values in feature_values.items()
@@ -187,93 +189,25 @@ def aggregate_sample_candidate_features(
 
 
 def build_training_pipeline() -> Pipeline:
-    return Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            (
-                "classifier",
-                LogisticRegression(
-                    class_weight="balanced",
-                    max_iter=1000,
-                    random_state=TRAINING_RANDOM_SEED,
-                ),
-            ),
-        ]
-    )
+    return _shared_build_training_pipeline()
 
 
 def _training_arrays(
     rows: Sequence[Mapping[str, Any]],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if not rows:
-        raise ValueError("No training samples with valid features.")
-    ordered = sorted(rows, key=lambda row: str(row["sample_id"]))
-    x = np.asarray(
-        [[float(row[feature]) for feature in MODEL_FEATURES] for row in ordered],
-        dtype=float,
-    )
-    y = np.asarray([int(row["target"]) for row in ordered], dtype=int)
-    groups = np.asarray([str(row["group_id"]) for row in ordered], dtype=object)
-    if not np.all(np.isfinite(x)):
-        raise ValueError("Training features contain non-finite values.")
-    if set(y.tolist()) != {0, 1}:
-        raise ValueError("Training data must contain both binary targets.")
-    if len(set(str(value) for value in groups)) < 2:
-        raise ValueError("Training data must contain at least two local groups.")
-    return x, y, groups
+    return _shared_training_arrays(rows)
 
 
 def grouped_validation_predictions(
     x: np.ndarray, y: np.ndarray, groups: np.ndarray
 ) -> tuple[np.ndarray | None, int, list[str]]:
-    limitations: list[str] = []
-    unique_groups = len(set(str(value) for value in groups))
-    for fold_count in range(min(MAX_VALIDATION_FOLDS, unique_groups), 1, -1):
-        splitter = StratifiedGroupKFold(
-            n_splits=fold_count,
-            shuffle=True,
-            random_state=TRAINING_RANDOM_SEED,
-        )
-        splits = list(splitter.split(x, y, groups))
-        if not all(
-            set(y[train].tolist()) == {0, 1} and set(y[test].tolist()) == {0, 1}
-            for train, test in splits
-        ):
-            continue
-        probabilities = np.full(y.shape, np.nan, dtype=float)
-        for train, test in splits:
-            model = clone(build_training_pipeline())
-            model.fit(x[train], y[train])
-            probabilities[test] = model.predict_proba(x[test])[:, 1]
-        if np.all(np.isfinite(probabilities)):
-            return probabilities, fold_count, limitations
-    limitations.append(
-        "No StratifiedGroupKFold configuration produced train/test folds with both classes."
-    )
-    return None, 0, limitations
+    return _shared_grouped_validation_predictions(x, y, groups)
 
 
 def experimental_validation_metrics(
     y: np.ndarray, probabilities: np.ndarray | None
 ) -> dict[str, Any]:
-    if probabilities is None:
-        return {
-            "roc_auc": None,
-            "balanced_accuracy": None,
-            "precision_gt_30": None,
-            "recall_gt_30": None,
-            "f1_gt_30": None,
-            "confusion_matrix": None,
-        }
-    predicted = (probabilities >= 0.5).astype(int)
-    return {
-        "roc_auc": float(roc_auc_score(y, probabilities)),
-        "balanced_accuracy": float(balanced_accuracy_score(y, predicted)),
-        "precision_gt_30": float(precision_score(y, predicted, zero_division=0)),
-        "recall_gt_30": float(recall_score(y, predicted, zero_division=0)),
-        "f1_gt_30": float(f1_score(y, predicted, zero_division=0)),
-        "confusion_matrix": confusion_matrix(y, predicted, labels=[0, 1]).tolist(),
-    }
+    return _shared_experimental_validation_metrics(y, probabilities)
 
 
 def train_artifact(
@@ -341,7 +275,7 @@ def build_real_training_samples(
     km_markers_kmz: str | Path,
     *,
     query_scenes: Callable[..., tuple[list[dict[str, Any]], str | None]] = (
-        _query_and_process_spectral_scenes
+        query_training_scenes
     ),
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows = []
@@ -394,17 +328,22 @@ def build_real_training_samples(
             if cache_key not in feature_cache:
                 try:
                     raster = read_scene_bands(item, mapping(feature.geometry))
-                    _, ndvi_statistics = analyze_ndvi(
-                        raster.red,
-                        raster.nir,
-                        raster.valid_mask,
-                        raster.total_pixel_count,
-                    )
-                    physical = physical_reflectance_medians(item, raster)
+                    extracted = extract_height_features(item, raster)
+                    if not extracted["height_purity_gate_passed"]:
+                        observations[feature.feature_id][target] = None
+                        continue
                     feature_cache[cache_key] = {
-                        "red_reflectance": physical["red_median_reflectance"],
-                        "nir_reflectance": physical["nir_median_reflectance"],
-                        "ndvi": ndvi_statistics.median,
+                        "red_reflectance": extracted["red_median_reflectance"],
+                        "nir_reflectance": extracted["nir_median_reflectance"],
+                        "ndvi": extracted["ndvi_median"],
+                        "vegetation_fraction": extracted["vegetation_fraction"],
+                        "height_valid_pixel_count": extracted[
+                            "height_valid_pixel_count"
+                        ],
+                        "height_total_pixel_count": extracted[
+                            "height_total_pixel_count"
+                        ],
+                        "mixed_pixel_risk": extracted["mixed_pixel_risk"],
                     }
                 except Exception as exc:
                     errors.append(

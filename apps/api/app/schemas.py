@@ -73,10 +73,23 @@ class RecommendationResponse(StrictModel):
 class HeightEstimationResponse(StrictModel):
     status: Literal["experimental", "unavailable", "disabled"]
     estimated_class: Literal["le_30_cm", "gt_30_cm", "inconclusive"] | None
-    probability_gt_30_cm: float | None = Field(None, ge=0, le=1)
+    score_gt_30_cm: float | None = Field(None, ge=0, le=1)
+    probability_gt_30_cm: float | None = Field(
+        None,
+        ge=0,
+        le=1,
+        deprecated=True,
+        description="Deprecated alias of score_gt_30_cm; not calibrated probability.",
+    )
+    calibration_status: Literal["uncalibrated"] | None = None
+    vegetation_fraction: float | None = Field(None, ge=0, le=1)
+    height_valid_pixel_count: int | None = Field(None, ge=0)
+    height_total_pixel_count: int | None = Field(None, ge=0)
+    mixed_pixel_risk: Literal["low", "medium", "high"] | None = None
     confidence: Literal["low", "medium"] | None
     reference_threshold_cm: Literal[30] = 30
     model_version: str | None
+    provenance: dict[str, Any] | None = None
 
 
 class AnalysisPeriodResponse(StrictModel):

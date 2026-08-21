@@ -21,6 +21,7 @@ from .height_estimation import (
     estimate_height_class,
     unavailable_height_estimation,
 )
+from .features.vegetation_mask import extract_height_features
 from .indices import InsufficientValidPixelsError, analyze_ndvi
 from .outputs import create_run_directory, to_json_compatible, write_outputs
 from .quality import (
@@ -29,7 +30,7 @@ from .quality import (
     select_quality_assessed_observations,
     summarize_scene_quality,
 )
-from .raster_processing import physical_reflectance_medians, read_scene_bands
+from .raster_processing import read_scene_bands
 from .stac_client import Scene, search_scenes
 from .temporal_quality import calculate_analysis_quality, diagnose_temporal_consistency
 
@@ -53,7 +54,7 @@ class PipelineDependencies:
 
     search_scenes: Callable[..., Any] = search_scenes
     read_scene_bands: Callable[..., Any] = read_scene_bands
-    extract_height_features: Callable[..., dict[str, Any]] = physical_reflectance_medians
+    extract_height_features: Callable[..., dict[str, Any]] = extract_height_features
     estimate_height: Callable[..., dict[str, Any]] = estimate_height_class
     write_outputs: Callable[..., dict[str, Path]] = write_outputs
 
@@ -133,6 +134,14 @@ def _new_scene_record(scene: Scene) -> dict[str, Any]:
             "reflectance_scale_source": None,
             "reflectance_scale": None,
             "reflectance_offset": None,
+            "height_ndvi_median": None,
+            "vegetation_fraction": None,
+            "height_valid_pixel_count": None,
+            "height_total_pixel_count": None,
+            "mixed_pixel_risk": None,
+            "height_purity_gate_passed": None,
+            "height_purity_gate_reasons": [],
+            "height_mask_configuration": None,
             "scene_quality_score": None,
             "min_pixel_requirement_met": False,
             "aoi_coverage_requirement_met": False,
@@ -300,6 +309,24 @@ def run_monitoring_analysis(
                         ),
                         "reflectance_scale": height_features.get("reflectance_scale"),
                         "reflectance_offset": height_features.get("reflectance_offset"),
+                        "height_ndvi_median": height_features.get("ndvi_median"),
+                        "vegetation_fraction": height_features.get("vegetation_fraction"),
+                        "height_valid_pixel_count": height_features.get(
+                            "height_valid_pixel_count"
+                        ),
+                        "height_total_pixel_count": height_features.get(
+                            "height_total_pixel_count"
+                        ),
+                        "mixed_pixel_risk": height_features.get("mixed_pixel_risk"),
+                        "height_purity_gate_passed": height_features.get(
+                            "height_purity_gate_passed"
+                        ),
+                        "height_purity_gate_reasons": height_features.get(
+                            "height_purity_gate_reasons", []
+                        ),
+                        "height_mask_configuration": height_features.get(
+                            "height_mask_configuration"
+                        ),
                         "scene_quality_score": assessment.scene_quality_score,
                         "min_pixel_requirement_met": assessment.min_pixel_requirement_met,
                         "aoi_coverage_requirement_met": assessment.aoi_coverage_requirement_met,
@@ -335,6 +362,26 @@ def run_monitoring_analysis(
                             ),
                             "nir_median_reflectance": height_features.get(
                                 "nir_median_reflectance"
+                            ),
+                            "height_ndvi_median": height_features.get("ndvi_median"),
+                            "vegetation_fraction": height_features.get(
+                                "vegetation_fraction"
+                            ),
+                            "height_valid_pixel_count": height_features.get(
+                                "height_valid_pixel_count"
+                            ),
+                            "height_total_pixel_count": height_features.get(
+                                "height_total_pixel_count"
+                            ),
+                            "mixed_pixel_risk": height_features.get("mixed_pixel_risk"),
+                            "height_purity_gate_passed": height_features.get(
+                                "height_purity_gate_passed"
+                            ),
+                            "height_purity_gate_reasons": height_features.get(
+                                "height_purity_gate_reasons", []
+                            ),
+                            "height_mask_configuration": height_features.get(
+                                "height_mask_configuration"
                             ),
                             "ndvi_min": statistics.minimum,
                             "ndvi_max": statistics.maximum,
@@ -488,9 +535,7 @@ def run_monitoring_analysis(
             record
             for record in scene_records
             if record.get("included_in_analysis")
-            and record.get("red_median_reflectance") is not None
-            and record.get("nir_median_reflectance") is not None
-            and record.get("ndvi_median") is not None
+            and record.get("vegetation_fraction") is not None
         ]
         if height_source_records:
             height_source = max(
@@ -499,13 +544,32 @@ def run_monitoring_analysis(
             try:
                 height_estimation = deps.estimate_height(
                     {
-                        "red_reflectance": height_source[
+                        "red_reflectance": height_source.get(
                             "red_median_reflectance"
-                        ],
-                        "nir_reflectance": height_source[
+                        ),
+                        "nir_reflectance": height_source.get(
                             "nir_median_reflectance"
+                        ),
+                        "ndvi": height_source.get("height_ndvi_median"),
+                        "vegetation_fraction": height_source[
+                            "vegetation_fraction"
                         ],
-                        "ndvi": height_source["ndvi_median"],
+                        "height_valid_pixel_count": height_source.get(
+                            "height_valid_pixel_count"
+                        ),
+                        "height_total_pixel_count": height_source.get(
+                            "height_total_pixel_count"
+                        ),
+                        "mixed_pixel_risk": height_source.get("mixed_pixel_risk"),
+                        "height_purity_gate_passed": height_source.get(
+                            "height_purity_gate_passed"
+                        ),
+                        "height_purity_gate_reasons": height_source.get(
+                            "height_purity_gate_reasons", []
+                        ),
+                        "height_mask_configuration": height_source.get(
+                            "height_mask_configuration"
+                        ),
                     }
                 )
             except Exception as exc:

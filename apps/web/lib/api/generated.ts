@@ -231,8 +231,24 @@ export interface components {
             status: "experimental" | "unavailable" | "disabled";
             /** Estimated Class */
             estimated_class: ("le_30_cm" | "gt_30_cm" | "inconclusive") | null;
-            /** Probability Gt 30 Cm */
+            /** Score Gt 30 Cm */
+            score_gt_30_cm?: number | null;
+            /**
+             * Probability Gt 30 Cm
+             * @deprecated
+             * @description Deprecated alias of score_gt_30_cm; not calibrated probability.
+             */
             probability_gt_30_cm?: number | null;
+            /** Calibration Status */
+            calibration_status?: "uncalibrated" | null;
+            /** Vegetation Fraction */
+            vegetation_fraction?: number | null;
+            /** Height Valid Pixel Count */
+            height_valid_pixel_count?: number | null;
+            /** Height Total Pixel Count */
+            height_total_pixel_count?: number | null;
+            /** Mixed Pixel Risk */
+            mixed_pixel_risk?: ("low" | "medium" | "high") | null;
             /** Confidence */
             confidence: ("low" | "medium") | null;
             /**
@@ -243,6 +259,10 @@ export interface components {
             reference_threshold_cm: 30;
             /** Model Version */
             model_version: string | null;
+            /** Provenance */
+            provenance?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** RecommendationResponse */
         RecommendationResponse: {

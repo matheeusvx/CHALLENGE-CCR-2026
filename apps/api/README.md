@@ -36,6 +36,11 @@ habilita-la localmente antes de iniciar a API, defina
 `$env:HEIGHT_ESTIMATION_ENABLED = "true"`. O resultado e evidencia experimental
 adicional e nao altera a recommendation.
 
+No contrato tecnico, `score_gt_30_cm` e o campo canonico e
+`calibration_status` e `uncalibrated`. `probability_gt_30_cm` permanece como
+alias deprecated para compatibilidade com historicos/clientes v0; nao representa
+probabilidade calibrada.
+
 ## Endpoints
 
 - `GET /api/health`

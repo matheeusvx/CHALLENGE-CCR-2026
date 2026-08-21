@@ -62,6 +62,9 @@ class RasterSceneData:
     quality_messages: list[str]
     red_raw: np.ndarray | None = None
     nir_raw: np.ndarray | None = None
+    inside_aoi_mask: np.ndarray | None = None
+    scl_values: np.ndarray | None = None
+    scl_valid_mask: np.ndarray | None = None
 
 
 def calculate_scl_class_percentages(
@@ -212,10 +215,10 @@ def resolve_physical_reflectance_scaling(
     return _product_metadata_scaling(str(metadata_asset.href))
 
 
-def physical_reflectance_medians(
+def physical_reflectance_arrays(
     item: Any, raster_data: RasterSceneData
-) -> dict[str, float | str]:
-    """Extrai RED/NIR fisicos sobre a mesma mascara valida do NDVI existente."""
+) -> tuple[np.ndarray, np.ndarray, ReflectanceScaling]:
+    """Converte os arrays raw RED/NIR pela fonte radiometrica canonica."""
     if raster_data.red_raw is None or raster_data.nir_raw is None:
         raise RasterProcessingError("Arrays raw RED/NIR nao foram preservados.")
     scaling = resolve_physical_reflectance_scaling(
@@ -227,6 +230,14 @@ def physical_reflectance_medians(
     nir = apply_reflectance_scaling(
         raster_data.nir_raw, scale=scaling.scale, offset=scaling.offset
     )
+    return red, nir, scaling
+
+
+def physical_reflectance_medians(
+    item: Any, raster_data: RasterSceneData
+) -> dict[str, float | str]:
+    """Extrai RED/NIR fisicos sobre a mesma mascara valida do NDVI existente."""
+    red, nir, scaling = physical_reflectance_arrays(item, raster_data)
     mask = np.asarray(raster_data.valid_mask, dtype=bool)
     mask &= np.isfinite(red) & np.isfinite(nir)
     if not np.any(mask):
@@ -355,6 +366,8 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
             nir, nir_valid = _prepare_reflectance(nir_raw, nir_asset)
             valid_mask = inside_aoi & red_valid & nir_valid
 
+            scl_values_for_height: np.ndarray | None = None
+            scl_valid_for_height: np.ndarray | None = None
             if scl_key is not None:
                 scl_asset = item.assets[scl_key]
                 scl = _read_aligned_band(
@@ -365,6 +378,8 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
                     Resampling.nearest,
                 )
                 scl_values = np.asarray(scl.data)
+                scl_values_for_height = scl_values.copy()
+                scl_valid_for_height = ~np.ma.getmaskarray(scl)
                 scl_class_percentages = calculate_scl_class_percentages(scl, inside_aoi)
                 valid_mask &= ~np.ma.getmaskarray(scl)
                 valid_mask &= ~np.isin(scl_values, list(SCL_EXCLUDED_CLASSES))
@@ -405,4 +420,7 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
         quality_messages=quality_messages,
         red_raw=np.asarray(red_raw.data, dtype=np.float32),
         nir_raw=np.asarray(nir_raw.data, dtype=np.float32),
+        inside_aoi_mask=np.asarray(inside_aoi, dtype=bool),
+        scl_values=scl_values_for_height,
+        scl_valid_mask=scl_valid_for_height,
     )

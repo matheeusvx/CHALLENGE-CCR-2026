@@ -74,10 +74,17 @@ def test_run_uses_injected_service(
     assert body["height_estimation"] == {
         "status": "disabled",
         "estimated_class": None,
+        "score_gt_30_cm": None,
         "probability_gt_30_cm": None,
+        "calibration_status": "uncalibrated",
+        "vegetation_fraction": None,
+        "height_valid_pixel_count": None,
+        "height_total_pixel_count": None,
+        "mixed_pixel_risk": None,
         "confidence": None,
         "reference_threshold_cm": 30,
         "model_version": None,
+        "provenance": None,
     }
     assert body["analysis_period"] == {
         "start_date": "2026-05-01",
@@ -94,10 +101,17 @@ def test_run_uses_injected_service(
         {
             "status": "experimental",
             "estimated_class": "le_30_cm",
+            "score_gt_30_cm": 0.2,
             "probability_gt_30_cm": 0.2,
+            "calibration_status": "uncalibrated",
+            "vegetation_fraction": 0.8,
+            "height_valid_pixel_count": 80,
+            "height_total_pixel_count": 100,
+            "mixed_pixel_risk": "low",
             "confidence": "medium",
             "reference_threshold_cm": 30,
             "model_version": "height-estimator-v0",
+            "provenance": {"feature_pipeline": "height_valid_mask_v1"},
         },
         {
             "status": "experimental",
@@ -137,7 +151,13 @@ def test_height_estimation_contract_is_additive(
     response = client.post("/api/analyses/run", json=valid_payload)
 
     assert response.status_code == 200
-    assert response.json()["height_estimation"] == height_estimation
+    returned = response.json()["height_estimation"]
+    for key, value in height_estimation.items():
+        assert returned[key] == value
+    assert "score_gt_30_cm" in returned
+    assert "calibration_status" in returned
+    assert "vegetation_fraction" in returned
+    assert "mixed_pixel_risk" in returned
     assert response.json()["recommendation"]["decision"] == "nao_cortar"
 
 

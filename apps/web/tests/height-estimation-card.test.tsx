@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { HeightEstimationCard } from "@/components/analysis/height-estimation-card";
-import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import { heightEstimationSchema, type AnalysisResponse } from "@/lib/schemas/analyses";
 import { getDisplayedHeightClass } from "@/lib/utils/height-estimation";
 
 type HeightEstimation = NonNullable<AnalysisResponse["height_estimation"]>;
@@ -13,14 +13,37 @@ function value(
   return {
     status,
     estimated_class: estimatedClass,
+    score_gt_30_cm: status === "experimental" ? 0.23 : null,
     probability_gt_30_cm: status === "experimental" ? 0.23 : null,
+    calibration_status: "uncalibrated",
+    vegetation_fraction: status === "experimental" ? 0.8 : null,
+    height_valid_pixel_count: status === "experimental" ? 80 : null,
+    height_total_pixel_count: status === "experimental" ? 100 : null,
+    mixed_pixel_risk: status === "experimental" ? "low" : null,
     confidence: status === "experimental" ? "medium" : null,
     reference_threshold_cm: 30,
     model_version: status === "experimental" ? "height-estimator-v0" : null,
+    provenance: status === "experimental"
+      ? { feature_pipeline: "height_valid_mask_v1" }
+      : null,
   };
 }
 
 describe("indicador de altura estimada", () => {
+  it("aceita histórico legado e contrato técnico novo sem mudar a apresentação", () => {
+    const legacy = {
+      status: "experimental" as const,
+      estimated_class: "le_30_cm" as const,
+      probability_gt_30_cm: 0.23,
+      confidence: "medium" as const,
+      reference_threshold_cm: 30 as const,
+      model_version: "height-estimator-v0",
+    };
+    const current = value("experimental", "le_30_cm");
+    expect(heightEstimationSchema.parse(legacy).probability_gt_30_cm).toBe(0.23);
+    expect(heightEstimationSchema.parse(current).score_gt_30_cm).toBe(0.23);
+  });
+
   it.each([
     ["nao_cortar", "le_30_cm", "le_30_cm"],
     ["cortar", "gt_30_cm", "gt_30_cm"],
@@ -54,6 +77,8 @@ describe("indicador de altura estimada", () => {
     expect(screen.queryByText("0.23")).not.toBeInTheDocument();
     expect(screen.queryByText("medium")).not.toBeInTheDocument();
     expect(screen.queryByText("height-estimator-v0")).not.toBeInTheDocument();
+    expect(screen.queryByText("uncalibrated")).not.toBeInTheDocument();
+    expect(screen.queryByText("0.8")).not.toBeInTheDocument();
   });
 
   it("mostra indisponível sem detalhes técnicos", () => {

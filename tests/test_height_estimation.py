@@ -51,7 +51,9 @@ def test_probability_gates(red, expected, tmp_path) -> None:
     result = estimate_height_class(_features(red), model_path=_model(tmp_path))
     assert result["status"] == "experimental"
     assert result["estimated_class"] == expected
-    assert 0 <= result["probability_gt_30_cm"] <= 1
+    assert 0 <= result["score_gt_30_cm"] <= 1
+    assert result["probability_gt_30_cm"] == result["score_gt_30_cm"]
+    assert result["calibration_status"] == "uncalibrated"
 
 
 def test_normalization_and_confidence(tmp_path) -> None:
@@ -62,7 +64,8 @@ def test_normalization_and_confidence(tmp_path) -> None:
         coefficients=[2.0, 0.0, 0.0],
     )
     result = estimate_height_class(_features(12.0), model_path=model)
-    assert result["probability_gt_30_cm"] == pytest.approx(0.8807970779)
+    assert result["score_gt_30_cm"] == pytest.approx(0.8807970779)
+    assert result["probability_gt_30_cm"] == result["score_gt_30_cm"]
     assert result["estimated_class"] == "gt_30_cm"
     assert result["confidence"] == "medium"
     assert result["model_version"] == MODEL_VERSION
@@ -72,6 +75,15 @@ def test_inconclusive_confidence_is_low(tmp_path) -> None:
     result = estimate_height_class(_features(0.0), model_path=_model(tmp_path))
     assert result["estimated_class"] == "inconclusive"
     assert result["confidence"] == "low"
+
+
+def test_canonical_score_preserves_v0_numeric_output() -> None:
+    result = estimate_height_class(
+        {"red_reflectance": 0.0979, "nir_reflectance": 0.2683, "ndvi": 0.4}
+    )
+    assert result["score_gt_30_cm"] == pytest.approx(0.412857580797846)
+    assert result["probability_gt_30_cm"] == result["score_gt_30_cm"]
+    assert result["calibration_status"] == "uncalibrated"
 
 
 @pytest.mark.parametrize(
@@ -109,14 +121,34 @@ def test_model_contract_is_validated(tmp_path) -> None:
 
 
 def test_disabled_contract() -> None:
-    assert disabled_height_estimation() == {
-        "status": "disabled",
-        "estimated_class": None,
-        "probability_gt_30_cm": None,
-        "confidence": None,
-        "reference_threshold_cm": 30,
-        "model_version": None,
-    }
+    result = disabled_height_estimation()
+    assert result["status"] == "disabled"
+    assert result["estimated_class"] is None
+    assert result["score_gt_30_cm"] is None
+    assert result["probability_gt_30_cm"] is None
+    assert result["calibration_status"] == "uncalibrated"
+    assert result["reference_threshold_cm"] == 30
+
+
+def test_purity_gate_abstains_before_model_inference(tmp_path) -> None:
+    result = estimate_height_class(
+        {
+            **_features(1.0),
+            "vegetation_fraction": 0.1,
+            "height_valid_pixel_count": 2,
+            "height_total_pixel_count": 20,
+            "mixed_pixel_risk": "high",
+            "height_purity_gate_passed": False,
+            "height_purity_gate_reasons": ["insufficient_vegetation_fraction"],
+        },
+        model_path=_model(tmp_path),
+    )
+
+    assert result["status"] == "experimental"
+    assert result["estimated_class"] == "inconclusive"
+    assert result["score_gt_30_cm"] is None
+    assert result["vegetation_fraction"] == pytest.approx(0.1)
+    assert result["mixed_pixel_risk"] == "high"
 
 
 def test_pipeline_features_use_physical_reflectance_scale_and_offset() -> None:

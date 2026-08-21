@@ -25,10 +25,17 @@ const recordSchema = z.record(z.string(), z.unknown());
 export const heightEstimationSchema = z.object({
   status: z.enum(["experimental", "unavailable", "disabled"]),
   estimated_class: z.enum(["le_30_cm", "gt_30_cm", "inconclusive"]).nullable(),
-  probability_gt_30_cm: z.number().min(0).max(1).nullable(),
+  score_gt_30_cm: z.number().min(0).max(1).nullable().optional(),
+  probability_gt_30_cm: z.number().min(0).max(1).nullable().optional(),
+  calibration_status: z.literal("uncalibrated").nullable().optional(),
+  vegetation_fraction: z.number().min(0).max(1).nullable().optional(),
+  height_valid_pixel_count: z.number().int().nonnegative().nullable().optional(),
+  height_total_pixel_count: z.number().int().nonnegative().nullable().optional(),
+  mixed_pixel_risk: z.enum(["low", "medium", "high"]).nullable().optional(),
   confidence: z.enum(["low", "medium"]).nullable(),
   reference_threshold_cm: z.literal(30),
   model_version: z.string().nullable(),
+  provenance: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const analysisResponseSchema = z.object({
