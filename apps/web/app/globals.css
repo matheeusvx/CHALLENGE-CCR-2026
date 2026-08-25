@@ -432,8 +432,8 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 .source-card-usage { margin: 0; padding-top: 14px; border-top: 1px solid var(--border); display: flex; gap: 9px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .source-card-usage svg { flex: 0 0 auto; margin-top: 2px; color: var(--purple); }
 
-.settings-grid { width: min(960px, 100%); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.settings-card { padding: 20px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); display: grid; gap: 16px; align-content: start; }
+.settings-grid { width: min(960px, 100%); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, 1fr) auto; gap: 16px; }
+.settings-card { padding: 20px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); display: flex; flex-direction: column; gap: 16px; height: 100%; box-sizing: border-box; }
 .settings-card-head { display: flex; align-items: center; gap: 11px; }
 .settings-card-head > svg { color: var(--purple); }
 .settings-card-head strong { display: block; font-size: 14px; }
@@ -517,7 +517,7 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   .secondary-view { min-height: calc(100vh - 104px); padding: 28px 18px; }
   .secondary-view-panel { grid-template-columns: auto minmax(0, 1fr); }
   .secondary-view-status { grid-column: 2; }
-  .settings-grid { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; grid-template-rows: auto; }
   .history-card-metrics { grid-template-columns: 1fr; }
 }
 
@@ -631,3 +631,44 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 @media (max-width: 720px) {
   .map-workspace { padding: 12px; border-bottom: 0; }
 }
+
+/* --- Rodovias section & full-width card --- */
+.settings-card--full { grid-column: 1 / -1; height: auto; }
+
+.settings-card-head { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+.road-global-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.road-action-btn { padding: 3px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-muted); color: var(--text); font-size: 11.5px; font-weight: 550; cursor: pointer; transition: background .12s, border-color .12s; white-space: nowrap; }
+.road-action-btn:hover { background: var(--surface); border-color: var(--purple); color: var(--purple); }
+.road-action-btn--reset { color: var(--muted); }
+.road-action-btn--reset:hover { color: var(--red, #dc2626); border-color: var(--red, #dc2626); }
+
+/* --- Road list & rows --- */
+.road-list { display: flex; flex-direction: column; gap: 0; }
+.road-row { display: grid; grid-template-columns: 28px 10px minmax(0,1fr) 28px 28px; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--border); transition: opacity .15s; }
+.road-row:last-child { border-bottom: none; }
+.road-row--hidden { opacity: 0.45; }
+.road-row--hidden .road-name { text-decoration: line-through; text-decoration-color: var(--muted); }
+
+/* Visibility button */
+.road-visibility-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-muted); color: var(--muted); cursor: pointer; flex: 0 0 auto; transition: background .12s, color .12s, border-color .12s; }
+.road-visibility-btn:hover { background: var(--surface); color: var(--purple); border-color: var(--purple); }
+.road-row:not(.road-row--hidden) .road-visibility-btn { color: var(--purple); border-color: var(--purple); background: rgba(109,75,240,.08); }
+
+/* Color swatch */
+.road-color-swatch { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.14); }
+
+/* Road info */
+.road-info { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.road-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.road-ref { font-size: 11px; color: var(--muted); }
+
+/* Color picker wrapper */
+.road-color-label { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 auto; cursor: pointer; }
+.road-color-input { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: none; }
+.road-color-input:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Reset button */
+.road-reset-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 5px; transition: color .12s, background .12s; flex: 0 0 auto; }
+.road-reset-btn:hover:not(:disabled) { color: var(--text); background: var(--surface-muted); }
+.road-reset-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+

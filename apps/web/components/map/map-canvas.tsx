@@ -21,10 +21,13 @@ import { getResultPopupPresentation } from "@/lib/map/result-popup";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { DrawingControls } from "./drawing-controls";
-import { installAoiHoverInteractions, installOrUpdateAoiLayer } from "./layers/aoi-layer";
+import { installAoiHoverInteractions, installOrUpdateAoiLayer, bringAoiLayersToFront } from "./layers/aoi-layer";
+import { installOrUpdateManagedRoadsLayer } from "./layers/managed-roads-layer";
 import { MapLegend } from "./map-legend";
+
 import { MapStatus, type MapLoadStatus } from "./map-status";
 import { MapStyleSelector } from "./map-style-selector";
+import { useRoadColorStore } from "@/stores/road-color-store";
 
 type Props = { result?: AnalysisResponse; validationFailed?: boolean };
 
@@ -45,6 +48,8 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const isGeometryDirty = useAnalysisStore((state) => state.isGeometryDirty);
   const selectedTool = useAnalysisStore((state) => state.selectedTool);
   const activeTab = useAnalysisStore((state) => state.activeTab);
+  const activeRoadColors = useRoadColorStore((state) => state.activeColors);
+  const activeRoadVisibility = useRoadColorStore((state) => state.activeVisibility);
   const fitRequestId = useAnalysisStore((state) => state.fitRequestId);
   const setGeometry = useAnalysisStore((state) => state.setGeometry);
   const clearGeometry = useAnalysisStore((state) => state.clearGeometry);
@@ -63,11 +68,15 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
   const geometryRef = useRef(geometry);
   const visualStateRef = useRef(aoiVisualState);
+  const activeRoadColorsRef = useRef(activeRoadColors);
+  const activeRoadVisibilityRef = useRef(activeRoadVisibility);
 
   useEffect(() => {
     geometryRef.current = geometry;
     visualStateRef.current = aoiVisualState;
-  }, [aoiVisualState, geometry]);
+    activeRoadColorsRef.current = activeRoadColors;
+    activeRoadVisibilityRef.current = activeRoadVisibility;
+  }, [aoiVisualState, geometry, activeRoadColors, activeRoadVisibility]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -121,6 +130,11 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
     const installOperationalLayers = () => {
       disposeHoverRef.current();
+      try {
+        installOrUpdateManagedRoadsLayer(map, activeRoadColorsRef.current, activeRoadVisibilityRef.current);
+      } catch (e) {
+        console.warn("Erro ao instalar camada de rodovias, ignorando.", e);
+      }
       installOrUpdateAoiLayer(map, geometryRef.current, visualStateRef.current);
       disposeHoverRef.current = geometryRef.current ? installAoiHoverInteractions(map) : () => undefined;
     };
@@ -154,6 +168,10 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       }
     };
     const handleError = (event: maplibregl.ErrorEvent) => {
+      if ((event as unknown as { sourceId?: string }).sourceId === "motiva-managed-roads") {
+        console.warn("Falha ao carregar a camada de rodovias, ignorando erro.");
+        return;
+      }
       console.error("Erro do MapLibre ao carregar style, source ou tile.", event.error ?? event);
       baseLoadFailedRef.current = true;
       setLoadStatus("error");
@@ -200,9 +218,15 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     const map = mapRef.current;
     if (!map || !styleEditorReadyRef.current) return;
     disposeHoverRef.current();
+    try {
+      installOrUpdateManagedRoadsLayer(map, activeRoadColors, activeRoadVisibility);
+    } catch (e) {
+      console.warn("Erro ao atualizar camada de rodovias.", e);
+    }
     installOrUpdateAoiLayer(map, geometry, aoiVisualState);
     disposeHoverRef.current = geometry ? installAoiHoverInteractions(map) : () => undefined;
-  }, [aoiVisualState, geometry]);
+    bringAoiLayersToFront(map);
+  }, [aoiVisualState, geometry, activeRoadColors, activeRoadVisibility]);
 
   useEffect(() => {
     if (fitRequestId > 0 && geometry && mapRef.current) fitMapToGeometry(mapRef.current, geometry);
@@ -295,7 +319,12 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
       {geometry ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
       <MapStyleSelector active="operational" />
-      <MapLegend mapStyle="operational" aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
+      {loadStatus === "ready" && (
+        <>
+          <MapLegend mapStyle="operational" aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
+
+        </>
+      )}
     </div>
   );
 }
