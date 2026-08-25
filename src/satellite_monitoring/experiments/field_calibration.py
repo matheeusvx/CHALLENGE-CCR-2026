@@ -35,6 +35,8 @@ from .sentinel2_temporal import (
 
 CAUSAL_SCENE_LOOKBACK_DAYS = 60
 WAITING_FOR_FIELD_AOI_GEOJSON = "WAITING_FOR_FIELD_AOI_GEOJSON"
+PERCENTILE_METHOD = "linear (NumPy; equivalent to Hyndman-Fan type 7)"
+EXTREME_HEIGHT_WARNING_CM = 300.0
 
 STATIC_FEATURE_COLUMNS = (
     "red_reflectance",
@@ -69,6 +71,7 @@ TEMPORAL_FEATURE_COLUMNS = (
 MODEL_FEATURE_COLUMNS = STATIC_FEATURE_COLUMNS + TEMPORAL_FEATURE_COLUMNS
 
 CSV_COLUMNS = (
+    "campaign_id",
     "sample_id",
     "observed_at",
     "road",
@@ -80,14 +83,33 @@ CSV_COLUMNS = (
     "geometry_id",
     "geometry_geojson",
     "area_m2",
+    "height_measurements_cm",
+    "measurement_count",
+    "height_min_cm",
+    "height_mean_cm",
     "measured_height_cm",
     "height_p50_cm",
     "height_p90_cm",
     "height_max_cm",
+    "measurement_method",
+    "measurement_spacing_m",
     "real_class_30cm",
+    "regulatory_class_30cm",
+    "experimental_certainty_zone",
+    "future_primary_target_gt30",
     "boundary_case",
     "qualitative_condition",
     "measurement_quality",
+    "ground_truth_strength",
+    "vegetation_cover_pct",
+    "vegetation_type",
+    "recent_cut",
+    "cut_date",
+    "soil_condition",
+    "moisture_condition",
+    "photo_references",
+    "video_references",
+    "collector_notes",
     "field_measurement_status",
     "training_eligible",
     "external_validation",
@@ -122,7 +144,21 @@ class RegressionReadinessConfig:
     min_complete_static_samples: int = 20
     min_unique_locations: int = 10
     min_unique_dates: int = 3
+    min_height_range_cm: float = 20.0
+    min_clear_negative_samples: int = 5
+    min_clear_positive_samples: int = 5
+    min_gt30_metric_samples: int = 5
     require_both_sides_of_30_cm: bool = True
+
+
+@dataclass(frozen=True)
+class CoveragePlanningConfig:
+    """Metas operacionais de coleta; nao representam tamanho amostral cientifico."""
+
+    target_clear_negative: int = 10
+    target_uncertainty_zone: int = 10
+    target_clear_positive: int = 10
+    target_gt30_metric_samples: int = 10
 
 
 def _optional_float(value: Any) -> float | None:
@@ -165,6 +201,8 @@ def _parse_sequence(value: Any) -> tuple[Any, ...]:
         stripped = value.strip()
         if not stripped:
             return ()
+        if stripped.casefold() == "null":
+            return ()
         if stripped.startswith("["):
             parsed = json.loads(stripped)
             if not isinstance(parsed, list):
@@ -180,10 +218,15 @@ def _validate_embedded_crs(document: Mapping[str, Any]) -> None:
     crs = document.get("crs")
     if crs is None:
         return
-    try:
-        name = str(crs["properties"]["name"]).strip().upper()
-    except (KeyError, TypeError) as exc:
-        raise ValueError("Invalid GeoJSON CRS declaration; expected EPSG:4326.") from exc
+    if isinstance(crs, str):
+        name = crs.strip().upper()
+    else:
+        try:
+            name = str(crs["properties"]["name"]).strip().upper()
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "Invalid GeoJSON CRS declaration; expected EPSG:4326."
+            ) from exc
     allowed = {
         "EPSG:4326",
         "OGC:CRS84",
@@ -199,6 +242,8 @@ def _geometry_document(
     row: Mapping[str, Any], *, source_path: Path, geometry_dir: Path | None
 ) -> Mapping[str, Any] | None:
     raw = row.get("geometry")
+    if raw is None or not str(raw).strip():
+        raw = row.get("geometry_geojson")
     if isinstance(raw, Mapping):
         return raw
     if raw is not None and str(raw).strip():
@@ -230,39 +275,133 @@ def _normalize_geometry(
         return None
     _validate_embedded_crs(document)
     geometry, count = extract_polygon_geometry(dict(document))
-    if geometry.geom_type != "Polygon" or count != 1:
-        raise ValueError("Field calibration geometry must be one Polygon.")
+    if geometry.geom_type not in {"Polygon", "MultiPolygon"} or count != 1:
+        raise ValueError(
+            "Field calibration geometry must be one Polygon or MultiPolygon."
+        )
     return mapping(geometry)
 
 
-def _real_class(height_p90_cm: float | None, measured_height_cm: float | None) -> str:
-    value = height_p90_cm if height_p90_cm is not None else measured_height_cm
+def regulatory_class_30cm(value: float | None) -> str:
     if value is None:
         return "unknown"
     return "le_30_cm" if value <= 30 else "gt_30_cm"
 
 
+def experimental_certainty_zone(value: float | None) -> str:
+    if value is None:
+        return "UNKNOWN"
+    if value <= 25:
+        return "CLEAR_NEGATIVE"
+    if value < 35:
+        return "UNCERTAINTY_ZONE"
+    return "CLEAR_POSITIVE"
+
+
+def ground_truth_strength(
+    measurement_quality: str,
+    *,
+    has_geometry: bool,
+    has_metric_height: bool,
+) -> str:
+    """Diagnostico de confiabilidade; nunca e usado como feature espectral."""
+    if measurement_quality == "visual_only" or not has_metric_height:
+        return "non_metric"
+    if measurement_quality == "confirmed_multiple_measurements":
+        return "strong" if has_geometry else "moderate"
+    if measurement_quality == "confirmed_single_measurement":
+        return "moderate" if has_geometry else "weak"
+    return "weak"
+
+
+def _validate_supplied_statistic(
+    supplied: float | None, calculated: float, *, field_name: str
+) -> float:
+    if supplied is not None and not math.isclose(
+        supplied, calculated, rel_tol=1e-9, abs_tol=1e-9
+    ):
+        raise ValueError(
+            f"{field_name} conflicts with height_measurements_cm; "
+            f"expected {calculated}."
+        )
+    return calculated
+
+
 def _normalize_row(
-    raw: Mapping[str, Any], *, source_path: Path, geometry_dir: Path | None
+    raw: Mapping[str, Any],
+    *,
+    source_path: Path,
+    geometry_dir: Path | None,
+    campaign_id: str | None = None,
+    campaign_observed_at: Any = None,
 ) -> FieldObservation:
     sample_id = str(raw.get("sample_id") or "").strip()
     if not sample_id:
         raise ValueError("sample_id is required.")
-    observed_at = _parse_date(raw.get("observed_at"), field_name="observed_at")
-    measurements = tuple(float(value) for value in _parse_sequence(raw.get("measurements_cm")))
+    observed_at = _parse_date(
+        raw.get("observed_at") or campaign_observed_at,
+        field_name="observed_at",
+    )
+    measurement_key = next(
+        (
+            name
+            for name in ("height_measurements_cm", "measurements_cm")
+            if name in raw
+        ),
+        None,
+    )
+    measurements = tuple(
+        float(value)
+        for value in _parse_sequence(raw.get(measurement_key))
+    ) if measurement_key else ()
+    supplied_measurements = raw.get(measurement_key) if measurement_key else None
+    explicitly_empty_list = (
+        isinstance(supplied_measurements, Sequence)
+        and not isinstance(supplied_measurements, str)
+        and len(supplied_measurements) == 0
+    ) or (
+        isinstance(supplied_measurements, str)
+        and supplied_measurements.strip() == "[]"
+    )
+    if explicitly_empty_list:
+        raise ValueError(f"{measurement_key} cannot be an explicitly empty list.")
     if any(not math.isfinite(value) or value < 0 for value in measurements):
-        raise ValueError("measurements_cm must contain finite non-negative values.")
+        raise ValueError(
+            "height_measurements_cm must contain finite non-negative values."
+        )
     measured = _optional_float(raw.get("measured_height_cm"))
+    minimum = _optional_float(raw.get("height_min_cm"))
+    mean = _optional_float(raw.get("height_mean_cm"))
     p50 = _optional_float(raw.get("height_p50_cm"))
     p90 = _optional_float(raw.get("height_p90_cm"))
     maximum = _optional_float(raw.get("height_max_cm"))
     if len(measurements) == 1 and measured is None:
         measured = measurements[0]
-    elif len(measurements) >= 2:
-        p50 = p50 if p50 is not None else float(np.quantile(measurements, 0.50))
-        p90 = p90 if p90 is not None else float(np.quantile(measurements, 0.90))
-        maximum = maximum if maximum is not None else max(measurements)
-    metric_values = (measured, p50, p90, maximum)
+    statistic_values = measurements or ((measured,) if measured is not None else ())
+    measurement_count = len(statistic_values)
+    if statistic_values:
+        calculated_minimum = min(statistic_values)
+        calculated_mean = float(np.mean(statistic_values))
+        calculated_maximum = max(statistic_values)
+        minimum = _validate_supplied_statistic(
+            minimum, calculated_minimum, field_name="height_min_cm"
+        )
+        mean = _validate_supplied_statistic(
+            mean, calculated_mean, field_name="height_mean_cm"
+        )
+        maximum = _validate_supplied_statistic(
+            maximum, calculated_maximum, field_name="height_max_cm"
+        )
+    if len(measurements) >= 2:
+        calculated_p50 = float(np.quantile(measurements, 0.50, method="linear"))
+        calculated_p90 = float(np.quantile(measurements, 0.90, method="linear"))
+        p50 = _validate_supplied_statistic(
+            p50, calculated_p50, field_name="height_p50_cm"
+        )
+        p90 = _validate_supplied_statistic(
+            p90, calculated_p90, field_name="height_p90_cm"
+        )
+    metric_values = (measured, minimum, mean, p50, p90, maximum)
     if any(value is not None and value < 0 for value in metric_values):
         raise ValueError("Height measurements must be non-negative.")
     quality = str(raw.get("measurement_quality") or "unknown").strip()
@@ -271,6 +410,12 @@ def _normalize_row(
             "measurement_quality must be one of: "
             + ", ".join(MEASUREMENT_QUALITY_VALUES)
         )
+    if quality == "confirmed_multiple_measurements" and len(measurements) <= 1:
+        raise ValueError(
+            "confirmed_multiple_measurements requires more than one physical measurement."
+        )
+    if quality == "visual_only" and any(value is not None for value in metric_values):
+        raise ValueError("visual_only samples cannot contain metric height values.")
     geometry = _normalize_geometry(
         raw, source_path=source_path, geometry_dir=geometry_dir
     )
@@ -284,12 +429,50 @@ def _normalize_row(
         raise ValueError("latitude must be between -90 and 90.")
     if longitude is not None and not -180 <= longitude <= 180:
         raise ValueError("longitude must be between -180 and 180.")
-    derived_class = _real_class(p90, measured)
+    representative_height = p90 if len(measurements) >= 2 else measured
+    if representative_height is None and p90 is not None:
+        # Compatibilidade com campanhas historicas que ja traziam p90 explicito.
+        representative_height = p90
+    derived_class = regulatory_class_30cm(representative_height)
+    certainty_zone = experimental_certainty_zone(representative_height)
+    future_target = (
+        p90 > 30
+        if quality == "confirmed_multiple_measurements"
+        and len(measurements) > 1
+        and p90 is not None
+        else None
+    )
     supplied_class = str(raw.get("real_class") or "").strip()
     if supplied_class and supplied_class not in {derived_class, "unknown"}:
         raise ValueError("real_class conflicts with the physical height measurement.")
+    warnings: list[str] = []
+    if maximum is not None and maximum > EXTREME_HEIGHT_WARNING_CM:
+        warnings.append(
+            f"height_max_cm_above_planning_review_threshold:{EXTREME_HEIGHT_WARNING_CM:g}"
+        )
+    strength = ground_truth_strength(
+        quality,
+        has_geometry=geometry is not None,
+        has_metric_height=representative_height is not None,
+    )
+    photo_references = tuple(
+        str(value)
+        for value in _parse_sequence(
+            raw.get("photo_references")
+            if raw.get("photo_references") is not None
+            else raw.get("photos")
+        )
+    )
+    video_references = tuple(
+        str(value)
+        for value in _parse_sequence(raw.get("video_references"))
+    )
+    legacy_video = str(raw.get("video_reference") or "").strip() or None
+    if not video_references and legacy_video:
+        video_references = (legacy_video,)
     return FieldObservation(
         sample_id=sample_id,
+        campaign_id=str(raw.get("campaign_id") or campaign_id or "").strip() or None,
         road=str(raw.get("road") or "").strip() or None,
         km=_optional_float(raw.get("km")),
         side=str(raw.get("side") or "").strip() or None,
@@ -300,10 +483,16 @@ def _normalize_row(
         longitude=longitude,
         gps_accuracy_m=_optional_float(raw.get("gps_accuracy_m")),
         measured_height_cm=measured,
+        height_measurements_cm=measurements,
         measurements_cm=measurements,
+        measurement_count=measurement_count,
+        height_min_cm=minimum,
+        height_mean_cm=mean,
         height_p50_cm=p50,
         height_p90_cm=p90,
         height_max_cm=maximum,
+        measurement_method=str(raw.get("measurement_method") or "").strip() or None,
+        measurement_spacing_m=_optional_float(raw.get("measurement_spacing_m")),
         vegetation_cover_pct=_optional_float(raw.get("vegetation_cover_pct")),
         vegetation_type=str(raw.get("vegetation_type") or "").strip() or None,
         recent_cut=_optional_bool(raw.get("recent_cut"), False)
@@ -315,8 +504,11 @@ def _normalize_row(
         soil_condition=str(raw.get("soil_condition") or "").strip() or None,
         moisture_condition=str(raw.get("moisture_condition") or "").strip() or None,
         shadow_condition=str(raw.get("shadow_condition") or "").strip() or None,
-        photos=tuple(str(value) for value in _parse_sequence(raw.get("photos"))),
-        video_reference=str(raw.get("video_reference") or "").strip() or None,
+        photos=photo_references,
+        photo_references=photo_references,
+        video_reference=legacy_video,
+        video_references=video_references,
+        collector_notes=str(raw.get("collector_notes") or "").strip() or None,
         measurement_quality=quality,
         source=str(raw.get("source") or "").strip() or None,
         qualitative_condition=str(raw.get("qualitative_condition") or "").strip()
@@ -328,6 +520,11 @@ def _normalize_row(
         ).strip()
         or None,
         real_class=derived_class,
+        regulatory_class_30cm=derived_class,
+        experimental_certainty_zone=certainty_zone,
+        future_primary_target_gt30=future_target,
+        ground_truth_strength=strength,
+        validation_warnings=tuple(warnings),
         boundary_case=_optional_bool(raw.get("boundary_case"), derived_class != "unknown" and (
             p90 == 30 or (p90 is None and measured == 30)
         )),
@@ -340,6 +537,8 @@ def load_field_data(
     path: str | Path, *, geometry_dir: str | Path | None = None
 ) -> list[FieldObservation]:
     source = Path(path)
+    campaign_id: str | None = None
+    campaign_observed_at: Any = None
     if source.suffix.casefold() == ".csv":
         with source.open("r", encoding="utf-8-sig", newline="") as handle:
             rows: list[Mapping[str, Any]] = list(csv.DictReader(handle))
@@ -349,13 +548,22 @@ def load_field_data(
             rows = document
         elif isinstance(document, Mapping) and isinstance(document.get("samples"), list):
             rows = document["samples"]
+            campaign_id = str(document.get("campaign_id") or "").strip() or None
+            campaign_observed_at = document.get("observed_at")
+            _validate_embedded_crs(document)
         else:
             raise ValueError("Field JSON must be a list or contain a samples list.")
     if not rows:
         raise ValueError("Field dataset is empty.")
     resolved_geometry_dir = Path(geometry_dir) if geometry_dir is not None else None
     observations = [
-        _normalize_row(row, source_path=source, geometry_dir=resolved_geometry_dir)
+        _normalize_row(
+            row,
+            source_path=source,
+            geometry_dir=resolved_geometry_dir,
+            campaign_id=campaign_id,
+            campaign_observed_at=campaign_observed_at,
+        )
         for row in rows
     ]
     ids = [observation.sample_id for observation in observations]
@@ -440,8 +648,12 @@ def _ground_truth_status(observation: FieldObservation) -> str:
 
 def _base_row(observation: FieldObservation) -> dict[str, Any]:
     geometry = observation.geometry
+    warnings = list(observation.validation_warnings)
+    if geometry is None:
+        warnings.append(WAITING_FOR_FIELD_AOI_GEOJSON)
     return {
         **{name: None for name in CSV_COLUMNS},
+        "campaign_id": observation.campaign_id,
         "sample_id": observation.sample_id,
         "observed_at": observation.observed_at.isoformat()
         if observation.observed_at
@@ -455,14 +667,36 @@ def _base_row(observation: FieldObservation) -> dict[str, Any]:
         "geometry_id": geometry_identity(geometry) if geometry else None,
         "geometry_geojson": dict(geometry) if geometry else None,
         "area_m2": geodesic_area_m2(geometry) if geometry else None,
+        "height_measurements_cm": list(observation.height_measurements_cm)
+        if observation.height_measurements_cm
+        else None,
+        "measurement_count": observation.measurement_count,
+        "height_min_cm": observation.height_min_cm,
+        "height_mean_cm": observation.height_mean_cm,
         "measured_height_cm": observation.measured_height_cm,
         "height_p50_cm": observation.height_p50_cm,
         "height_p90_cm": observation.height_p90_cm,
         "height_max_cm": observation.height_max_cm,
+        "measurement_method": observation.measurement_method,
+        "measurement_spacing_m": observation.measurement_spacing_m,
         "real_class_30cm": observation.real_class or "unknown",
+        "regulatory_class_30cm": observation.regulatory_class_30cm or "unknown",
+        "experimental_certainty_zone": observation.experimental_certainty_zone
+        or "UNKNOWN",
+        "future_primary_target_gt30": observation.future_primary_target_gt30,
         "boundary_case": observation.boundary_case,
         "qualitative_condition": observation.qualitative_condition,
         "measurement_quality": observation.measurement_quality,
+        "ground_truth_strength": observation.ground_truth_strength,
+        "vegetation_cover_pct": observation.vegetation_cover_pct,
+        "vegetation_type": observation.vegetation_type,
+        "recent_cut": observation.recent_cut,
+        "cut_date": observation.cut_date.isoformat() if observation.cut_date else None,
+        "soil_condition": observation.soil_condition,
+        "moisture_condition": observation.moisture_condition,
+        "photo_references": list(observation.photo_references),
+        "video_references": list(observation.video_references),
+        "collector_notes": observation.collector_notes,
         "field_measurement_status": _ground_truth_status(observation),
         "training_eligible": False,
         "external_validation": True,
@@ -475,8 +709,79 @@ def _base_row(observation: FieldObservation) -> dict[str, Any]:
         if geometry is None
         else "pending",
         "recommendation_context": observation.recommendation_context,
-        "warnings": [WAITING_FOR_FIELD_AOI_GEOJSON] if geometry is None else [],
+        "warnings": warnings,
     }
+
+
+def upgrade_existing_enriched_rows(
+    path: str | Path, *, campaign_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Migra outputs anteriores ao protocolo v1 sem consultar Sentinel novamente."""
+    source_path = Path(path)
+    with source_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        source_rows = list(csv.DictReader(handle))
+    if not source_rows:
+        raise ValueError("Existing enriched field dataset is empty.")
+    observations = [
+        _normalize_row(
+            source,
+            source_path=source_path,
+            geometry_dir=None,
+            campaign_id=campaign_id,
+        )
+        for source in source_rows
+    ]
+    protocol_columns = {
+        "campaign_id",
+        "geometry_id",
+        "geometry_geojson",
+        "area_m2",
+        "height_measurements_cm",
+        "measurement_count",
+        "height_min_cm",
+        "height_mean_cm",
+        "measured_height_cm",
+        "height_p50_cm",
+        "height_p90_cm",
+        "height_max_cm",
+        "measurement_method",
+        "measurement_spacing_m",
+        "real_class_30cm",
+        "regulatory_class_30cm",
+        "experimental_certainty_zone",
+        "future_primary_target_gt30",
+        "boundary_case",
+        "measurement_quality",
+        "ground_truth_strength",
+        "vegetation_cover_pct",
+        "vegetation_type",
+        "recent_cut",
+        "cut_date",
+        "soil_condition",
+        "moisture_condition",
+        "photo_references",
+        "video_references",
+        "collector_notes",
+        "field_measurement_status",
+        "training_eligible",
+        "external_validation",
+    }
+    upgraded: list[dict[str, Any]] = []
+    for source, observation in zip(source_rows, observations, strict=True):
+        base = _base_row(observation)
+        row = {name: source.get(name) for name in CSV_COLUMNS}
+        row.update({name: base.get(name) for name in protocol_columns})
+        try:
+            old_warnings = json.loads(str(source.get("warnings") or "[]"))
+        except json.JSONDecodeError:
+            old_warnings = [str(source.get("warnings"))]
+        if not isinstance(old_warnings, list):
+            old_warnings = [str(old_warnings)]
+        row["warnings"] = list(
+            dict.fromkeys([*old_warnings, *base.get("warnings", [])])
+        )
+        upgraded.append(row)
+    return sorted(upgraded, key=lambda row: str(row.get("sample_id") or ""))
 
 
 def _apply_mask_diagnostics(row: dict[str, Any], diagnostics: Mapping[str, Any]) -> None:
@@ -621,6 +926,49 @@ def _height_bucket(row: Mapping[str, Any]) -> str:
     return "gt_30_cm"
 
 
+def _representative_metric_height(row: Mapping[str, Any]) -> float | None:
+    value = row.get("height_p90_cm")
+    if value is None:
+        value = row.get("measured_height_cm")
+    return float(value) if value is not None and str(value).strip() != "" else None
+
+
+def ground_truth_coverage_gaps(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    planning_config: CoveragePlanningConfig = CoveragePlanningConfig(),
+) -> dict[str, Any]:
+    zones = {
+        name: sum(row.get("experimental_certainty_zone") == name for row in rows)
+        for name in ("CLEAR_NEGATIVE", "UNCERTAINTY_ZONE", "CLEAR_POSITIVE")
+    }
+    gt30 = sum(
+        row.get("regulatory_class_30cm") == "gt_30_cm"
+        and row.get("field_measurement_status") == "valid_ground_truth"
+        for row in rows
+    )
+    return {
+        "clear_negative_needed": max(
+            0, planning_config.target_clear_negative - zones["CLEAR_NEGATIVE"]
+        ),
+        "uncertainty_zone_needed": max(
+            0,
+            planning_config.target_uncertainty_zone - zones["UNCERTAINTY_ZONE"],
+        ),
+        "clear_positive_needed": max(
+            0, planning_config.target_clear_positive - zones["CLEAR_POSITIVE"]
+        ),
+        "gt30_metric_samples_needed": max(
+            0, planning_config.target_gt30_metric_samples - gt30
+        ),
+        "current_counts": {**zones, "regulatory_gt30_metric": gt30},
+        "planning_targets": {
+            **asdict(planning_config),
+            "role": "configurable_field_planning_targets_not_scientific_sample_size",
+        },
+    }
+
+
 def ground_truth_quality_report(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -641,9 +989,7 @@ def ground_truth_quality_report(
     ]
     metric_values: list[float] = []
     for row in confirmed:
-        value = row.get("height_p90_cm")
-        if value is None:
-            value = row.get("measured_height_cm")
+        value = _representative_metric_height(row)
         if value is not None:
             metric_values.append(float(value))
     complete_static = [
@@ -667,11 +1013,29 @@ def ground_truth_quality_report(
     both_sides = any(value <= 30 for value in metric_values) and any(
         value > 30 for value in metric_values
     )
+    height_range = (
+        max(metric_values) - min(metric_values) if len(metric_values) >= 2 else 0.0
+    )
+    clear_negative_count = sum(
+        row.get("experimental_certainty_zone") == "CLEAR_NEGATIVE"
+        for row in confirmed
+    )
+    clear_positive_count = sum(
+        row.get("experimental_certainty_zone") == "CLEAR_POSITIVE"
+        for row in confirmed
+    )
+    gt30_count = sum(
+        row.get("regulatory_class_30cm") == "gt_30_cm" for row in confirmed
+    )
     ready = (
         len(confirmed) >= readiness_config.min_confirmed_metric_samples
         and len(complete_static) >= readiness_config.min_complete_static_samples
         and len(locations) >= readiness_config.min_unique_locations
         and len(dates) >= readiness_config.min_unique_dates
+        and height_range >= readiness_config.min_height_range_cm
+        and clear_negative_count >= readiness_config.min_clear_negative_samples
+        and clear_positive_count >= readiness_config.min_clear_positive_samples
+        and gt30_count >= readiness_config.min_gt30_metric_samples
         and (both_sides or not readiness_config.require_both_sides_of_30_cm)
     )
     building = len(confirmed) >= 5 or len(complete_static) >= 5
@@ -683,6 +1047,10 @@ def ground_truth_quality_report(
         "unique_dates": len(dates),
         "height_min_cm": min(metric_values) if metric_values else None,
         "height_max_cm": max(metric_values) if metric_values else None,
+        "height_range_cm": height_range if metric_values else None,
+        "clear_negative_samples": clear_negative_count,
+        "clear_positive_samples": clear_positive_count,
+        "gt30_metric_samples": gt30_count,
         "class_distribution": {
             "le_30_cm": sum(row.get("real_class_30cm") == "le_30_cm" for row in confirmed),
             "gt_30_cm": sum(row.get("real_class_30cm") == "gt_30_cm" for row in confirmed),
@@ -720,6 +1088,104 @@ def ground_truth_quality_report(
             "default_external_validation": True,
             "automatic_training_ingestion": False,
         },
+        "ground_truth_coverage_gaps": ground_truth_coverage_gaps(rows),
+    }
+
+
+def field_campaign_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    campaign_id: str | None = None,
+    planning_config: CoveragePlanningConfig = CoveragePlanningConfig(),
+    readiness_config: RegressionReadinessConfig = RegressionReadinessConfig(),
+) -> dict[str, Any]:
+    ordered = sorted(rows, key=lambda row: str(row.get("sample_id") or ""))
+    campaign_ids = sorted(
+        {
+            str(row.get("campaign_id") or "").strip()
+            for row in ordered
+            if str(row.get("campaign_id") or "").strip()
+        }
+    )
+    resolved_campaign_id = campaign_id or (
+        campaign_ids[0]
+        if len(campaign_ids) == 1
+        else "mixed_campaigns"
+        if campaign_ids
+        else None
+    )
+    metric_rows = [
+        row for row in ordered if _representative_metric_height(row) is not None
+    ]
+    metric_values = [
+        value
+        for row in metric_rows
+        if (value := _representative_metric_height(row)) is not None
+    ]
+    warning_values = sorted(
+        {
+            str(warning)
+            for row in ordered
+            for warning in (row.get("warnings") or [])
+            if str(warning).strip()
+        }
+    )
+    quality = ground_truth_quality_report(
+        ordered, readiness_config=readiness_config
+    )
+    return {
+        "campaign_id": resolved_campaign_id,
+        "samples_total": len(ordered),
+        "metric_samples": len(metric_rows),
+        "non_metric_samples": len(ordered) - len(metric_rows),
+        "confirmed_single": sum(
+            row.get("measurement_quality") == "confirmed_single_measurement"
+            for row in ordered
+        ),
+        "confirmed_multiple": sum(
+            row.get("measurement_quality") == "confirmed_multiple_measurements"
+            for row in ordered
+        ),
+        "clear_negative": sum(
+            row.get("experimental_certainty_zone") == "CLEAR_NEGATIVE"
+            for row in ordered
+        ),
+        "uncertainty_zone": sum(
+            row.get("experimental_certainty_zone") == "UNCERTAINTY_ZONE"
+            for row in ordered
+        ),
+        "clear_positive": sum(
+            row.get("experimental_certainty_zone") == "CLEAR_POSITIVE"
+            for row in ordered
+        ),
+        "regulatory_le_30": sum(
+            row.get("regulatory_class_30cm") == "le_30_cm" for row in ordered
+        ),
+        "regulatory_gt_30": sum(
+            row.get("regulatory_class_30cm") == "gt_30_cm" for row in ordered
+        ),
+        "samples_with_geometry": sum(row.get("geometry_id") is not None for row in ordered),
+        "samples_with_valid_static_features": sum(
+            row.get("spectral_extraction_status") == "available"
+            and all(row.get(name) is not None for name in STATIC_FEATURE_COLUMNS)
+            for row in ordered
+        ),
+        "samples_with_temporal_features": sum(
+            row.get("temporal_status") == "available"
+            and all(row.get(name) is not None for name in TEMPORAL_FEATURE_COLUMNS)
+            for row in ordered
+        ),
+        "training_eligible_count": sum(
+            row.get("training_eligible") is True for row in ordered
+        ),
+        "height_min_cm": min(metric_values) if metric_values else None,
+        "height_max_cm": max(metric_values) if metric_values else None,
+        "warnings": warning_values,
+        "percentile_calculation": PERCENTILE_METHOD,
+        "ground_truth_coverage_gaps": ground_truth_coverage_gaps(
+            ordered, planning_config=planning_config
+        ),
+        "regression_readiness": quality["regression_readiness"],
     }
 
 
@@ -735,7 +1201,13 @@ def write_field_calibration_outputs(
         writer.writeheader()
         for source in ordered:
             row = dict(source)
-            for name in ("geometry_geojson", "warnings"):
+            for name in (
+                "geometry_geojson",
+                "height_measurements_cm",
+                "photo_references",
+                "video_references",
+                "warnings",
+            ):
                 row[name] = json.dumps(
                     row.get(name), ensure_ascii=False, sort_keys=True, separators=(",", ":")
                 )
@@ -746,4 +1218,10 @@ def write_field_calibration_outputs(
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    return report
+    summary = field_campaign_summary(ordered)
+    summary_path = destination / "field_campaign_summary.json"
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return {**report, "field_campaign_summary": summary}

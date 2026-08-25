@@ -1,4 +1,4 @@
-"""Schema minimo e retrocompativel para futuras coletas de ground truth."""
+"""Schema retrocompativel para campanhas de ground truth metrico em campo."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any, Mapping
 
 FUTURE_PRIMARY_TARGET = "height_p90_cm > 30"
+FUTURE_PRIMARY_TARGET_FIELD = "future_primary_target_gt30"
 FUTURE_UNCERTAINTY_ZONE = {
     "clear_negative": "height_p90_cm <= 25",
     "uncertainty_zone": "25 < height_p90_cm < 35",
@@ -25,6 +26,7 @@ MEASUREMENT_QUALITY_VALUES = (
 @dataclass(frozen=True)
 class FieldObservation:
     sample_id: str
+    campaign_id: str | None = None
     road: str | None = None
     km: float | None = None
     side: str | None = None
@@ -35,10 +37,17 @@ class FieldObservation:
     longitude: float | None = None
     gps_accuracy_m: float | None = None
     measured_height_cm: float | None = None
+    height_measurements_cm: tuple[float, ...] = field(default_factory=tuple)
+    # Alias legado; novos registros devem usar height_measurements_cm.
     measurements_cm: tuple[float, ...] = field(default_factory=tuple)
+    measurement_count: int = 0
+    height_min_cm: float | None = None
+    height_mean_cm: float | None = None
     height_p50_cm: float | None = None
     height_p90_cm: float | None = None
     height_max_cm: float | None = None
+    measurement_method: str | None = None
+    measurement_spacing_m: float | None = None
     vegetation_cover_pct: float | None = None
     vegetation_type: str | None = None
     recent_cut: bool | None = None
@@ -47,12 +56,20 @@ class FieldObservation:
     moisture_condition: str | None = None
     shadow_condition: str | None = None
     photos: tuple[str, ...] = field(default_factory=tuple)
+    photo_references: tuple[str, ...] = field(default_factory=tuple)
     video_reference: str | None = None
+    video_references: tuple[str, ...] = field(default_factory=tuple)
+    collector_notes: str | None = None
     measurement_quality: str = "unknown"
     source: str | None = None
     qualitative_condition: str | None = None
     recommendation_context: str | None = None
     real_class: str | None = None
+    regulatory_class_30cm: str | None = None
+    experimental_certainty_zone: str | None = None
+    future_primary_target_gt30: bool | None = None
+    ground_truth_strength: str = "non_metric"
+    validation_warnings: tuple[str, ...] = field(default_factory=tuple)
     boundary_case: bool = False
     training_eligible: bool = False
     external_validation: bool = True
@@ -65,9 +82,32 @@ class FieldObservation:
             raise ValueError("sample_id is required.")
         known = {name for name in cls.__dataclass_fields__ if name != "sample_id"}
         payload = {name: value[name] for name in known if name in value}
-        for name in ("photos", "measurements_cm"):
+        for name in (
+            "photos",
+            "photo_references",
+            "video_references",
+            "measurements_cm",
+            "height_measurements_cm",
+            "validation_warnings",
+        ):
             if name in payload and not isinstance(payload[name], tuple):
                 payload[name] = tuple(payload[name] or ())
+        measurements = tuple(
+            payload.get("height_measurements_cm")
+            or payload.get("measurements_cm")
+            or ()
+        )
+        payload["height_measurements_cm"] = measurements
+        payload["measurements_cm"] = measurements
+        photo_references = tuple(
+            payload.get("photo_references") or payload.get("photos") or ()
+        )
+        payload["photo_references"] = photo_references
+        payload["photos"] = photo_references
+        video_references = tuple(payload.get("video_references") or ())
+        if not video_references and payload.get("video_reference"):
+            video_references = (str(payload["video_reference"]),)
+        payload["video_references"] = video_references
         quality = str(payload.get("measurement_quality") or "unknown")
         if quality not in MEASUREMENT_QUALITY_VALUES:
             raise ValueError(
@@ -75,4 +115,7 @@ class FieldObservation:
                 + ", ".join(MEASUREMENT_QUALITY_VALUES)
             )
         payload["measurement_quality"] = quality
+        # Protecao holdout e parte do contrato do schema, nao opcao da campanha.
+        payload["training_eligible"] = False
+        payload["external_validation"] = True
         return cls(sample_id=sample_id, **payload)

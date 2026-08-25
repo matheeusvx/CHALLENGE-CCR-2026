@@ -11,9 +11,13 @@ from typing import Any
 import pytest
 
 from src.satellite_monitoring.experiments.field_calibration import (
+    PERCENTILE_METHOD,
     STATIC_FEATURE_COLUMNS,
     WAITING_FOR_FIELD_AOI_GEOJSON,
     build_field_calibration_rows,
+    experimental_certainty_zone,
+    field_campaign_summary,
+    ground_truth_coverage_gaps,
     load_field_data,
     model_feature_payload,
     select_latest_causal_scene,
@@ -116,6 +120,29 @@ def test_reads_json_and_csv_field_data(tmp_path: Path) -> None:
     assert load_field_data(csv_path)[0].sample_id == "FIELD_002"
 
 
+def test_campaign_level_crs_and_observed_at_are_supported(tmp_path: Path) -> None:
+    path = tmp_path / "campaign.json"
+    path.write_text(
+        json.dumps(
+            {
+                "campaign_id": "campaign-v1",
+                "observed_at": "2026-09-01T10:30:00-03:00",
+                "crs": "EPSG:4326",
+                "samples": [
+                    {
+                        **_sample(),
+                        "observed_at": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    observation = load_field_data(path)[0]
+    assert observation.campaign_id == "campaign-v1"
+    assert observation.observed_at == date(2026, 9, 1)
+
+
 def test_valid_polygon_is_preserved_and_invalid_geometry_is_rejected(
     tmp_path: Path,
 ) -> None:
@@ -136,9 +163,12 @@ def test_valid_polygon_is_preserved_and_invalid_geometry_is_rejected(
 def test_single_measurement_does_not_invent_percentiles(tmp_path: Path) -> None:
     observation = load_field_data(_write_json(tmp_path / "single.json", [_sample()]))[0]
     assert observation.measured_height_cm == 14
+    assert observation.measurement_count == 1
+    assert observation.height_min_cm == 14
+    assert observation.height_mean_cm == 14
     assert observation.height_p50_cm is None
     assert observation.height_p90_cm is None
-    assert observation.height_max_cm is None
+    assert observation.height_max_cm == 14
 
 
 def test_multiple_measurements_calculate_explicit_summary(tmp_path: Path) -> None:
@@ -148,17 +178,22 @@ def test_multiple_measurements_calculate_explicit_summary(tmp_path: Path) -> Non
             [
                 _sample(
                     measured_height_cm=None,
-                    measurements_cm=[10, 20, 40],
+                    height_measurements_cm=[10, 20, 40],
                     measurement_quality="confirmed_multiple_measurements",
                 )
             ],
         )
     )[0]
     assert observation.measured_height_cm is None
+    assert observation.measurement_count == 3
+    assert observation.height_min_cm == 10
+    assert observation.height_mean_cm == pytest.approx(70 / 3)
     assert observation.height_p50_cm == pytest.approx(20)
     assert observation.height_p90_cm == pytest.approx(36)
     assert observation.height_max_cm == 40
     assert observation.real_class == "gt_30_cm"
+    assert observation.future_primary_target_gt30 is True
+    assert PERCENTILE_METHOD.startswith("linear")
 
 
 def test_boundary_30_cm_is_le_30_and_holdout_is_default(tmp_path: Path) -> None:
@@ -166,9 +201,104 @@ def test_boundary_30_cm_is_le_30_and_holdout_is_default(tmp_path: Path) -> None:
         _write_json(tmp_path / "boundary.json", [_sample(measured_height_cm=30)])
     )[0]
     assert observation.real_class == "le_30_cm"
+    assert observation.regulatory_class_30cm == "le_30_cm"
+    assert observation.experimental_certainty_zone == "UNCERTAINTY_ZONE"
     assert observation.boundary_case is True
     assert observation.training_eligible is False
     assert observation.external_validation is True
+
+
+@pytest.mark.parametrize(
+    ("height", "zone", "regulatory"),
+    [
+        (25, "CLEAR_NEGATIVE", "le_30_cm"),
+        (30, "UNCERTAINTY_ZONE", "le_30_cm"),
+        (35, "CLEAR_POSITIVE", "gt_30_cm"),
+    ],
+)
+def test_experimental_zones_do_not_replace_regulatory_class(
+    tmp_path: Path, height: float, zone: str, regulatory: str
+) -> None:
+    observation = load_field_data(
+        _write_json(
+            tmp_path / f"zone-{height}.json",
+            [_sample(measured_height_cm=height)],
+        )
+    )[0]
+    assert observation.experimental_certainty_zone == zone
+    assert observation.regulatory_class_30cm == regulatory
+    assert experimental_certainty_zone(height) == zone
+
+
+def test_visual_only_never_generates_metric_height(tmp_path: Path) -> None:
+    valid = load_field_data(
+        _write_json(
+            tmp_path / "visual.json",
+            [
+                _sample(
+                    measured_height_cm=None,
+                    measurement_quality="visual_only",
+                )
+            ],
+        )
+    )[0]
+    assert valid.measured_height_cm is None
+    assert valid.measurement_count == 0
+    assert valid.ground_truth_strength == "non_metric"
+    with pytest.raises(ValueError, match="visual_only"):
+        load_field_data(
+            _write_json(
+                tmp_path / "invalid-visual.json",
+                [_sample(measurement_quality="visual_only")],
+            )
+        )
+
+
+def test_invalid_measurements_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        load_field_data(
+            _write_json(
+                tmp_path / "negative.json",
+                [_sample(measured_height_cm=None, height_measurements_cm=[10, -1])],
+            )
+        )
+    with pytest.raises(ValueError, match="empty list"):
+        load_field_data(
+            _write_json(
+                tmp_path / "empty.json",
+                [_sample(measured_height_cm=None, height_measurements_cm=[])],
+            )
+        )
+
+
+def test_campaign_summary_and_coverage_gaps(tmp_path: Path) -> None:
+    observations = load_field_data(
+        _write_json(
+            tmp_path / "campaign.json",
+            [
+                _sample(sample_id="LOW", measured_height_cm=14),
+                _sample(sample_id="BOUNDARY", measured_height_cm=30),
+                _sample(
+                    sample_id="HIGH",
+                    measured_height_cm=None,
+                    height_measurements_cm=[35, 40],
+                    measurement_quality="confirmed_multiple_measurements",
+                ),
+            ],
+        )
+    )
+    rows = build_field_calibration_rows(observations, scene_query=lambda *_: ([], None))
+    summary = field_campaign_summary(rows, campaign_id="fixture_campaign")
+    assert summary["campaign_id"] == "fixture_campaign"
+    assert summary["metric_samples"] == 3
+    assert summary["clear_negative"] == 1
+    assert summary["uncertainty_zone"] == 1
+    assert summary["clear_positive"] == 1
+    assert summary["regulatory_gt_30"] == 1
+    gaps = ground_truth_coverage_gaps(rows)
+    assert gaps["clear_negative_needed"] == 9
+    assert gaps["clear_positive_needed"] == 9
+    assert gaps["gt30_metric_samples_needed"] == 9
 
 
 def test_point_without_polygon_waits_and_does_not_query_sentinel(tmp_path: Path) -> None:
@@ -264,4 +394,7 @@ def test_output_is_deterministic(tmp_path: Path) -> None:
     ).read_bytes()
     assert (first / "field_ground_truth_quality.json").read_bytes() == (
         second / "field_ground_truth_quality.json"
+    ).read_bytes()
+    assert (first / "field_campaign_summary.json").read_bytes() == (
+        second / "field_campaign_summary.json"
     ).read_bytes()
