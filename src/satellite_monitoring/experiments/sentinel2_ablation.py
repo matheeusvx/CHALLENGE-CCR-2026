@@ -69,6 +69,10 @@ MULTIBAND_INDEX_FEATURES = ("ndre", "ndii")
 class HeightMaskRejectedError(RasterProcessingError):
     """Cena lida corretamente, mas sem pureza vegetal suficiente."""
 
+    def __init__(self, message: str, *, diagnostics: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.diagnostics = dict(diagnostics or {})
+
 
 class MissingMultibandAssetError(RasterProcessingError):
     """Cena nao possui uma das bandas obrigatorias do experimento."""
@@ -238,7 +242,15 @@ def read_multiband_height_features(
             )
             if not mask.purity_gate_passed:
                 raise HeightMaskRejectedError(
-                    "Height mask rejected scene: " + ", ".join(mask.purity_gate_reasons)
+                    "Height mask rejected scene: " + ", ".join(mask.purity_gate_reasons),
+                    diagnostics={
+                        "height_valid_pixel_count": mask.height_valid_pixel_count,
+                        "height_total_pixel_count": mask.height_total_pixel_count,
+                        "vegetation_fraction": mask.vegetation_fraction,
+                        "mixed_pixel_risk": mask.mixed_pixel_risk,
+                        "height_purity_gate_passed": mask.purity_gate_passed,
+                        "height_purity_gate_reasons": list(mask.purity_gate_reasons),
+                    },
                 )
             common_valid = mask.valid_mask.copy()
             for name in MULTIBAND_ASSET_SPECS:

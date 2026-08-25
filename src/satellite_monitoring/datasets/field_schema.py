@@ -13,6 +13,14 @@ FUTURE_UNCERTAINTY_ZONE = {
     "clear_positive": "height_p90_cm >= 35",
 }
 
+MEASUREMENT_QUALITY_VALUES = (
+    "confirmed_single_measurement",
+    "confirmed_multiple_measurements",
+    "visual_only",
+    "approximate",
+    "unknown",
+)
+
 
 @dataclass(frozen=True)
 class FieldObservation:
@@ -20,9 +28,14 @@ class FieldObservation:
     road: str | None = None
     km: float | None = None
     side: str | None = None
+    location_name: str | None = None
     geometry: Mapping[str, Any] | None = None
     observed_at: date | datetime | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     gps_accuracy_m: float | None = None
+    measured_height_cm: float | None = None
+    measurements_cm: tuple[float, ...] = field(default_factory=tuple)
     height_p50_cm: float | None = None
     height_p90_cm: float | None = None
     height_max_cm: float | None = None
@@ -34,6 +47,15 @@ class FieldObservation:
     moisture_condition: str | None = None
     shadow_condition: str | None = None
     photos: tuple[str, ...] = field(default_factory=tuple)
+    video_reference: str | None = None
+    measurement_quality: str = "unknown"
+    source: str | None = None
+    qualitative_condition: str | None = None
+    recommendation_context: str | None = None
+    real_class: str | None = None
+    boundary_case: bool = False
+    training_eligible: bool = False
+    external_validation: bool = True
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "FieldObservation":
@@ -43,6 +65,14 @@ class FieldObservation:
             raise ValueError("sample_id is required.")
         known = {name for name in cls.__dataclass_fields__ if name != "sample_id"}
         payload = {name: value[name] for name in known if name in value}
-        if "photos" in payload and not isinstance(payload["photos"], tuple):
-            payload["photos"] = tuple(payload["photos"] or ())
+        for name in ("photos", "measurements_cm"):
+            if name in payload and not isinstance(payload[name], tuple):
+                payload[name] = tuple(payload[name] or ())
+        quality = str(payload.get("measurement_quality") or "unknown")
+        if quality not in MEASUREMENT_QUALITY_VALUES:
+            raise ValueError(
+                "measurement_quality must be one of: "
+                + ", ".join(MEASUREMENT_QUALITY_VALUES)
+            )
+        payload["measurement_quality"] = quality
         return cls(sample_id=sample_id, **payload)
