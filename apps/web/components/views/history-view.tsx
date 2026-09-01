@@ -4,13 +4,13 @@ import { CalendarRange, CheckCircle2, Crosshair, FileClock, Gauge, Leaf, MapPinn
 import type { ComponentType } from "react";
 import {
   analysisQualityStatus,
-  analyzedAreaSquareMeters,
   formatAnalysisQuality,
   formatArea,
   formatConfidence,
   formatDateBR,
   formatRecommendation,
   formatRecommendationSummary,
+  selectedAreaSquareMeters,
 } from "@/lib/utils/recommendation";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useHistoryStore, type HistoryEntry } from "@/stores/history-store";
@@ -92,7 +92,7 @@ export function HistoryView({ onStartNewAnalysis, onOpenWorkspace }: { onStartNe
                   <dl className="history-card-metrics">
                     <div><Gauge size={15} /><dt>Confiança</dt><dd>{formatConfidence(recommendation.confidence)}</dd></div>
                     <div><Leaf size={15} /><dt>Qualidade</dt><dd>{formatAnalysisQuality(quality)}</dd></div>
-                    <div><MapPinned size={15} /><dt>Área</dt><dd>{formatArea(analyzedAreaSquareMeters(entry.response))}</dd></div>
+                    <div><MapPinned size={15} /><dt>Área selecionada</dt><dd>{formatArea(selectedAreaSquareMeters(entry.response))}</dd></div>
                     <div><CalendarRange size={15} /><dt>Período</dt><dd>{formatDateBR(period.start_date)} a {formatDateBR(period.end_date)}</dd></div>
                   </dl>
 

@@ -15,6 +15,10 @@ from src.satellite_monitoring.height_estimation import (
     estimate_height_class,
     load_height_model,
 )
+from src.satellite_monitoring.features.vegetation_mask import (
+    build_height_valid_mask,
+    diagnose_height_mask_pixels,
+)
 from src.satellite_monitoring.raster_processing import (
     RasterSceneData,
     physical_reflectance_medians,
@@ -149,6 +153,39 @@ def test_purity_gate_abstains_before_model_inference(tmp_path) -> None:
     assert result["score_gt_30_cm"] is None
     assert result["vegetation_fraction"] == pytest.approx(0.1)
     assert result["mixed_pixel_risk"] == "high"
+
+
+def test_pixel_diagnostic_preserves_existing_height_mask_rules() -> None:
+    red = np.asarray([[0.1, 0.1, 0.2]])
+    nir = np.asarray([[0.4, 0.4, 0.2]])
+    inside = np.asarray([[True, True, True]])
+    radiometric = np.asarray([[True, True, True]])
+    quality = np.asarray([[True, True, True]])
+    scl = np.asarray([[4, 5, 4]])
+    scl_valid = np.asarray([[True, True, True]])
+    mask = build_height_valid_mask(
+        red,
+        nir,
+        quality_valid_mask=quality,
+        inside_aoi_mask=inside,
+        scl_values=scl,
+        scl_valid_mask=scl_valid,
+    )
+    diagnostics = diagnose_height_mask_pixels(
+        red,
+        nir,
+        quality_valid_mask=quality,
+        radiometric_valid_mask=radiometric,
+        inside_aoi_mask=inside,
+        scl_values=scl,
+        scl_valid_mask=scl_valid,
+    )
+    assert sum(row["height_valid"] for row in diagnostics) == (
+        mask.height_valid_pixel_count
+    )
+    assert diagnostics[0]["rejection_reason"] == []
+    assert diagnostics[1]["rejection_reason"] == ["SCL_REJECTED"]
+    assert diagnostics[2]["rejection_reason"] == ["NDVI_BELOW_MIN"]
 
 
 def test_pipeline_features_use_physical_reflectance_scale_and_offset() -> None:

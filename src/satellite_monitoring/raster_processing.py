@@ -17,6 +17,7 @@ from rasterio.errors import WindowError
 from rasterio.features import geometry_mask, geometry_window
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_geom
+from shapely.geometry import Polygon, shape
 
 # SCL: nodata, saturado/defeituoso, sombra, nuvem media/alta, cirrus e neve.
 SCL_EXCLUDED_CLASSES = {0, 1, 3, 8, 9, 10, 11}
@@ -65,6 +66,56 @@ class RasterSceneData:
     inside_aoi_mask: np.ndarray | None = None
     scl_values: np.ndarray | None = None
     scl_valid_mask: np.ndarray | None = None
+    spatial_transform: Any | None = None
+    spatial_aoi_geometry: dict[str, Any] | None = None
+    spatial_crs: str | None = None
+    spatial_crs_is_projected: bool | None = None
+
+
+def calculate_effective_analysis_area(
+    raster_data: RasterSceneData,
+    accepted_pixel_mask: np.ndarray,
+) -> float:
+    """Soma AOI ∩ pixels aceitos sem alterar o peso das metricas raster."""
+    return calculate_mask_intersection_area(
+        transform=raster_data.spatial_transform,
+        geometry_document=raster_data.spatial_aoi_geometry,
+        crs_is_projected=raster_data.spatial_crs_is_projected,
+        accepted_pixel_mask=accepted_pixel_mask,
+    )
+
+
+def calculate_mask_intersection_area(
+    *,
+    transform: Any,
+    geometry_document: dict[str, Any] | None,
+    crs_is_projected: bool | None,
+    accepted_pixel_mask: np.ndarray,
+) -> float:
+    """Calcula a intersecao exata para uma grade e mascara ja processadas."""
+    if (
+        transform is None
+        or geometry_document is None
+        or crs_is_projected is not True
+    ):
+        raise RasterProcessingError(
+            "Metadados metricos da grade indisponiveis para contabilidade espacial."
+        )
+    accepted = np.asarray(accepted_pixel_mask, dtype=bool)
+    if accepted.ndim != 2:
+        raise ValueError("A mascara aceita deve ser bidimensional.")
+
+    aoi = shape(geometry_document)
+    area = 0.0
+    for row, column in np.argwhere(accepted):
+        corners = [
+            transform @ (int(column), int(row)),
+            transform @ (int(column) + 1, int(row)),
+            transform @ (int(column) + 1, int(row) + 1),
+            transform @ (int(column), int(row) + 1),
+        ]
+        area += float(aoi.intersection(Polygon(corners)).area)
+    return area
 
 
 def calculate_scl_class_percentages(
@@ -342,6 +393,8 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
 
             red_raw = reference.read(1, window=window, masked=True)
             output_transform = reference.window_transform(window)
+            spatial_crs = str(reference.crs)
+            spatial_crs_is_projected = bool(reference.crs.is_projected)
             inside_aoi = geometry_mask(
                 [aoi_in_reference_crs],
                 out_shape=red_raw.shape,
@@ -423,4 +476,8 @@ def read_scene_bands(item: Any, aoi_geojson: dict[str, Any]) -> RasterSceneData:
         inside_aoi_mask=np.asarray(inside_aoi, dtype=bool),
         scl_values=scl_values_for_height,
         scl_valid_mask=scl_valid_for_height,
+        spatial_transform=output_transform,
+        spatial_aoi_geometry=dict(aoi_in_reference_crs),
+        spatial_crs=spatial_crs,
+        spatial_crs_is_projected=spatial_crs_is_projected,
     )

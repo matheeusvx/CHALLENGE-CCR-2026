@@ -211,6 +211,42 @@
           "analysis_period": {
             "$ref": "#/components/schemas/AnalysisPeriodResponse"
           },
+          "selected_area_m2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Area M2"
+          },
+          "effective_analysis_area_m2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Analysis Area M2"
+          },
+          "effective_analysis_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Analysis Pct"
+          },
           "aoi": {
             "additionalProperties": true,
             "type": "object",

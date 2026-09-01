@@ -13,6 +13,7 @@ from rasterio.enums import Resampling
 from rasterio.features import geometry_mask, geometry_window
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_geom
+from shapely.geometry import Polygon, shape
 from sklearn.metrics import (
     average_precision_score,
     balanced_accuracy_score,
@@ -27,6 +28,7 @@ from sklearn.model_selection import StratifiedGroupKFold
 from ..features.vegetation_mask import (
     HeightMaskConfig,
     build_height_valid_mask,
+    diagnose_height_mask_pixels,
 )
 from ..indices import calculate_ndvi
 from ..models.validation import build_training_pipeline
@@ -306,6 +308,164 @@ def read_multiband_height_features(
         raise RasterProcessingError(
             f"Failed isolated 20 m multiband read: {type(exc).__name__}: {exc}"
         ) from exc
+
+
+def read_height_mask_pixel_diagnostics(
+    item: Any,
+    aoi_geojson: dict[str, Any],
+    *,
+    height_mask_config: HeightMaskConfig = HeightMaskConfig(),
+) -> dict[str, Any]:
+    """Lê RED/NIR/SCL na mesma grade e explica a máscara pixel a pixel."""
+    keys = resolve_multiband_asset_keys(item)
+    reference_asset = item.assets[keys["swir1"]]
+    env_options = {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "GDAL_HTTP_MULTIRANGE": "YES",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.TIF",
+    }
+    with rasterio.Env(**env_options), ExitStack() as stack:
+        reference = stack.enter_context(rasterio.open(reference_asset.href))
+        aoi = transform_geom("EPSG:4326", reference.crs, aoi_geojson, precision=15)
+        aoi_shape = shape(aoi)
+        window = geometry_window(reference, [aoi])
+        output_transform = reference.window_transform(window)
+        output_shape = (int(window.height), int(window.width))
+        inside_aoi = geometry_mask(
+            [aoi], out_shape=output_shape, transform=output_transform, invert=True
+        )
+        physical: dict[str, np.ndarray] = {}
+        band_valid: dict[str, np.ndarray] = {}
+        for name in ("red", "nir"):
+            key = keys[name]
+            source = stack.enter_context(rasterio.open(item.assets[key].href))
+            scaling = resolve_physical_reflectance_scaling(
+                item,
+                asset_key=key,
+                dataset_scale=float(source.scales[0]),
+                dataset_offset=float(source.offsets[0]),
+            )
+            vrt = stack.enter_context(
+                WarpedVRT(
+                    source,
+                    crs=reference.crs,
+                    transform=reference.transform,
+                    width=reference.width,
+                    height=reference.height,
+                    resampling=Resampling.bilinear,
+                )
+            )
+            raw = vrt.read(1, window=window, masked=True)
+            raw_values = np.asarray(raw.data, dtype=float)
+            values = apply_reflectance_scaling(
+                raw_values, scale=scaling.scale, offset=scaling.offset
+            )
+            valid = ~np.ma.getmaskarray(raw)
+            valid &= raw_values != 0
+            valid &= np.isfinite(values)
+            valid &= values >= REFLECTANCE_SANITY_MIN
+            valid &= values <= REFLECTANCE_SANITY_MAX
+            physical[name] = values
+            band_valid[name] = valid
+        scl_source = stack.enter_context(rasterio.open(item.assets[keys["scl"]].href))
+        scl_vrt = stack.enter_context(
+            WarpedVRT(
+                scl_source,
+                crs=reference.crs,
+                transform=reference.transform,
+                width=reference.width,
+                height=reference.height,
+                resampling=Resampling.nearest,
+            )
+        )
+        scl = scl_vrt.read(1, window=window, masked=True)
+        scl_values = np.asarray(scl.data)
+        scl_valid = ~np.ma.getmaskarray(scl)
+        radiometric_valid = band_valid["red"] & band_valid["nir"]
+        quality_valid = inside_aoi & radiometric_valid & scl_valid
+        quality_valid &= ~np.isin(scl_values, list(SCL_EXCLUDED_CLASSES))
+        fractions = np.zeros(output_shape, dtype=float)
+        cell_area = abs(
+            output_transform.a * output_transform.e
+            - output_transform.b * output_transform.d
+        )
+        for row_index, column_index in np.argwhere(inside_aoi):
+            corners = [
+                output_transform * (column_index, row_index),
+                output_transform * (column_index + 1, row_index),
+                output_transform * (column_index + 1, row_index + 1),
+                output_transform * (column_index, row_index + 1),
+            ]
+            cell = Polygon(corners)
+            fractions[row_index, column_index] = (
+                float(aoi_shape.intersection(cell).area / cell.area)
+                if cell.area > 0
+                else 0.0
+            )
+        pixels = diagnose_height_mask_pixels(
+            physical["red"],
+            physical["nir"],
+            quality_valid_mask=quality_valid,
+            radiometric_valid_mask=radiometric_valid,
+            inside_aoi_mask=inside_aoi,
+            scl_values=scl_values,
+            scl_valid_mask=scl_valid,
+            inside_aoi_fraction=fractions,
+            config=height_mask_config,
+        )
+        for pixel in pixels:
+            x, y = output_transform * (
+                float(pixel["column"]) + 0.5,
+                float(pixel["row"]) + 0.5,
+            )
+            pixel["center_x"] = float(x)
+            pixel["center_y"] = float(y)
+        result = build_height_valid_mask(
+            physical["red"],
+            physical["nir"],
+            quality_valid_mask=quality_valid,
+            inside_aoi_mask=inside_aoi,
+            scl_values=scl_values,
+            scl_valid_mask=scl_valid,
+            config=height_mask_config,
+        )
+        rejection_counts: dict[str, int] = {}
+        for pixel in pixels:
+            for reason in pixel["rejection_reason"]:
+                rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+        scl_counts: dict[str, int] = {}
+        for pixel in pixels:
+            key = str(pixel["SCL"])
+            scl_counts[key] = scl_counts.get(key, 0) + 1
+        min_x, min_y, max_x, max_y = aoi_shape.bounds
+        return {
+            "pixels": pixels,
+            "summary": {
+                "total_pixels": result.height_total_pixel_count,
+                "valid_height_pixels": result.height_valid_pixel_count,
+                "invalid_height_pixels": (
+                    result.height_total_pixel_count - result.height_valid_pixel_count
+                ),
+                "vegetation_fraction": result.vegetation_fraction,
+                "mixed_pixel_risk": result.mixed_pixel_risk,
+                "purity_gate_passed": result.purity_gate_passed,
+                "purity_gate_reasons": list(result.purity_gate_reasons),
+                "rejection_reason_counts": rejection_counts,
+                "scl_counts": scl_counts,
+                "analysis_resolution_m": ANALYSIS_RESOLUTION_M,
+                "single_pixel_area_m2": float(cell_area),
+                "effective_sentinel_pixel_area_m2": float(
+                    result.height_total_pixel_count * cell_area
+                ),
+                "aoi_projected_area_m2": float(aoi_shape.area),
+                "aoi_area_within_effective_pixels_m2": float(
+                    sum(pixel["inside_aoi_fraction"] for pixel in pixels) * cell_area
+                ),
+                "aoi_bbox_width_m": float(max_x - min_x),
+                "aoi_bbox_height_m": float(max_y - min_y),
+                "reference_crs": str(reference.crs),
+            },
+        }
 
 
 def common_sample_ids(*experiments: Sequence[Mapping[str, Any]]) -> list[str]:

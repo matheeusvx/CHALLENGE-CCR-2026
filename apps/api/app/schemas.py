@@ -105,6 +105,9 @@ class AnalysisResponse(StrictModel):
     recommendation: RecommendationResponse
     height_estimation: HeightEstimationResponse
     analysis_period: AnalysisPeriodResponse
+    selected_area_m2: float | None = Field(None, gt=0)
+    effective_analysis_area_m2: float | None = Field(None, ge=0)
+    effective_analysis_pct: float | None = Field(None, ge=0)
     aoi: dict[str, Any]
     summary: dict[str, Any]
     timeseries: list[dict[str, Any]]

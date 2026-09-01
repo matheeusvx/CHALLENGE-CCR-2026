@@ -11,6 +11,7 @@ from ..indices import calculate_ndvi
 from ..raster_processing import (
     RasterProcessingError,
     RasterSceneData,
+    SCL_CLASS_NAMES,
     physical_reflectance_arrays,
 )
 
@@ -126,6 +127,103 @@ def build_height_valid_mask(
         purity_gate_passed=not reasons,
         purity_gate_reasons=tuple(dict.fromkeys(reasons)),
     )
+
+
+def diagnose_height_mask_pixels(
+    red_reflectance: np.ndarray,
+    nir_reflectance: np.ndarray,
+    *,
+    quality_valid_mask: np.ndarray,
+    radiometric_valid_mask: np.ndarray,
+    inside_aoi_mask: np.ndarray,
+    scl_values: np.ndarray,
+    scl_valid_mask: np.ndarray,
+    inside_aoi_fraction: np.ndarray | None = None,
+    config: HeightMaskConfig = HeightMaskConfig(),
+) -> list[dict[str, Any]]:
+    """Explica, sem alterar regras, cada pixel espacialmente elegível."""
+    result = build_height_valid_mask(
+        red_reflectance,
+        nir_reflectance,
+        quality_valid_mask=quality_valid_mask,
+        inside_aoi_mask=inside_aoi_mask,
+        scl_values=scl_values,
+        scl_valid_mask=scl_valid_mask,
+        config=config,
+    )
+    red = np.asarray(red_reflectance, dtype=float)
+    nir = np.asarray(nir_reflectance, dtype=float)
+    inside = np.asarray(inside_aoi_mask, dtype=bool)
+    quality = np.asarray(quality_valid_mask, dtype=bool)
+    radiometric = np.asarray(radiometric_valid_mask, dtype=bool)
+    scl = np.asarray(scl_values)
+    scl_valid = np.asarray(scl_valid_mask, dtype=bool)
+    fractions = (
+        np.asarray(inside_aoi_fraction, dtype=float)
+        if inside_aoi_fraction is not None
+        else None
+    )
+    ndvi, ndvi_valid = calculate_ndvi(red, nir)
+    rows: list[dict[str, Any]] = []
+    for row_index, column_index in np.argwhere(inside):
+        reasons: list[str] = []
+        finite = bool(
+            np.isfinite(red[row_index, column_index])
+            and np.isfinite(nir[row_index, column_index])
+            and np.isfinite(ndvi[row_index, column_index])
+        )
+        if not finite:
+            reasons.append("NON_FINITE")
+        if not radiometric[row_index, column_index]:
+            reasons.append("INVALID_RADIOMETRY")
+        scl_allowed = bool(
+            scl_valid[row_index, column_index]
+            and scl[row_index, column_index] in config.allowed_scl_classes
+        )
+        if not scl_allowed:
+            reasons.append("SCL_REJECTED")
+        if (
+            ndvi_valid[row_index, column_index]
+            and ndvi[row_index, column_index] < config.min_ndvi
+        ):
+            reasons.append("NDVI_BELOW_MIN")
+        if not quality[row_index, column_index] and not reasons:
+            reasons.append("INVALID_RADIOMETRY")
+        height_valid = bool(result.valid_mask[row_index, column_index])
+        rows.append(
+            {
+                "pixel_id": f"r{int(row_index)}_c{int(column_index)}",
+                "row": int(row_index),
+                "column": int(column_index),
+                "inside_aoi_fraction": float(fractions[row_index, column_index])
+                if fractions is not None
+                else None,
+                "SCL": int(scl[row_index, column_index])
+                if scl_valid[row_index, column_index]
+                else None,
+                "SCL_name": SCL_CLASS_NAMES.get(int(scl[row_index, column_index]))
+                if scl_valid[row_index, column_index]
+                else None,
+                "RED": float(red[row_index, column_index])
+                if np.isfinite(red[row_index, column_index])
+                else None,
+                "NIR": float(nir[row_index, column_index])
+                if np.isfinite(nir[row_index, column_index])
+                else None,
+                "NDVI": float(ndvi[row_index, column_index])
+                if np.isfinite(ndvi[row_index, column_index])
+                else None,
+                "radiometric_valid": bool(radiometric[row_index, column_index]),
+                "vegetation_condition": bool(
+                    scl_allowed
+                    and ndvi_valid[row_index, column_index]
+                    and ndvi[row_index, column_index] >= config.min_ndvi
+                ),
+                "height_valid": height_valid,
+                "rejection_reason": [] if height_valid else list(dict.fromkeys(reasons)),
+            }
+        )
+    return rows
 
 
 def extract_height_features(

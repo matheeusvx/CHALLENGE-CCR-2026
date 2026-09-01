@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+import numpy as np
+
 from .config import MonitoringConfig
 from .cut_recommendation import (
     RecommendationInput,
@@ -30,7 +32,7 @@ from .quality import (
     select_quality_assessed_observations,
     summarize_scene_quality,
 )
-from .raster_processing import read_scene_bands
+from .raster_processing import calculate_mask_intersection_area, read_scene_bands
 from .stac_client import Scene, search_scenes
 from .temporal_quality import calculate_analysis_quality, diagnose_temporal_consistency
 
@@ -69,6 +71,9 @@ class AnalysisResult:
     summary: dict[str, Any]
     timeseries: list[dict[str, Any]]
     scenes: list[dict[str, Any]]
+    selected_area_m2: float | None = None
+    effective_analysis_area_m2: float | None = None
+    effective_analysis_pct: float | None = None
     height_estimation: dict[str, Any] = field(default_factory=disabled_height_estimation)
     artifacts: dict[str, Path] = field(default_factory=dict)
     warnings: list[dict[str, Any]] = field(default_factory=list)
@@ -97,6 +102,9 @@ class AnalysisResult:
             "summary": self.summary,
             "timeseries": self.timeseries,
             "scenes": self.scenes,
+            "selected_area_m2": self.selected_area_m2,
+            "effective_analysis_area_m2": self.effective_analysis_area_m2,
+            "effective_analysis_pct": self.effective_analysis_pct,
             "warnings": self.warnings,
             "errors": self.errors,
         }
@@ -129,6 +137,7 @@ def _new_scene_record(scene: Scene) -> dict[str, Any]:
             "ndvi_mean": None,
             "ndvi_median": None,
             "ndvi_std": None,
+            "effective_analysis_area_m2": None,
             "red_median_reflectance": None,
             "nir_median_reflectance": None,
             "reflectance_scale_source": None,
@@ -197,6 +206,7 @@ def run_monitoring_analysis(
     errors: list[dict[str, Any]] = []
     processed_item_ids: list[str] = []
     failed_item_ids: list[str] = []
+    spatial_accounting_inputs: dict[str, dict[str, Any]] = {}
     discarded_candidate_scenes: list[dict[str, Any]] = []
     candidate_scenes: list[Scene] = []
     total_matches = 0
@@ -240,8 +250,9 @@ def run_monitoring_analysis(
             try:
                 raster_data = deps.read_scene_bands(scene.item, aoi_geojson)
                 statistics = None
+                ndvi_values = None
                 try:
-                    _, statistics = analyze_ndvi(
+                    ndvi_values, statistics = analyze_ndvi(
                         raster_data.red,
                         raster_data.nir,
                         raster_data.valid_mask,
@@ -249,6 +260,14 @@ def run_monitoring_analysis(
                     )
                 except InsufficientValidPixelsError:
                     pass
+
+                if ndvi_values is not None:
+                    spatial_accounting_inputs[scene.item_id] = {
+                        "transform": raster_data.spatial_transform,
+                        "geometry_document": raster_data.spatial_aoi_geometry,
+                        "crs_is_projected": raster_data.spatial_crs_is_projected,
+                        "accepted_pixel_mask": np.isfinite(ndvi_values).copy(),
+                    }
 
                 height_features: dict[str, Any] = {}
                 if config.height_estimation_enabled and statistics is not None:
@@ -473,6 +492,42 @@ def run_monitoring_analysis(
     )
     raw_daily_records = temporal_result.raw_daily_timeseries
     analysis_records = temporal_result.analysis_timeseries
+    selected_area_m2 = float(resolved_aoi.metadata["area_square_meters"])
+    effective_analysis_area_m2 = None
+    effective_analysis_pct = None
+    if analysis_records:
+        accounting_record = analysis_records[-1]
+        accounting_item_id = accounting_record.get("aggregation_selected_item_id")
+        accounting_inputs = spatial_accounting_inputs.get(str(accounting_item_id))
+        try:
+            if accounting_inputs is None:
+                raise ValueError(
+                    "A agregacao selecionada nao referencia uma unica cena raster."
+                )
+            effective_analysis_area_m2 = calculate_mask_intersection_area(
+                **accounting_inputs
+            )
+            effective_analysis_pct = (
+                effective_analysis_area_m2 / selected_area_m2 * 100.0
+            )
+            accounting_record["effective_analysis_area_m2"] = (
+                effective_analysis_area_m2
+            )
+            selected_scene_record = scene_by_id.get(str(accounting_item_id))
+            if selected_scene_record is not None:
+                selected_scene_record["effective_analysis_area_m2"] = (
+                    effective_analysis_area_m2
+                )
+        except Exception as exc:
+            warnings.append(
+                {
+                    "code": "EFFECTIVE_AREA_UNAVAILABLE",
+                    "message": (
+                        "A observacao operacional selecionada nao permitiu "
+                        f"contabilidade espacial: {exc}"
+                    ),
+                }
+            )
 
     for daily_record in raw_daily_records:
         source_ids = list(daily_record.get("aggregation_source_item_ids") or [])
@@ -665,6 +720,12 @@ def run_monitoring_analysis(
         "recommendation_thresholds": config.recommendation_thresholds,
         "cut_recommendation": recommendation_result.to_summary_dict(),
         "height_estimation": height_estimation,
+        "spatial_accounting": {
+            "selected_area_m2": selected_area_m2,
+            "effective_analysis_area_m2": effective_analysis_area_m2,
+            "effective_analysis_pct": effective_analysis_pct,
+            "metric_weighting_changed": False,
+        },
         "scenes_discarded_by_limit": [
             *discarded_candidate_scenes,
             *[
@@ -708,6 +769,9 @@ def run_monitoring_analysis(
             to_json_compatible(summary),
             to_json_compatible(analysis_records),
             to_json_compatible(scene_records),
+            selected_area_m2=selected_area_m2,
+            effective_analysis_area_m2=effective_analysis_area_m2,
+            effective_analysis_pct=effective_analysis_pct,
             height_estimation=height_estimation,
             warnings=warnings,
             errors=errors,
@@ -739,6 +803,9 @@ def run_monitoring_analysis(
         to_json_compatible(summary),
         to_json_compatible(analysis_records),
         to_json_compatible(scene_records),
+        selected_area_m2=selected_area_m2,
+        effective_analysis_area_m2=effective_analysis_area_m2,
+        effective_analysis_pct=effective_analysis_pct,
         height_estimation=height_estimation,
         artifacts=public_artifacts,
         warnings=warnings,

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+from affine import Affine
 
 from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.raster_processing import RasterSceneData
@@ -284,6 +285,92 @@ def test_height_estimator_does_not_change_recommendation(tmp_path) -> None:
     assert disabled.height_estimation["status"] == "disabled"
     assert enabled.height_estimation["status"] == "experimental"
     assert extraction_calls == 4
+
+
+def test_spatial_accounting_does_not_change_recommendation(tmp_path) -> None:
+    scenes = [_scene(day) for day in (1, 8, 15, 22)]
+
+    def fake_search(config, geometry):
+        return SceneSearchResult(scenes=scenes, discarded_scenes=[], total_matches=4)
+
+    def fake_write(run_directory, *args, **kwargs):
+        names = {
+            "scenes": "scenes.csv",
+            "timeseries": "ndvi_timeseries.csv",
+            "raw_timeseries": "raw_daily_timeseries.csv",
+            "summary": "summary.json",
+            "quality_report": "quality_report.json",
+            "plot": "ndvi_timeseries.png",
+            "aoi": "aoi.geojson",
+            "recommendation_json": "cut_recommendation.json",
+            "recommendation_csv": "cut_recommendation.csv",
+        }
+        return {key: Path(run_directory) / value for key, value in names.items()}
+
+    def run(with_spatial_metadata: bool, directory: str):
+        def fake_raster(item, geometry):
+            optional = (
+                {
+                    "spatial_transform": Affine(10, 0, 0, 0, 10, 0),
+                    "spatial_aoi_geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[5, 0], [15, 0], [15, 10], [5, 10], [5, 0]]
+                        ],
+                    },
+                    "spatial_crs": "EPSG:32723",
+                    "spatial_crs_is_projected": True,
+                }
+                if with_spatial_metadata
+                else {}
+            )
+            return RasterSceneData(
+                red=np.full((1, 2), 0.2, dtype=np.float32),
+                nir=np.full((1, 2), 0.5, dtype=np.float32),
+                valid_mask=np.ones((1, 2), dtype=bool),
+                total_pixel_count=2,
+                aoi_coverage_percentage=100.0,
+                partial_raster_coverage=False,
+                red_asset="B04",
+                nir_asset="B08",
+                scl_asset="SCL",
+                scl_class_percentages={"vegetation": 100.0},
+                quality_messages=[],
+                **optional,
+            )
+
+        config = MonitoringConfig(
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-47, -23], [-46.99, -23], [-46.99, -22.99], [-47, -23]]
+                ],
+            },
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 7, 31),
+            min_valid_pixel_count=1,
+            min_observations=4,
+            output_root=tmp_path / directory,
+        )
+        return run_monitoring_analysis(
+            config,
+            dependencies=PipelineDependencies(
+                search_scenes=fake_search,
+                read_scene_bands=fake_raster,
+                write_outputs=fake_write,
+            ),
+        )
+
+    before = run(False, "without-accounting")
+    after = run(True, "with-accounting")
+
+    assert before.recommendation == after.recommendation
+    assert before.effective_analysis_area_m2 is None
+    assert after.effective_analysis_area_m2 == 100.0
+    assert after.effective_analysis_pct == (
+        after.effective_analysis_area_m2 / after.selected_area_m2 * 100.0
+    )
+    assert after.summary["spatial_accounting"]["metric_weighting_changed"] is False
 
 
 def test_height_estimator_exception_is_fail_soft(tmp_path) -> None:

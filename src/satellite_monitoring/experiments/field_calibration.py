@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -17,6 +17,7 @@ from shapely.geometry import mapping
 
 from ..datasets.field_schema import (
     MEASUREMENT_QUALITY_VALUES,
+    MEASUREMENT_TYPE_VALUES,
     FieldObservation,
 )
 from ..datasets.training_scenes import query_training_scenes
@@ -83,11 +84,16 @@ CSV_COLUMNS = (
     "geometry_id",
     "geometry_geojson",
     "area_m2",
+    "reference_bbox",
+    "measurement_type",
     "height_measurements_cm",
     "measurement_count",
     "height_min_cm",
     "height_mean_cm",
     "measured_height_cm",
+    "height_lower_bound_cm",
+    "height_upper_bound_cm",
+    "confirmed_above_lower_bound",
     "height_p50_cm",
     "height_p90_cm",
     "height_max_cm",
@@ -101,6 +107,9 @@ CSV_COLUMNS = (
     "qualitative_condition",
     "measurement_quality",
     "ground_truth_strength",
+    "classification_ground_truth_strength",
+    "metric_regression_eligible",
+    "regulatory_gt30",
     "vegetation_cover_pct",
     "vegetation_type",
     "recent_cut",
@@ -117,6 +126,7 @@ CSV_COLUMNS = (
     "video_reference",
     "sentinel_item_id",
     "scene_date",
+    "scene_datetime",
     "scene_age_days",
     "cloud_cover",
     "valid_pixel_percentage",
@@ -192,6 +202,37 @@ def _parse_date(value: Any, *, field_name: str) -> date:
         return date.fromisoformat(str(value).strip()[:10])
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be an ISO date.") from exc
+
+
+def _parse_observed_at(value: Any) -> date | datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return value
+    raw = str(value).strip()
+    if "T" not in raw and " " not in raw:
+        return _parse_date(raw, field_name="observed_at")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("observed_at must be an ISO date or datetime.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("observed_at datetime must include a timezone offset.")
+    return parsed
+
+
+def _scene_datetime(record: Mapping[str, Any]) -> datetime | None:
+    raw = record.get("datetime")
+    if isinstance(raw, datetime):
+        parsed = raw
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed
 
 
 def _parse_sequence(value: Any) -> tuple[Any, ...]:
@@ -338,9 +379,11 @@ def _normalize_row(
     sample_id = str(raw.get("sample_id") or "").strip()
     if not sample_id:
         raise ValueError("sample_id is required.")
-    observed_at = _parse_date(
-        raw.get("observed_at") or campaign_observed_at,
-        field_name="observed_at",
+    raw_observed_at = raw.get("observed_at") or campaign_observed_at
+    observed_at = (
+        _parse_observed_at(raw_observed_at)
+        if raw_observed_at not in (None, "")
+        else None
     )
     measurement_key = next(
         (
@@ -370,6 +413,11 @@ def _normalize_row(
             "height_measurements_cm must contain finite non-negative values."
         )
     measured = _optional_float(raw.get("measured_height_cm"))
+    lower_bound = _optional_float(raw.get("height_lower_bound_cm"))
+    upper_bound = _optional_float(raw.get("height_upper_bound_cm"))
+    confirmed_above_lower_bound = _optional_bool(
+        raw.get("confirmed_above_lower_bound"), False
+    )
     minimum = _optional_float(raw.get("height_min_cm"))
     mean = _optional_float(raw.get("height_mean_cm"))
     p50 = _optional_float(raw.get("height_p50_cm"))
@@ -416,6 +464,43 @@ def _normalize_row(
         )
     if quality == "visual_only" and any(value is not None for value in metric_values):
         raise ValueError("visual_only samples cannot contain metric height values.")
+    measurement_type = str(raw.get("measurement_type") or "").strip()
+    if not measurement_type:
+        if len(measurements) > 1:
+            measurement_type = "multiple"
+        elif measured is not None or len(measurements) == 1:
+            measurement_type = "exact_single"
+        else:
+            measurement_type = "visual_only"
+    if measurement_type not in MEASUREMENT_TYPE_VALUES:
+        raise ValueError(
+            "measurement_type must be one of: " + ", ".join(MEASUREMENT_TYPE_VALUES)
+        )
+    if lower_bound is not None and lower_bound < 0:
+        raise ValueError("height_lower_bound_cm must be non-negative.")
+    if upper_bound is not None and upper_bound < 0:
+        raise ValueError("height_upper_bound_cm must be non-negative.")
+    if lower_bound is not None and upper_bound is not None and lower_bound > upper_bound:
+        raise ValueError("height_lower_bound_cm cannot exceed height_upper_bound_cm.")
+    if measurement_type == "threshold_lower_bound":
+        if lower_bound is None:
+            raise ValueError("threshold_lower_bound requires height_lower_bound_cm.")
+        threshold_forbidden = (
+            measured,
+            minimum,
+            mean,
+            p50,
+            p90,
+            maximum,
+        )
+        if measurements or any(value is not None for value in threshold_forbidden):
+            raise ValueError(
+                "threshold_lower_bound cannot contain exact or derived metric heights."
+            )
+    elif lower_bound is not None or upper_bound is not None or confirmed_above_lower_bound:
+        raise ValueError(
+            "height bounds and their confirmation require threshold_lower_bound."
+        )
     geometry = _normalize_geometry(
         raw, source_path=source_path, geometry_dir=geometry_dir
     )
@@ -433,8 +518,22 @@ def _normalize_row(
     if representative_height is None and p90 is not None:
         # Compatibilidade com campanhas historicas que ja traziam p90 explicito.
         representative_height = p90
-    derived_class = regulatory_class_30cm(representative_height)
-    certainty_zone = experimental_certainty_zone(representative_height)
+    confirmed_clear_positive_threshold = (
+        measurement_type == "threshold_lower_bound"
+        and confirmed_above_lower_bound
+        and lower_bound is not None
+        and lower_bound >= 35
+    )
+    derived_class = (
+        "gt_30_cm"
+        if confirmed_clear_positive_threshold
+        else regulatory_class_30cm(representative_height)
+    )
+    certainty_zone = (
+        "CLEAR_POSITIVE"
+        if confirmed_clear_positive_threshold
+        else experimental_certainty_zone(representative_height)
+    )
     future_target = (
         p90 > 30
         if quality == "confirmed_multiple_measurements"
@@ -443,6 +542,9 @@ def _normalize_row(
         else None
     )
     supplied_class = str(raw.get("real_class") or "").strip()
+    supplied_class = {">30": "gt_30_cm", "<=30": "le_30_cm"}.get(
+        supplied_class, supplied_class
+    )
     if supplied_class and supplied_class not in {derived_class, "unknown"}:
         raise ValueError("real_class conflicts with the physical height measurement.")
     warnings: list[str] = []
@@ -454,6 +556,19 @@ def _normalize_row(
         quality,
         has_geometry=geometry is not None,
         has_metric_height=representative_height is not None,
+    )
+    classification_strength = (
+        "strong"
+        if confirmed_clear_positive_threshold
+        else strength
+        if derived_class != "unknown"
+        else "none"
+    )
+    metric_regression_eligible = (
+        measurement_type in {"exact_single", "multiple"}
+        and representative_height is not None
+        and quality
+        in {"confirmed_single_measurement", "confirmed_multiple_measurements"}
     )
     photo_references = tuple(
         str(value)
@@ -482,7 +597,11 @@ def _normalize_row(
         latitude=latitude,
         longitude=longitude,
         gps_accuracy_m=_optional_float(raw.get("gps_accuracy_m")),
+        measurement_type=measurement_type,
         measured_height_cm=measured,
+        height_lower_bound_cm=lower_bound,
+        height_upper_bound_cm=upper_bound,
+        confirmed_above_lower_bound=confirmed_above_lower_bound,
         height_measurements_cm=measurements,
         measurements_cm=measurements,
         measurement_count=measurement_count,
@@ -524,6 +643,12 @@ def _normalize_row(
         experimental_certainty_zone=certainty_zone,
         future_primary_target_gt30=future_target,
         ground_truth_strength=strength,
+        classification_ground_truth_strength=classification_strength,
+        metric_regression_eligible=metric_regression_eligible,
+        regulatory_gt30=True if derived_class == "gt_30_cm" else False if derived_class == "le_30_cm" else None,
+        reference_bbox=raw.get("reference_bbox")
+        if isinstance(raw.get("reference_bbox"), Mapping)
+        else None,
         validation_warnings=tuple(warnings),
         boundary_case=_optional_bool(raw.get("boundary_case"), derived_class != "unknown" and (
             p90 == 30 or (p90 is None and measured == 30)
@@ -587,17 +712,31 @@ def geodesic_area_m2(geometry: Mapping[str, Any]) -> float:
 
 
 def select_latest_causal_scene(
-    records: Sequence[Mapping[str, Any]], observed_at: date
+    records: Sequence[Mapping[str, Any]], observed_at: date | datetime
 ) -> Mapping[str, Any] | None:
     eligible = []
     for record in records:
         scene_date = parse_scene_date(record)
+        scene_datetime = _scene_datetime(record)
+        if isinstance(observed_at, datetime):
+            causal = (
+                scene_datetime is not None
+                and scene_datetime.astimezone(timezone.utc)
+                <= observed_at.astimezone(timezone.utc)
+            )
+            age = (
+                observed_at.astimezone(timezone.utc)
+                - scene_datetime.astimezone(timezone.utc)
+            ).total_seconds()
+        else:
+            causal = scene_date is not None and scene_date <= observed_at
+            age = float((observed_at - scene_date).days) if scene_date else math.inf
         if (
             scene_date is not None
-            and scene_date <= observed_at
+            and causal
             and record.get("accepted_for_timeseries") is True
         ):
-            eligible.append((record, scene_date))
+            eligible.append((record, scene_date, age))
     if not eligible:
         return None
 
@@ -608,7 +747,7 @@ def select_latest_causal_scene(
     return min(
         eligible,
         key=lambda value: (
-            (observed_at - value[1]).days,
+            value[2],
             -numeric(value[0], "scene_quality_score", -math.inf),
             -numeric(value[0], "valid_pixel_percentage", -math.inf),
             numeric(value[0], "cloud_cover", math.inf),
@@ -636,11 +775,13 @@ def _ground_truth_status(observation: FieldObservation) -> str:
             observation.height_max_cm,
         )
     )
-    if observation.measurement_quality in {
+    if observation.metric_regression_eligible and observation.measurement_quality in {
         "confirmed_single_measurement",
         "confirmed_multiple_measurements",
     } and has_metric:
         return "valid_ground_truth"
+    if observation.classification_ground_truth_strength == "strong":
+        return "valid_classification_ground_truth"
     if observation.measurement_quality == "visual_only" or not has_metric:
         return "qualitative_comparison_only"
     return "weak_metric_measurement"
@@ -667,6 +808,10 @@ def _base_row(observation: FieldObservation) -> dict[str, Any]:
         "geometry_id": geometry_identity(geometry) if geometry else None,
         "geometry_geojson": dict(geometry) if geometry else None,
         "area_m2": geodesic_area_m2(geometry) if geometry else None,
+        "reference_bbox": dict(observation.reference_bbox)
+        if observation.reference_bbox
+        else None,
+        "measurement_type": observation.measurement_type,
         "height_measurements_cm": list(observation.height_measurements_cm)
         if observation.height_measurements_cm
         else None,
@@ -674,6 +819,9 @@ def _base_row(observation: FieldObservation) -> dict[str, Any]:
         "height_min_cm": observation.height_min_cm,
         "height_mean_cm": observation.height_mean_cm,
         "measured_height_cm": observation.measured_height_cm,
+        "height_lower_bound_cm": observation.height_lower_bound_cm,
+        "height_upper_bound_cm": observation.height_upper_bound_cm,
+        "confirmed_above_lower_bound": observation.confirmed_above_lower_bound,
         "height_p50_cm": observation.height_p50_cm,
         "height_p90_cm": observation.height_p90_cm,
         "height_max_cm": observation.height_max_cm,
@@ -688,6 +836,9 @@ def _base_row(observation: FieldObservation) -> dict[str, Any]:
         "qualitative_condition": observation.qualitative_condition,
         "measurement_quality": observation.measurement_quality,
         "ground_truth_strength": observation.ground_truth_strength,
+        "classification_ground_truth_strength": observation.classification_ground_truth_strength,
+        "metric_regression_eligible": observation.metric_regression_eligible,
+        "regulatory_gt30": observation.regulatory_gt30,
         "vegetation_cover_pct": observation.vegetation_cover_pct,
         "vegetation_type": observation.vegetation_type,
         "recent_cut": observation.recent_cut,
@@ -736,11 +887,16 @@ def upgrade_existing_enriched_rows(
         "geometry_id",
         "geometry_geojson",
         "area_m2",
+        "reference_bbox",
+        "measurement_type",
         "height_measurements_cm",
         "measurement_count",
         "height_min_cm",
         "height_mean_cm",
         "measured_height_cm",
+        "height_lower_bound_cm",
+        "height_upper_bound_cm",
+        "confirmed_above_lower_bound",
         "height_p50_cm",
         "height_p90_cm",
         "height_max_cm",
@@ -753,6 +909,9 @@ def upgrade_existing_enriched_rows(
         "boundary_case",
         "measurement_quality",
         "ground_truth_strength",
+        "classification_ground_truth_strength",
+        "metric_regression_eligible",
+        "regulatory_gt30",
         "vegetation_cover_pct",
         "vegetation_type",
         "recent_cut",
@@ -823,19 +982,23 @@ def build_field_calibration_rows(
         )
         if query_error:
             row["warnings"].append(f"scene_query: {query_error}")
-        anchor_record = select_latest_causal_scene(records, observed_date)
+        anchor_record = select_latest_causal_scene(records, observed_at)
         if anchor_record is None:
             row["spectral_extraction_status"] = "no_valid_causal_scene"
             row["temporal_status"] = "insufficient_history"
             rows.append(row)
             continue
         anchor_date = parse_scene_date(anchor_record)
+        anchor_datetime = _scene_datetime(anchor_record)
         item = anchor_record.get("_scene_item")
         item_id = str(anchor_record.get("item_id") or getattr(item, "id", ""))
         row.update(
             {
                 "sentinel_item_id": item_id,
                 "scene_date": anchor_date.isoformat() if anchor_date else None,
+                "scene_datetime": anchor_datetime.isoformat()
+                if anchor_datetime
+                else None,
                 "scene_age_days": (observed_date - anchor_date).days
                 if anchor_date
                 else None,
@@ -1041,6 +1204,10 @@ def ground_truth_quality_report(
     building = len(confirmed) >= 5 or len(complete_static) >= 5
     readiness = {
         "confirmed_metric_samples": len(confirmed),
+        "strong_classification_ground_truth_samples": sum(
+            row.get("classification_ground_truth_strength") == "strong"
+            for row in rows
+        ),
         "samples_with_complete_static_features": len(complete_static),
         "samples_with_complete_temporal_features": len(complete_temporal),
         "unique_locations": len(locations),
@@ -1138,6 +1305,13 @@ def field_campaign_summary(
         "samples_total": len(ordered),
         "metric_samples": len(metric_rows),
         "non_metric_samples": len(ordered) - len(metric_rows),
+        "strong_classification_ground_truth_samples": sum(
+            row.get("classification_ground_truth_strength") == "strong"
+            for row in ordered
+        ),
+        "metric_regression_eligible_samples": sum(
+            row.get("metric_regression_eligible") is True for row in ordered
+        ),
         "confirmed_single": sum(
             row.get("measurement_quality") == "confirmed_single_measurement"
             for row in ordered
@@ -1203,6 +1377,7 @@ def write_field_calibration_outputs(
             row = dict(source)
             for name in (
                 "geometry_geojson",
+                "reference_bbox",
                 "height_measurements_cm",
                 "photo_references",
                 "video_references",

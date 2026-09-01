@@ -41,6 +41,9 @@ const result: AnalysisResponse = {
   analysis_period: { start_date: "2026-07-10", end_date: "2026-08-10", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
   recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Vegetação abaixo do nível alto local.", reasons: ["current_percentile_below_or_equal_50"], blocking_reasons: [], limitations: ["Validação de campo necessária."], metrics: { current_ndvi_mean: 0.52, historical_median: 0.58, current_percentile: 40, recent_trend: -0.01, observation_count: 4 } },
   height_estimation: { status: "experimental", estimated_class: "le_30_cm", probability_gt_30_cm: 0.23, confidence: "medium", reference_threshold_cm: 30, model_version: "height-estimator-v0" },
+  selected_area_m2: 12450,
+  effective_analysis_area_m2: 11578.5,
+  effective_analysis_pct: 93,
   aoi: { source: "geojson_inline", area_square_meters: 12450 },
   summary: {
     date_range_effectively_processed: { start: "2026-06-01", end: "2026-08-01" },
@@ -182,9 +185,27 @@ describe("workspace geoespacial", () => {
     expect(screen.getByText("Até 30 cm")).toBeInTheDocument();
     expect(screen.queryByText("0.23")).not.toBeInTheDocument();
     expect(screen.queryByText("height-estimator-v0")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Área selecionada").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cobertura efetiva").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("93%").length).toBeGreaterThan(0);
     const fitRequest = useAnalysisStore.getState().fitRequestId;
-    fireEvent.click(screen.getByRole("button", { name: "Enquadrar área analisada" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enquadrar área selecionada" }));
     expect(useAnalysisStore.getState().fitRequestId).toBe(fitRequest + 1);
+  });
+
+  it("mantém análises históricas sem contabilidade espacial compatíveis", () => {
+    const legacy = {
+      ...result,
+      selected_area_m2: undefined,
+      effective_analysis_area_m2: undefined,
+      effective_analysis_pct: undefined,
+    };
+
+    render(<AnalysisResult result={legacy} />);
+
+    expect(screen.getByText("Área selecionada")).toBeInTheDocument();
+    expect(screen.getByText("12.450 m²")).toBeInTheDocument();
+    expect(screen.queryByText("Cobertura efetiva")).not.toBeInTheDocument();
   });
 
   it("invalida o Resultado A assim que uma nova Geometria B é criada", async () => {

@@ -64,9 +64,22 @@ export function analysisQualityStatus(result: AnalysisResponse): "high" | "mediu
   return status === "high" || status === "medium" || status === "low" ? status : null;
 }
 
-export function analyzedAreaSquareMeters(result: AnalysisResponse): number | null {
-  const area = result.aoi.area_square_meters;
+export function selectedAreaSquareMeters(result: AnalysisResponse): number | null {
+  const area = result.selected_area_m2 ?? result.aoi.area_square_meters;
   return typeof area === "number" && Number.isFinite(area) ? area : null;
+}
+
+export function analyzedAreaSquareMeters(result: AnalysisResponse): number | null {
+  return selectedAreaSquareMeters(result);
+}
+
+export function effectiveAnalysisPercentage(result: AnalysisResponse): number | null {
+  const percentage = result.effective_analysis_pct;
+  return typeof percentage === "number" && Number.isFinite(percentage) ? percentage : null;
+}
+
+export function formatPercentage(value: number) {
+  return `${Math.round(value).toLocaleString("pt-BR")}%`;
 }
 
 export function formatDateBR(value?: string) {

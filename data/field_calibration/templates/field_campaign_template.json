@@ -11,6 +11,12 @@
       "location_name": "<LOCATION_NAME>",
       "geometry": null,
       "geometry_reference": "<PATH_TO_POLYGON_OR_MULTIPOLYGON_GEOJSON>",
+      "reference_bbox": null,
+      "measurement_type": "multiple",
+      "measured_height_cm": null,
+      "height_lower_bound_cm": null,
+      "height_upper_bound_cm": null,
+      "confirmed_above_lower_bound": false,
       "height_measurements_cm": [
         "<PHYSICAL_MEASUREMENT_CM_1>",
         "<PHYSICAL_MEASUREMENT_CM_2>"
@@ -31,6 +37,10 @@
       ],
       "collector_notes": "<NOTES>",
       "measurement_quality": "confirmed_multiple_measurements",
+      "classification_ground_truth_strength": "strong",
+      "metric_regression_eligible": true,
+      "training_eligible": false,
+      "external_validation": true,
       "source": "field_campaign"
     }
   ]

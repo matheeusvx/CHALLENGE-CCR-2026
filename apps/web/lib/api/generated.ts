@@ -105,6 +105,12 @@ export interface components {
             recommendation: components["schemas"]["RecommendationResponse"];
             height_estimation: components["schemas"]["HeightEstimationResponse"];
             analysis_period: components["schemas"]["AnalysisPeriodResponse"];
+            /** Selected Area M2 */
+            selected_area_m2?: number | null;
+            /** Effective Analysis Area M2 */
+            effective_analysis_area_m2?: number | null;
+            /** Effective Analysis Pct */
+            effective_analysis_pct?: number | null;
             /** Aoi */
             aoi: {
                 [key: string]: unknown;

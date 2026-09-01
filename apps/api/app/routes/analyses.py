@@ -124,6 +124,11 @@ def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisRe
             "metrics": recommendation.get("metrics") or {},
         },
         height_estimation=result.height_estimation,
+        selected_area_m2=getattr(result, "selected_area_m2", None),
+        effective_analysis_area_m2=getattr(
+            result, "effective_analysis_area_m2", None
+        ),
+        effective_analysis_pct=getattr(result, "effective_analysis_pct", None),
         aoi=result.aoi,
         summary=public_summary,
         timeseries=result.timeseries,

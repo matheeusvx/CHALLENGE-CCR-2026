@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -140,7 +140,8 @@ def test_campaign_level_crs_and_observed_at_are_supported(tmp_path: Path) -> Non
     )
     observation = load_field_data(path)[0]
     assert observation.campaign_id == "campaign-v1"
-    assert observation.observed_at == date(2026, 9, 1)
+    assert isinstance(observation.observed_at, datetime)
+    assert observation.observed_at.isoformat() == "2026-09-01T10:30:00-03:00"
 
 
 def test_valid_polygon_is_preserved_and_invalid_geometry_is_rejected(
@@ -194,6 +195,142 @@ def test_multiple_measurements_calculate_explicit_summary(tmp_path: Path) -> Non
     assert observation.real_class == "gt_30_cm"
     assert observation.future_primary_target_gt30 is True
     assert PERCENTILE_METHOD.startswith("linear")
+
+
+def test_measurement_type_is_compatible_with_exact_and_multiple(tmp_path: Path) -> None:
+    observations = load_field_data(
+        _write_json(
+            tmp_path / "types.json",
+            [
+                _sample(sample_id="SINGLE"),
+                _sample(
+                    sample_id="MULTIPLE",
+                    measured_height_cm=None,
+                    height_measurements_cm=[10, 20],
+                    measurement_quality="confirmed_multiple_measurements",
+                ),
+            ],
+        )
+    )
+    by_id = {item.sample_id: item for item in observations}
+    assert by_id["SINGLE"].measurement_type == "exact_single"
+    assert by_id["MULTIPLE"].measurement_type == "multiple"
+    assert all(item.metric_regression_eligible for item in observations)
+
+
+def test_confirmed_threshold_lower_bound_is_classification_only(
+    tmp_path: Path,
+) -> None:
+    observation = load_field_data(
+        _write_json(
+            tmp_path / "threshold.json",
+            [
+                _sample(
+                    sample_id="GT35-01",
+                    geometry=None,
+                    measured_height_cm=None,
+                    measurement_type="threshold_lower_bound",
+                    height_lower_bound_cm=35,
+                    confirmed_above_lower_bound=True,
+                    measurement_quality="unknown",
+                    real_class=">30",
+                    training_eligible=True,
+                    external_validation=False,
+                )
+            ],
+        )
+    )[0]
+    assert observation.measured_height_cm is None
+    assert observation.height_mean_cm is None
+    assert observation.height_p50_cm is None
+    assert observation.height_p90_cm is None
+    assert observation.regulatory_gt30 is True
+    assert observation.regulatory_class_30cm == "gt_30_cm"
+    assert observation.experimental_certainty_zone == "CLEAR_POSITIVE"
+    assert observation.classification_ground_truth_strength == "strong"
+    assert observation.metric_regression_eligible is False
+    assert observation.training_eligible is False
+    assert observation.external_validation is True
+    row = build_field_calibration_rows([observation])[0]
+    assert row["field_measurement_status"] == "valid_classification_ground_truth"
+    assert row["spectral_extraction_status"] == WAITING_FOR_FIELD_AOI_GEOJSON
+
+
+def test_reference_bbox_is_metadata_not_geometry(tmp_path: Path) -> None:
+    bbox = {
+        "west": -46.86955,
+        "south": -23.23710,
+        "east": -46.86861,
+        "north": -23.23606,
+    }
+    observation = load_field_data(
+        _write_json(
+            tmp_path / "bbox.json",
+            [
+                _sample(
+                    geometry=None,
+                    reference_bbox=bbox,
+                )
+            ],
+        )
+    )[0]
+    assert observation.geometry is None
+    assert observation.reference_bbox == bbox
+    row = build_field_calibration_rows([observation])[0]
+    assert row["geometry_geojson"] is None
+    assert row["reference_bbox"] == bbox
+    assert row["spectral_extraction_status"] == WAITING_FOR_FIELD_AOI_GEOJSON
+
+
+def test_gt35_campaign_uses_real_aoi_and_preserves_threshold_contract() -> None:
+    campaign = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "field_calibration"
+        / "campaign_gt35_external_validation.json"
+    )
+    observations = load_field_data(campaign)
+    assert [observation.sample_id for observation in observations] == [
+        "GT35-01",
+        "GT35-02",
+    ]
+    for observation in observations:
+        assert isinstance(observation.observed_at, datetime)
+        assert observation.observed_at.isoformat() == "2026-08-31T12:00:00-03:00"
+        assert observation.geometry is not None
+        assert observation.geometry["type"] == "Polygon"
+        assert observation.measurement_type == "threshold_lower_bound"
+        assert observation.height_lower_bound_cm == 35
+        assert observation.measured_height_cm is None
+        assert observation.height_mean_cm is None
+        assert observation.height_p50_cm is None
+        assert observation.height_p90_cm is None
+        assert observation.metric_regression_eligible is False
+        assert observation.training_eligible is False
+        assert observation.external_validation is True
+        assert observation.regulatory_gt30 is True
+        assert observation.experimental_certainty_zone == "CLEAR_POSITIVE"
+
+
+def test_threshold_lower_bound_rejects_invented_exact_or_summary_values(
+    tmp_path: Path,
+) -> None:
+    for field_name in ("measured_height_cm", "height_mean_cm", "height_p50_cm", "height_p90_cm"):
+        invalid = _sample(
+            measured_height_cm=None,
+            measurement_type="threshold_lower_bound",
+            height_lower_bound_cm=35,
+            confirmed_above_lower_bound=True,
+            measurement_quality="unknown",
+        )
+        invalid[field_name] = 35
+        with pytest.raises(ValueError, match="threshold_lower_bound"):
+            load_field_data(
+                _write_json(
+                    tmp_path / f"invalid-{field_name}.json",
+                    [invalid],
+                )
+            )
 
 
 def test_boundary_30_cm_is_le_30_and_holdout_is_default(tmp_path: Path) -> None:
@@ -329,6 +466,24 @@ def test_causal_selection_never_uses_future_scene() -> None:
     )
     assert selected is not None
     assert selected["item_id"] == "same"
+
+
+def test_causal_selection_rejects_future_scene_on_same_day() -> None:
+    selected = select_latest_causal_scene(
+        [
+            {
+                **_scene("causal", "2026-08-31"),
+                "datetime": "2026-08-31T14:30:00Z",
+            },
+            {
+                **_scene("future-same-day", "2026-08-31"),
+                "datetime": "2026-08-31T15:30:00Z",
+            },
+        ],
+        datetime.fromisoformat("2026-08-31T12:00:00-03:00"),
+    )
+    assert selected is not None
+    assert selected["item_id"] == "causal"
 
 
 def test_height_mask_rejection_keeps_ground_truth_valid(tmp_path: Path) -> None:
