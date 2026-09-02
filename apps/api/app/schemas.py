@@ -99,6 +99,27 @@ class AnalysisPeriodResponse(StrictModel):
     strategy: Literal["previous_calendar_month", "explicit"]
 
 
+class SpatialZoneResponse(StrictModel):
+    zone_id: str
+    recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
+    geometry: dict[str, Any]
+    area_m2: float = Field(ge=0)
+    confidence: Literal["high", "medium", "low"]
+    analysis_quality: Literal["high", "medium", "low"]
+    reasons: list[str]
+    start_distance_m: float = Field(ge=0)
+    end_distance_m: float = Field(ge=0)
+    road_ref: str
+
+
+class SpatialSegmentationResponse(StrictModel):
+    status: Literal["available", "not_applicable", "unavailable"]
+    experimental: bool
+    section_length_m: int = Field(gt=0)
+    effective_coverage_pct: float | None = Field(None, ge=0, le=100)
+    zones: list[SpatialZoneResponse]
+
+
 class AnalysisResponse(StrictModel):
     analysis_id: str
     status: str
@@ -108,6 +129,9 @@ class AnalysisResponse(StrictModel):
     selected_area_m2: float | None = Field(None, gt=0)
     effective_analysis_area_m2: float | None = Field(None, ge=0)
     effective_analysis_pct: float | None = Field(None, ge=0)
+    spatial_segmentation: SpatialSegmentationResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
     aoi: dict[str, Any]
     summary: dict[str, Any]
     timeseries: list[dict[str, Any]]
