@@ -302,6 +302,9 @@ def merge_segment_first_sections(
                 "selected_area_m2": float(
                     sum(section["selected_area_m2"] for section in group)
                 ),
+                "area_m2": float(
+                    sum(section["selected_area_m2"] for section in group)
+                ),
                 "effective_area_m2": float(
                     sum(section["effective_area_m2"] for section in group)
                 ),
@@ -309,8 +312,18 @@ def merge_segment_first_sections(
                 "confidence_summary": _level_summary(
                     [section["confidence"] for section in group]
                 ),
+                "confidence": _minimum_level(
+                    [section["confidence"] for section in group]
+                ),
                 "analysis_quality": _minimum_level(
                     [section["analysis_quality"] for section in group]
+                ),
+                "reasons": sorted(
+                    {
+                        reason
+                        for section in group
+                        for reason in section.get("reasons", [])
+                    }
                 ),
                 "geometry": mapping(
                     unary_union([shape(section["geometry"]) for section in group])
@@ -501,20 +514,70 @@ def run_segment_first_shadow_segmentation(
             selected_area_m2=selected_area_m2,
             road_document=roads,
             raw_segmentation=raw,
+            section_lengths_m=(config.spatial_section_length_m,),
             clock=clock,
         )
-    except Exception as exc:
-        segment_first = {
+        if segment_first.get("status") != "experimental":
+            raise ValueError(
+                ",".join(segment_first.get("warnings") or ["SEGMENT_FIRST_UNAVAILABLE"])
+            )
+        return build_spatial_segmentation_contract(
+            segment_first["experiments"][0],
+            section_length_m=config.spatial_section_length_m,
+            decision_min_observations=config.decision_min_observations,
+        )
+    except Exception:
+        return {
             "status": "unavailable",
-            "mode": "shadow",
-            "official_recommendation_changed": False,
-            "error": str(exc),
-            "warnings": ["SEGMENT_FIRST_TEMPORAL_UNAVAILABLE"],
+            "experimental": True,
+            "section_length_m": config.spatial_section_length_m,
+            "effective_coverage_pct": None,
+            "zones": [],
         }
+
+
+def build_spatial_segmentation_contract(
+    experiment: Mapping[str, Any],
+    *,
+    section_length_m: int,
+    decision_min_observations: int,
+) -> dict[str, Any]:
+    """Aplica o gate sem criar novos thresholds de recommendation ou qualidade."""
+    sections = list(experiment.get("sections") or [])
+    supported_sections = [
+        section
+        for section in sections
+        if section["selected_area_m2"] > 0
+        and section["effective_area_m2"] > 0
+        and section["valid_observation_count"] >= decision_min_observations
+    ]
+    eligible = bool(sections) and len(supported_sections) == len(sections)
+    zones = (
+        [
+            {
+                "zone_id": zone["zone_id"],
+                "recommendation": zone["recommendation"],
+                "geometry": zone["geometry"],
+                "area_m2": zone.get("area_m2", zone["selected_area_m2"]),
+                "confidence": zone.get(
+                    "confidence",
+                    (zone.get("confidence_summary") or {}).get("minimum", "low"),
+                ),
+                "analysis_quality": zone["analysis_quality"],
+                "reasons": list(zone.get("reasons") or []),
+                "start_distance_m": zone["start_distance_m"],
+                "end_distance_m": zone["end_distance_m"],
+                "road_ref": zone["road_ref"],
+            }
+            for zone in experiment.get("zones") or []
+        ]
+        if eligible
+        else []
+    )
     return {
-        "status": "experimental",
-        "mode": "shadow",
-        "official_recommendation_changed": False,
-        "raw_segmentation": raw,
-        "segment_first_temporal": segment_first,
+        "status": "available" if eligible else "not_applicable",
+        "experimental": True,
+        "section_length_m": section_length_m,
+        "effective_coverage_pct": experiment.get("effective_coverage_pct"),
+        "zones": zones,
     }

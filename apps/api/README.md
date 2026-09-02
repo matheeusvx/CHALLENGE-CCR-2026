@@ -39,6 +39,8 @@ adicional e nao altera a recommendation.
 A segmentacao espacial shadow tambem fica desabilitada por padrao. Defina
 `$env:SPATIAL_SEGMENTATION_ENABLED = "true"` para produzir zonas auxiliares
 reutilizando os rasters ja processados; a recommendation global continua oficial.
+O comprimento longitudinal experimental usa 50 m por padrao e pode ser ajustado
+com `SPATIAL_SECTION_LENGTH_M`, sem alterar os thresholds da recommendation.
 `SPATIAL_REGULARIZATION_ENABLED=true` adiciona a representacao operacional V2,
 preservando a segmentacao raw e sem novas consultas externas.
 

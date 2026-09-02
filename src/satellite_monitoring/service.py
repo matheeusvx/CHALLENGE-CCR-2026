@@ -664,10 +664,10 @@ def run_monitoring_analysis(
         except Exception as exc:
             spatial_segmentation = {
                 "status": "unavailable",
-                "mode": "shadow",
-                "official_recommendation_changed": False,
-                "error": str(exc),
-                "warnings": ["SPATIAL_SEGMENTATION_UNAVAILABLE"],
+                "experimental": True,
+                "section_length_m": config.spatial_section_length_m,
+                "effective_coverage_pct": None,
+                "zones": [],
             }
             warnings.append(
                 {

@@ -210,6 +210,7 @@ def run_analysis(
             output_root=settings.output_root,
             height_estimation_enabled=settings.height_estimation_enabled,
             spatial_segmentation_enabled=settings.spatial_segmentation_enabled,
+            spatial_section_length_m=settings.spatial_section_length_m,
             spatial_regularization_enabled=settings.spatial_regularization_enabled,
         )
         result = service(config, analysis_id=str(uuid4()))

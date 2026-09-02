@@ -18,7 +18,9 @@ from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.segment_first_analysis import (
     build_section_scene_record,
     build_section_timeseries,
+    build_spatial_segmentation_contract,
     merge_segment_first_sections,
+    run_segment_first_shadow_segmentation,
     run_segment_first_temporal_analysis,
 )
 from src.satellite_monitoring.spatial_segmentation import SpatialRasterObservation
@@ -263,3 +265,70 @@ def test_raw_is_diagnostic_only_output_is_deterministic_and_no_network(
     assert first["raw_segmentation_unchanged"] is True
     assert first["raw_classes_used_as_decision_input"] is False
     assert first["external_queries_per_section"] == 0
+
+
+def test_eligibility_gate_uses_existing_temporal_support_and_configurable_length() -> None:
+    observations = _observations()
+    result = run_segment_first_shadow_segmentation(
+        observations=observations,
+        daily_records=_daily(observations),
+        config=_config(spatial_section_length_m=50),
+        selected_area_m2=2000.0,
+        effective_analysis_area_m2=2000.0,
+        road_document=_roads(),
+        clock=lambda: 4.0,
+    )
+    not_applicable = run_segment_first_shadow_segmentation(
+        observations=observations,
+        daily_records=_daily(observations),
+        config=_config(
+            spatial_section_length_m=25,
+            min_valid_pixel_count=30,
+        ),
+        selected_area_m2=2000.0,
+        effective_analysis_area_m2=2000.0,
+        road_document=_roads(),
+        clock=lambda: 4.0,
+    )
+
+    assert result["section_length_m"] == 50
+    assert result["status"] in {"available", "not_applicable"}
+    experiment = run_segment_first_temporal_analysis(
+        observations=observations,
+        daily_records=_daily(observations),
+        config=_config(),
+        selected_area_m2=2000.0,
+        road_document=_roads(),
+        section_lengths_m=(50,),
+        clock=lambda: 4.0,
+    )["experiments"][0]
+    for section in experiment["sections"]:
+        section["effective_area_m2"] = max(1.0, section["effective_area_m2"])
+        section["valid_observation_count"] = 4
+    available = build_spatial_segmentation_contract(
+        experiment,
+        section_length_m=50,
+        decision_min_observations=4,
+    )
+
+    assert available["status"] == "available"
+    assert available["zones"]
+    assert set(available["zones"][0]) == {
+        "zone_id",
+        "recommendation",
+        "geometry",
+        "area_m2",
+        "confidence",
+        "analysis_quality",
+        "reasons",
+        "start_distance_m",
+        "end_distance_m",
+        "road_ref",
+    }
+    assert not_applicable == {
+        "status": "not_applicable",
+        "experimental": True,
+        "section_length_m": 25,
+        "effective_coverage_pct": 0.0,
+        "zones": [],
+    }

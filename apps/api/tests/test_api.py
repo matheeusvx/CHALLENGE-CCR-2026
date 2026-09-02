@@ -131,9 +131,47 @@ def test_analysis_response_exposes_optional_shadow_segmentation(
     def service(config, *, analysis_id: str, **__):
         result = make_result(analysis_id)
         result.spatial_segmentation = {
-            "status": "experimental",
-            "mode": "shadow",
-            "official_recommendation_changed": False,
+            "status": "available",
+            "experimental": True,
+            "section_length_m": 50,
+            "effective_coverage_pct": 94.42,
+            "zones": [
+                {
+                    "zone_id": "zone-1",
+                    "recommendation": "cortar",
+                    "geometry": {"type": "Polygon", "coordinates": []},
+                    "area_m2": 100.0,
+                    "confidence": "high",
+                    "analysis_quality": "high",
+                    "reasons": ["current_percentile_at_or_above_high_threshold"],
+                    "start_distance_m": 0.0,
+                    "end_distance_m": 50.0,
+                    "road_ref": "SP-330",
+                }
+            ],
+        }
+        return result
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    body = client.post("/api/analyses/run", json=valid_payload).json()
+
+    assert body["spatial_segmentation"]["status"] == "available"
+    assert body["spatial_segmentation"]["section_length_m"] == 50
+    assert body["spatial_segmentation"]["effective_coverage_pct"] == 94.42
+    assert body["spatial_segmentation"]["zones"][0]["road_ref"] == "SP-330"
+    assert body["recommendation"]["decision"] == "nao_cortar"
+
+
+def test_analysis_response_exposes_not_applicable_segmentation(
+    client: TestClient, valid_payload: dict
+) -> None:
+    def service(config, *, analysis_id: str, **__):
+        result = make_result(analysis_id)
+        result.spatial_segmentation = {
+            "status": "not_applicable",
+            "experimental": True,
+            "section_length_m": 50,
+            "effective_coverage_pct": 62.22,
             "zones": [],
         }
         return result
@@ -141,8 +179,8 @@ def test_analysis_response_exposes_optional_shadow_segmentation(
     app.dependency_overrides[get_analysis_service] = lambda: service
     body = client.post("/api/analyses/run", json=valid_payload).json()
 
-    assert body["spatial_segmentation"]["status"] == "experimental"
-    assert body["spatial_segmentation"]["official_recommendation_changed"] is False
+    assert body["spatial_segmentation"]["status"] == "not_applicable"
+    assert body["spatial_segmentation"]["zones"] == []
     assert body["recommendation"]["decision"] == "nao_cortar"
 
 

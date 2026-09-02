@@ -351,7 +351,8 @@ def test_segmentation_error_is_fail_soft_and_keeps_global_recommendation(tmp_pat
     assert failed.status == baseline.status
     assert failed.recommendation == baseline.recommendation
     assert failed.spatial_segmentation["status"] == "unavailable"
-    assert failed.spatial_segmentation["official_recommendation_changed"] is False
+    assert failed.spatial_segmentation["experimental"] is True
+    assert failed.spatial_segmentation["zones"] == []
     assert any(
         warning["code"] == "SPATIAL_SEGMENTATION_UNAVAILABLE"
         for warning in failed.warnings

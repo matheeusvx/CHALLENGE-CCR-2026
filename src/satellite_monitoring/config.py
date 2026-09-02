@@ -79,6 +79,7 @@ class MonitoringConfig:
     temporal_return_ratio: float = DEFAULT_TEMPORAL_RETURN_RATIO
     height_estimation_enabled: bool = False
     spatial_segmentation_enabled: bool = False
+    spatial_section_length_m: int = 50
     spatial_regularization_enabled: bool = False
 
     def __post_init__(self) -> None:
@@ -161,6 +162,8 @@ class MonitoringConfig:
             raise ValueError("O multiplicador MAD deve ser maior que zero.")
         if not 0 <= self.temporal_return_ratio <= 1:
             raise ValueError("A razao de retorno temporal deve estar entre 0 e 1.")
+        if self.spatial_section_length_m <= 0:
+            raise ValueError("O comprimento da section deve ser maior que zero.")
 
     @property
     def datetime_range(self) -> str:
@@ -206,6 +209,7 @@ class MonitoringConfig:
         values = asdict(self)
         if not self.spatial_segmentation_enabled:
             values.pop("spatial_segmentation_enabled", None)
+            values.pop("spatial_section_length_m", None)
         if not self.spatial_regularization_enabled:
             values.pop("spatial_regularization_enabled", None)
         values["start_date"] = self.start_date.isoformat() if self.start_date else None

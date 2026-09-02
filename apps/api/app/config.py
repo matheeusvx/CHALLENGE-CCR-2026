@@ -47,6 +47,9 @@ class ApiSettings:
     spatial_segmentation_enabled: bool = field(
         default_factory=lambda: _read_bool("SPATIAL_SEGMENTATION_ENABLED")
     )
+    spatial_section_length_m: int = field(
+        default_factory=lambda: int(os.getenv("SPATIAL_SECTION_LENGTH_M", "50"))
+    )
     spatial_regularization_enabled: bool = field(
         default_factory=lambda: _read_bool("SPATIAL_REGULARIZATION_ENABLED")
     )
@@ -63,6 +66,8 @@ class ApiSettings:
             raise ValueError(
                 "MULTISOURCE_FUSION_MODE must be 'disabled' or 'shadow'."
             )
+        if self.spatial_section_length_m <= 0:
+            raise ValueError("SPATIAL_SECTION_LENGTH_M must be positive.")
 
     @property
     def cors_origins(self) -> list[str]:
