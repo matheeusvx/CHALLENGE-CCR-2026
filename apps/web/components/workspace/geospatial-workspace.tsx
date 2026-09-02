@@ -84,8 +84,8 @@ export function GeospatialWorkspace() {
             validationFailed={Boolean(validation.error && validationIsCurrent)}
           />
         </section>
-        <aside className="analysis-drawer" aria-label="Painel da análise">
-          <WorkspaceTabs active={state.activeTab} onChange={(tab) => state.setField("activeTab", tab)} hasResult={Boolean(result)} />
+        <aside className="analysis-drawer" aria-label="Painel da análise" data-tour="area-panel">
+          <WorkspaceTabs active={state.activeTab} onChange={(tab) => state.setField("activeTab", tab)} hasResult={Boolean(result)} data-tour="result-panel" />
           <div role="tabpanel">
             {state.activeTab === "area" && <AreaPanel validating={validation.isPending && validationIsCurrent} running={analysis.isPending && analysisIsCurrent} error={errorMessage} onValidate={handleValidate} onRun={handleRun} />}
             {state.activeTab === "result" && <AnalysisResultSidebar result={result} onRetry={handleRun} />}

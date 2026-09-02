@@ -16,9 +16,9 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
         <span className="brand-icon"><Leaf size={20} aria-hidden="true" /></span>
         <span className="brand-copy"><strong>Motiva</strong><small>Faixa Verde</small></span>
       </div>
-      <nav>
+      <nav data-tour="navigation">
         {navigation.map(({ id, label, icon: Icon }) => (
-          <button key={id} className={activeView === id ? "nav-item active" : "nav-item"} type="button" aria-current={activeView === id ? "page" : undefined} onClick={() => onNavigate(id)}>
+          <button key={id} className={activeView === id ? "nav-item active" : "nav-item"} type="button" aria-current={activeView === id ? "page" : undefined} onClick={() => onNavigate(id)} data-tour={id === "analysis" ? "new-analysis" : undefined}>
             <Icon size={18} aria-hidden="true" /><span>{label}</span>
           </button>
         ))}

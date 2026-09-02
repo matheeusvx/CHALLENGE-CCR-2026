@@ -297,7 +297,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   };
 
   return (
-    <div className="map-stage" tabIndex={0} onKeyDown={(event) => {
+    <div className="map-stage" data-tour="map" tabIndex={0} onKeyDown={(event) => {
       if (event.key === "Escape") setSelectedTool("navigate");
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();

@@ -67,7 +67,7 @@ export function AreaPanel({ validating, running, error, onValidate, onRun }: Pro
 
       <div className="panel-actions">
         <button type="button" className="secondary-button" onClick={onValidate} disabled={!state.geometry || validating || running}><ScanSearch size={17} />Validar área</button>
-        <button type="button" className="primary-button" onClick={onRun} disabled={!currentValidation || validating || running}><Play size={17} />Executar análise</button>
+        <button type="button" className="primary-button" onClick={onRun} disabled={!currentValidation || validating || running} data-tour="run-analysis"><Play size={17} />Executar análise</button>
         <button type="button" className="quiet-action" onClick={state.requestGeometryFit} disabled={!state.geometry}><Crosshair size={15} />Enquadrar no mapa</button>
         <button type="button" className="quiet-action danger" onClick={clear} disabled={!state.geometry}><Eraser size={15} />Limpar área</button>
       </div>

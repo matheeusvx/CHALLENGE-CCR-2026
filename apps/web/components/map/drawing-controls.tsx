@@ -19,7 +19,7 @@ const ToolButton = ({ label, active, disabled, onClick, children }: { label: str
 
 export function DrawingControls(props: Props) {
   return (
-    <div className="drawing-controls" aria-label="Ferramentas de geometria">
+    <div className="drawing-controls" aria-label="Ferramentas de geometria" data-tour="drawing-tools">
       <ToolButton label="Navegar no mapa" active={props.tool === "navigate"} onClick={() => props.onTool("navigate")}><MousePointer2 size={18} /></ToolButton>
       <ToolButton label="Desenhar polígono" active={props.tool === "draw"} onClick={() => props.onTool("draw")}><Pencil size={18} /></ToolButton>
       <ToolButton label="Editar vértices" active={props.tool === "edit"} disabled={!props.hasGeometry} onClick={() => props.onTool("edit")}><Crosshair size={18} /></ToolButton>

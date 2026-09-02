@@ -1,12 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { AtSign, Bell, Eye, EyeOff, Globe, Info, Mail, Map as MapIcon, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, User } from "lucide-react";
+import { AtSign, Bell, BookOpen, Eye, EyeOff, Globe, Info, Mail, Map as MapIcon, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, User } from "lucide-react";
 import type { ComponentType } from "react";
 import { APP_ENVIRONMENT, APP_NAME, APP_VERSION, mockUser } from "@/lib/app-config";
 import { getHealth } from "@/lib/api/analyses";
 import { useSettingsStore, type ThemePreference } from "@/stores/settings-store";
 import { useRoadColorStore, MOTIVA_ROADS } from "@/stores/road-color-store";
+import { useOnboardingStore } from "@/stores/onboarding-store";
+import type { AppView } from "@/components/layout/app-sidebar";
 
 const themeOptions: Array<{ id: ThemePreference; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: "light", label: "Claro", icon: Sun },
@@ -23,13 +25,22 @@ function initialsOf(name: string) {
     .join("");
 }
 
-export function SettingsView() {
+export function SettingsView({ onNavigate }: { onNavigate?: (view: AppView) => void }) {
   const themePreference = useSettingsStore((state) => state.themePreference);
   const setThemePreference = useSettingsStore((state) => state.setThemePreference);
   const notificationsEnabled = useSettingsStore((state) => state.notificationsEnabled);
   const setNotificationsEnabled = useSettingsStore((state) => state.setNotificationsEnabled);
   const health = useQuery({ queryKey: ["health"], queryFn: getHealth, refetchInterval: 60_000, retry: 1 });
   const online = health.data?.status === "ok";
+
+  const resetOnboarding = useOnboardingStore((s) => s.resetOnboarding);
+  const startTour = useOnboardingStore((s) => s.startTour);
+
+  const handleRestartTutorial = () => {
+    resetOnboarding();
+    startTour();
+    onNavigate?.("analysis");
+  };
 
   const roadColors = useRoadColorStore((state) => state.activeColors);
   const roadVisibility = useRoadColorStore((state) => state.activeVisibility);
@@ -103,6 +114,22 @@ export function SettingsView() {
             >
               <span className="toggle-knob" />
               <span className="sr-only">{notificationsEnabled ? "Notificações ativadas" : "Notificações desativadas"}</span>
+            </button>
+          </div>
+        </section>
+
+        {/* Tutorial do sistema */}
+        <section className="settings-card">
+          <div className="settings-card-head"><BookOpen size={17} aria-hidden="true" /><div><strong>Tutorial do sistema</strong><span>Veja novamente a apresentação guiada das principais funcionalidades.</span></div></div>
+          <div className="settings-row">
+            <span className="settings-row-label"><BookOpen size={15} aria-hidden="true" />Apresentação guiada</span>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleRestartTutorial}
+              data-testid="restart-tutorial"
+            >
+              Refazer tutorial
             </button>
           </div>
         </section>
