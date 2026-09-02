@@ -551,7 +551,14 @@ def build_spatial_segmentation_contract(
         and section["effective_area_m2"] > 0
         and section["valid_observation_count"] >= decision_min_observations
     ]
-    eligible = bool(sections) and len(supported_sections) == len(sections)
+    supported_ids = {section["section_id"] for section in supported_sections}
+    eligible = len(supported_sections) >= 2
+    normalized_sections = deepcopy(sections)
+    for section in normalized_sections:
+        if section["section_id"] not in supported_ids:
+            section["recommendation"] = "inconclusivo"
+            section["confidence"] = "low"
+    normalized_zones = merge_segment_first_sections(normalized_sections)
     zones = (
         [
             {
@@ -569,7 +576,7 @@ def build_spatial_segmentation_contract(
                 "end_distance_m": zone["end_distance_m"],
                 "road_ref": zone["road_ref"],
             }
-            for zone in experiment.get("zones") or []
+            for zone in normalized_zones
         ]
         if eligible
         else []

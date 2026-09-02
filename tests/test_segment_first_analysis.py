@@ -292,7 +292,7 @@ def test_eligibility_gate_uses_existing_temporal_support_and_configurable_length
     )
 
     assert result["section_length_m"] == 50
-    assert result["status"] in {"available", "not_applicable"}
+    assert result["status"] == "available"
     experiment = run_segment_first_temporal_analysis(
         observations=observations,
         daily_records=_daily(observations),
@@ -303,7 +303,11 @@ def test_eligibility_gate_uses_existing_temporal_support_and_configurable_length
         clock=lambda: 4.0,
     )["experiments"][0]
     for section in experiment["sections"]:
-        section["effective_area_m2"] = max(1.0, section["effective_area_m2"])
+        section["effective_area_m2"] = 0.0
+        section["valid_observation_count"] = 0
+        section["recommendation"] = "cortar"
+    for section in experiment["sections"][:2]:
+        section["effective_area_m2"] = 1.0
         section["valid_observation_count"] = 4
     available = build_spatial_segmentation_contract(
         experiment,
@@ -313,6 +317,9 @@ def test_eligibility_gate_uses_existing_temporal_support_and_configurable_length
 
     assert available["status"] == "available"
     assert available["zones"]
+    assert any(
+        zone["recommendation"] == "inconclusivo" for zone in available["zones"]
+    )
     assert set(available["zones"][0]) == {
         "zone_id",
         "recommendation",
