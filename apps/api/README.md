@@ -36,6 +36,12 @@ habilita-la localmente antes de iniciar a API, defina
 `$env:HEIGHT_ESTIMATION_ENABLED = "true"`. O resultado e evidencia experimental
 adicional e nao altera a recommendation.
 
+A segmentacao espacial shadow tambem fica desabilitada por padrao. Defina
+`$env:SPATIAL_SEGMENTATION_ENABLED = "true"` para produzir zonas auxiliares
+reutilizando os rasters ja processados; a recommendation global continua oficial.
+`SPATIAL_REGULARIZATION_ENABLED=true` adiciona a representacao operacional V2,
+preservando a segmentacao raw e sem novas consultas externas.
+
 No contrato tecnico, `score_gt_30_cm` e o campo canonico e
 `calibration_status` e `uncalibrated`. `probability_gt_30_cm` permanece como
 alias deprecated para compatibilidade com historicos/clientes v0; nao representa

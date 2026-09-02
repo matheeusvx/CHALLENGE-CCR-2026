@@ -122,6 +122,28 @@ def test_analysis_response_remains_compatible_without_spatial_accounting(
     assert body["selected_area_m2"] is None
     assert body["effective_analysis_area_m2"] is None
     assert body["effective_analysis_pct"] is None
+    assert "spatial_segmentation" not in body
+
+
+def test_analysis_response_exposes_optional_shadow_segmentation(
+    client: TestClient, valid_payload: dict
+) -> None:
+    def service(config, *, analysis_id: str, **__):
+        result = make_result(analysis_id)
+        result.spatial_segmentation = {
+            "status": "experimental",
+            "mode": "shadow",
+            "official_recommendation_changed": False,
+            "zones": [],
+        }
+        return result
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    body = client.post("/api/analyses/run", json=valid_payload).json()
+
+    assert body["spatial_segmentation"]["status"] == "experimental"
+    assert body["spatial_segmentation"]["official_recommendation_changed"] is False
+    assert body["recommendation"]["decision"] == "nao_cortar"
 
 
 @pytest.mark.parametrize(

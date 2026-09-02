@@ -32,7 +32,14 @@ from .quality import (
     select_quality_assessed_observations,
     summarize_scene_quality,
 )
-from .raster_processing import calculate_mask_intersection_area, read_scene_bands
+from .raster_processing import (
+    SCL_EXCLUDED_CLASSES,
+    calculate_mask_intersection_area,
+    read_scene_bands,
+)
+from .segment_first_analysis import run_segment_first_shadow_segmentation
+from .spatial_segmentation import SpatialRasterObservation
+from .spatial_regularization import evaluate_spatial_regularization
 from .stac_client import Scene, search_scenes
 from .temporal_quality import calculate_analysis_quality, diagnose_temporal_consistency
 
@@ -58,6 +65,8 @@ class PipelineDependencies:
     read_scene_bands: Callable[..., Any] = read_scene_bands
     extract_height_features: Callable[..., dict[str, Any]] = extract_height_features
     estimate_height: Callable[..., dict[str, Any]] = estimate_height_class
+    segment_spatial: Callable[..., dict[str, Any]] = run_segment_first_shadow_segmentation
+    regularize_spatial: Callable[..., dict[str, Any]] = evaluate_spatial_regularization
     write_outputs: Callable[..., dict[str, Path]] = write_outputs
 
 
@@ -74,6 +83,7 @@ class AnalysisResult:
     selected_area_m2: float | None = None
     effective_analysis_area_m2: float | None = None
     effective_analysis_pct: float | None = None
+    spatial_segmentation: dict[str, Any] | None = None
     height_estimation: dict[str, Any] = field(default_factory=disabled_height_estimation)
     artifacts: dict[str, Path] = field(default_factory=dict)
     warnings: list[dict[str, Any]] = field(default_factory=list)
@@ -108,6 +118,8 @@ class AnalysisResult:
             "warnings": self.warnings,
             "errors": self.errors,
         }
+        if self.spatial_segmentation is not None:
+            payload["spatial_segmentation"] = self.spatial_segmentation
         if include_internal_paths:
             payload["artifacts"] = {key: str(path) for key, path in self.artifacts.items()}
         else:
@@ -207,6 +219,7 @@ def run_monitoring_analysis(
     processed_item_ids: list[str] = []
     failed_item_ids: list[str] = []
     spatial_accounting_inputs: dict[str, dict[str, Any]] = {}
+    spatial_segmentation_inputs: dict[str, SpatialRasterObservation] = {}
     discarded_candidate_scenes: list[dict[str, Any]] = []
     candidate_scenes: list[Scene] = []
     total_matches = 0
@@ -356,6 +369,60 @@ def run_monitoring_analysis(
                         "processing_status": "processed",
                     }
                 )
+                if (
+                    config.spatial_segmentation_enabled
+                    and ndvi_values is not None
+                    and raster_data.inside_aoi_mask is not None
+                    and raster_data.spatial_transform is not None
+                    and raster_data.spatial_aoi_geometry is not None
+                    and raster_data.spatial_crs is not None
+                ):
+                    accepted_mask = np.isfinite(ndvi_values)
+                    rejection_reasons = np.full(ndvi_values.shape, "", dtype=object)
+                    inside_mask = np.asarray(raster_data.inside_aoi_mask, dtype=bool)
+                    rejection_reasons[inside_mask & ~accepted_mask] = (
+                        "QUALITY_MASK_REJECTED"
+                    )
+                    if raster_data.scl_values is not None:
+                        scl_rejected = inside_mask & np.isin(
+                            raster_data.scl_values,
+                            list(SCL_EXCLUDED_CLASSES),
+                        )
+                        rejection_reasons[scl_rejected] = "SCL_REJECTED"
+                    spatial_segmentation_inputs[scene.item_id] = (
+                        SpatialRasterObservation(
+                            item_id=scene.item_id,
+                            datetime=str(scene_record["datetime"]),
+                            ndvi=ndvi_values,
+                            valid_mask=accepted_mask,
+                            inside_aoi_mask=inside_mask,
+                            transform=raster_data.spatial_transform,
+                            aoi_geometry=raster_data.spatial_aoi_geometry,
+                            crs=raster_data.spatial_crs,
+                            crs_is_projected=bool(
+                                raster_data.spatial_crs_is_projected
+                            ),
+                            scene_quality_score=assessment.scene_quality_score,
+                            quality_status=assessment.quality_status,
+                            cloud_cover=scene_record.get("cloud_cover"),
+                            rejection_reasons=rejection_reasons,
+                            has_scl=raster_data.scl_asset is not None,
+                            scl_values=(
+                                np.asarray(raster_data.scl_values).copy()
+                                if raster_data.scl_values is not None
+                                else None
+                            ),
+                            scl_class_percentages=dict(
+                                raster_data.scl_class_percentages
+                            ),
+                            aoi_coverage_percentage=(
+                                raster_data.aoi_coverage_percentage
+                            ),
+                            partial_raster_coverage=(
+                                raster_data.partial_raster_coverage
+                            ),
+                        )
+                    )
                 processed_item_ids.append(scene.item_id)
                 warnings.extend(
                     {"item_id": scene.item_id, "message": message}
@@ -528,7 +595,6 @@ def run_monitoring_analysis(
                     ),
                 }
             )
-
     for daily_record in raw_daily_records:
         source_ids = list(daily_record.get("aggregation_source_item_ids") or [])
         selected_item_id = daily_record.get("aggregation_selected_item_id")
@@ -585,6 +651,70 @@ def run_monitoring_analysis(
         )
     )
     recommendation = recommendation_result.to_dict()
+    spatial_segmentation = None
+    if config.spatial_segmentation_enabled:
+        try:
+            spatial_segmentation = deps.segment_spatial(
+                observations=list(spatial_segmentation_inputs.values()),
+                daily_records=analysis_records,
+                config=config,
+                selected_area_m2=selected_area_m2,
+                effective_analysis_area_m2=effective_analysis_area_m2,
+            )
+        except Exception as exc:
+            spatial_segmentation = {
+                "status": "unavailable",
+                "mode": "shadow",
+                "official_recommendation_changed": False,
+                "error": str(exc),
+                "warnings": ["SPATIAL_SEGMENTATION_UNAVAILABLE"],
+            }
+            warnings.append(
+                {
+                    "code": "SPATIAL_SEGMENTATION_UNAVAILABLE",
+                    "message": f"Segmentacao espacial experimental indisponivel: {exc}",
+                }
+            )
+        if (
+            config.spatial_regularization_enabled
+            and spatial_segmentation.get("status") == "experimental"
+        ):
+            spatial_shadow = spatial_segmentation
+            raw_segmentation = spatial_shadow.get(
+                "raw_segmentation", spatial_shadow
+            )
+            try:
+                spatial_segmentation = deps.regularize_spatial(raw_segmentation)
+                spatial_segmentation["official_recommendation_changed"] = False
+                if "segment_first_temporal" in spatial_shadow:
+                    spatial_segmentation["segment_first_temporal"] = spatial_shadow[
+                        "segment_first_temporal"
+                    ]
+            except Exception as exc:
+                spatial_segmentation = {
+                    "status": "experimental",
+                    "mode": "shadow",
+                    "official_recommendation_changed": False,
+                    "raw_segmentation": raw_segmentation,
+                    "operational_segmentation": {
+                        "status": "unavailable",
+                        "error": str(exc),
+                    },
+                    "regularization": {
+                        "status": "unavailable",
+                        "recommended_mmu": None,
+                        "warnings": ["SPATIAL_REGULARIZATION_UNAVAILABLE"],
+                    },
+                }
+                warnings.append(
+                    {
+                        "code": "SPATIAL_REGULARIZATION_UNAVAILABLE",
+                        "message": (
+                            "Regularizacao espacial experimental indisponivel: "
+                            f"{exc}"
+                        ),
+                    }
+                )
     if config.height_estimation_enabled:
         height_source_records = [
             record
@@ -746,6 +876,8 @@ def run_monitoring_analysis(
         "trend_interpretation": None,
         **quality_summary,
     }
+    if spatial_segmentation is not None:
+        summary["spatial_segmentation"] = spatial_segmentation
 
     try:
         artifact_paths = deps.write_outputs(
@@ -772,6 +904,7 @@ def run_monitoring_analysis(
             selected_area_m2=selected_area_m2,
             effective_analysis_area_m2=effective_analysis_area_m2,
             effective_analysis_pct=effective_analysis_pct,
+            spatial_segmentation=spatial_segmentation,
             height_estimation=height_estimation,
             warnings=warnings,
             errors=errors,
@@ -806,6 +939,7 @@ def run_monitoring_analysis(
         selected_area_m2=selected_area_m2,
         effective_analysis_area_m2=effective_analysis_area_m2,
         effective_analysis_pct=effective_analysis_pct,
+        spatial_segmentation=spatial_segmentation,
         height_estimation=height_estimation,
         artifacts=public_artifacts,
         warnings=warnings,

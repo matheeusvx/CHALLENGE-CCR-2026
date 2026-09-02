@@ -129,6 +129,7 @@ def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisRe
             result, "effective_analysis_area_m2", None
         ),
         effective_analysis_pct=getattr(result, "effective_analysis_pct", None),
+        spatial_segmentation=getattr(result, "spatial_segmentation", None),
         aoi=result.aoi,
         summary=public_summary,
         timeseries=result.timeseries,
@@ -208,6 +209,8 @@ def run_analysis(
             ),
             output_root=settings.output_root,
             height_estimation_enabled=settings.height_estimation_enabled,
+            spatial_segmentation_enabled=settings.spatial_segmentation_enabled,
+            spatial_regularization_enabled=settings.spatial_regularization_enabled,
         )
         result = service(config, analysis_id=str(uuid4()))
     except InvalidAnalysisGeometryError as exc:
