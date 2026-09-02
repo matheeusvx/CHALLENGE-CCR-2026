@@ -25,17 +25,33 @@ export const ZONES_LAYER_IDS = {
 // Visual styles per decision
 // ---------------------------------------------------------------------------
 
-const ZONE_COLORS: Record<string, { fill: string; outline: string }> = {
-  cortar: { fill: "rgba(215,90,50,0.35)", outline: "#d75a32" },
-  nao_cortar: { fill: "rgba(39,134,91,0.30)", outline: "#27865b" },
-  inconclusivo: { fill: "rgba(167,121,25,0.28)", outline: "#a77919" },
+const ZONE_COLORS = {
+  cortar: {
+    fill: "rgba(224, 86, 36, 0.45)",
+    fillHover: "rgba(224, 86, 36, 0.70)",
+    outline: "#e05624",
+    outlineHover: "#ff6b35",
+  },
+  nao_cortar: {
+    fill: "rgba(39, 134, 91, 0.40)",
+    fillHover: "rgba(39, 134, 91, 0.65)",
+    outline: "#27865b",
+    outlineHover: "#34b077",
+  },
+  inconclusivo: {
+    fill: "rgba(180, 130, 20, 0.38)",
+    fillHover: "rgba(180, 130, 20, 0.60)",
+    outline: "#b48214",
+    outlineHover: "#d99e1a",
+  },
 };
 
-const FALLBACK_ZONE_COLOR = { fill: "rgba(128,128,128,0.25)", outline: "#808080" };
-
-function zoneColor(decision: string) {
-  return ZONE_COLORS[decision] ?? FALLBACK_ZONE_COLOR;
-}
+const FALLBACK_ZONE_COLOR = {
+  fill: "rgba(128, 128, 128, 0.25)",
+  fillHover: "rgba(128, 128, 128, 0.45)",
+  outline: "#808080",
+  outlineHover: "#a0a0a0",
+};
 
 // ---------------------------------------------------------------------------
 // Feature collection
@@ -100,11 +116,22 @@ export function installOrUpdateZonesLayer(map: MapLibreMap, zones: SpatialZone[]
       source: ZONES_LAYER_IDS.source,
       paint: {
         "fill-color": [
-          "match", ["get", "recommendation"],
-          "cortar", zoneColor("cortar").fill,
-          "nao_cortar", zoneColor("nao_cortar").fill,
-          "inconclusivo", zoneColor("inconclusivo").fill,
-          FALLBACK_ZONE_COLOR.fill,
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          [
+            "match", ["get", "recommendation"],
+            "cortar", ZONE_COLORS.cortar.fillHover,
+            "nao_cortar", ZONE_COLORS.nao_cortar.fillHover,
+            "inconclusivo", ZONE_COLORS.inconclusivo.fillHover,
+            FALLBACK_ZONE_COLOR.fillHover,
+          ],
+          [
+            "match", ["get", "recommendation"],
+            "cortar", ZONE_COLORS.cortar.fill,
+            "nao_cortar", ZONE_COLORS.nao_cortar.fill,
+            "inconclusivo", ZONE_COLORS.inconclusivo.fill,
+            FALLBACK_ZONE_COLOR.fill,
+          ],
         ],
         "fill-opacity": 1,
       },
@@ -118,14 +145,25 @@ export function installOrUpdateZonesLayer(map: MapLibreMap, zones: SpatialZone[]
       source: ZONES_LAYER_IDS.source,
       paint: {
         "line-color": [
-          "match", ["get", "recommendation"],
-          "cortar", zoneColor("cortar").outline,
-          "nao_cortar", zoneColor("nao_cortar").outline,
-          "inconclusivo", zoneColor("inconclusivo").outline,
-          FALLBACK_ZONE_COLOR.outline,
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          [
+            "match", ["get", "recommendation"],
+            "cortar", ZONE_COLORS.cortar.outlineHover,
+            "nao_cortar", ZONE_COLORS.nao_cortar.outlineHover,
+            "inconclusivo", ZONE_COLORS.inconclusivo.outlineHover,
+            FALLBACK_ZONE_COLOR.outlineHover,
+          ],
+          [
+            "match", ["get", "recommendation"],
+            "cortar", ZONE_COLORS.cortar.outline,
+            "nao_cortar", ZONE_COLORS.nao_cortar.outline,
+            "inconclusivo", ZONE_COLORS.inconclusivo.outline,
+            FALLBACK_ZONE_COLOR.outline,
+          ],
         ],
-        "line-width": 2.5,
-        "line-opacity": 0.9,
+        "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 4, 2.5],
+        "line-opacity": 1,
       },
     });
   }
@@ -146,11 +184,12 @@ export function bringZonesLayersToFront(map: MapLibreMap): void {
 }
 
 // ---------------------------------------------------------------------------
-// Click interaction — shows popup with zone details
+// Click & Hover interaction — shows popup with zone details
 // ---------------------------------------------------------------------------
 
 export function installZoneClickInteraction(map: MapLibreMap): { dispose: () => void; popupRef: MapPopup | null } {
   let popup: MapPopup | null = null;
+  let hoveredZoneId: string | number | undefined;
 
   const handleClick = (e: MapLayerMouseEvent) => {
     const feature = e.features?.[0];
@@ -211,11 +250,40 @@ export function installZoneClickInteraction(map: MapLibreMap): { dispose: () => 
       .addTo(map);
   };
 
-  const handleEnter = () => { map.getCanvas().style.cursor = "pointer"; };
-  const handleLeave = () => { map.getCanvas().style.cursor = ""; };
+  const handleEnter = (e: MapLayerMouseEvent) => {
+    map.getCanvas().style.cursor = "pointer";
+    const id = e.features?.[0]?.id;
+    if (id !== undefined && id !== hoveredZoneId) {
+      if (hoveredZoneId !== undefined) {
+        try { map.setFeatureState({ source: ZONES_LAYER_IDS.source, id: hoveredZoneId }, { hover: false }); } catch {}
+      }
+      hoveredZoneId = id;
+      try { map.setFeatureState({ source: ZONES_LAYER_IDS.source, id }, { hover: true }); } catch {}
+    }
+  };
+
+  const handleMove = (e: MapLayerMouseEvent) => {
+    const id = e.features?.[0]?.id;
+    if (id !== undefined && id !== hoveredZoneId) {
+      if (hoveredZoneId !== undefined) {
+        try { map.setFeatureState({ source: ZONES_LAYER_IDS.source, id: hoveredZoneId }, { hover: false }); } catch {}
+      }
+      hoveredZoneId = id;
+      try { map.setFeatureState({ source: ZONES_LAYER_IDS.source, id }, { hover: true }); } catch {}
+    }
+  };
+
+  const handleLeave = () => {
+    map.getCanvas().style.cursor = "";
+    if (hoveredZoneId !== undefined) {
+      try { map.setFeatureState({ source: ZONES_LAYER_IDS.source, id: hoveredZoneId }, { hover: false }); } catch {}
+      hoveredZoneId = undefined;
+    }
+  };
 
   map.on("click", ZONES_LAYER_IDS.fill, handleClick);
   map.on("mouseenter", ZONES_LAYER_IDS.fill, handleEnter);
+  map.on("mousemove", ZONES_LAYER_IDS.fill, handleMove);
   map.on("mouseleave", ZONES_LAYER_IDS.fill, handleLeave);
 
   return {
@@ -223,6 +291,7 @@ export function installZoneClickInteraction(map: MapLibreMap): { dispose: () => 
     dispose: () => {
       map.off("click", ZONES_LAYER_IDS.fill, handleClick);
       map.off("mouseenter", ZONES_LAYER_IDS.fill, handleEnter);
+      map.off("mousemove", ZONES_LAYER_IDS.fill, handleMove);
       map.off("mouseleave", ZONES_LAYER_IDS.fill, handleLeave);
       handleLeave();
       popup?.remove();
@@ -230,3 +299,4 @@ export function installZoneClickInteraction(map: MapLibreMap): { dispose: () => 
     },
   };
 }
+

@@ -12,13 +12,20 @@ const stateIcons = {
   inconclusive: ShieldQuestion,
 } as const;
 
-export function MapLegend({ mapStyle, aoiState, hasGeometry }: { mapStyle: MapStyleId; aoiState: AoiVisualState; hasGeometry: boolean }) {
+export function MapLegend({ mapStyle, aoiState, hasGeometry, hasZones = false }: { mapStyle: MapStyleId; aoiState: AoiVisualState; hasGeometry: boolean; hasZones?: boolean }) {
   const Icon = stateIcons[aoiState.id];
   return (
     <div className="map-legend" aria-label="Legenda do mapa">
       <span className="map-legend-base">Base: <strong>{MAP_STYLES[mapStyle].label}</strong></span>
       {hasGeometry ? (
         <span><i className="legend-swatch" style={{ borderColor: aoiState.color, backgroundColor: `${aoiState.color}2e` }} /><Icon size={14} />{aoiState.label}</span>
+      ) : null}
+      {hasZones ? (
+        <>
+          <span className="zone-legend-item"><i className="zone-legend-swatch zone-legend-cortar" />CORTAR</span>
+          <span className="zone-legend-item"><i className="zone-legend-swatch zone-legend-nao-cortar" />NÃO CORTAR</span>
+          <span className="zone-legend-item"><i className="zone-legend-swatch zone-legend-inconclusivo" />INCONCLUSIVO</span>
+        </>
       ) : null}
     </div>
   );

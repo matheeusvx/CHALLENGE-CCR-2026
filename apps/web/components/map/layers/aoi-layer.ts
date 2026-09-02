@@ -22,11 +22,18 @@ export function installOrUpdateAoiLayer(
   map: MapLibreMap,
   geometry: PolygonGeometry | null,
   visualState: AoiVisualState,
+  options?: { hasActiveZones?: boolean },
 ): void {
   if (!geometry) {
     removeAoiLayer(map);
     return;
   }
+
+  const hasActiveZones = Boolean(options?.hasActiveZones);
+  const fillOpacity = hasActiveZones ? 0 : visualState.fillOpacity;
+  const lineWidth = hasActiveZones ? 2.5 : 6;
+  const lineOpacity = hasActiveZones ? 0.45 : 1;
+  const haloOpacity = hasActiveZones ? 0 : 0.82;
 
   const data = createAoiFeatureCollection(geometry, visualState.label);
   const source = map.getSource(AOI_LAYER_IDS.source);
@@ -41,14 +48,14 @@ export function installOrUpdateAoiLayer(
     type: "fill",
     source: AOI_LAYER_IDS.source,
     filter: ["==", ["get", "feature_role"], "area"],
-    paint: { "fill-color": visualState.color, "fill-opacity": visualState.fillOpacity },
+    paint: { "fill-color": visualState.color, "fill-opacity": fillOpacity },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.halo,
     type: "line",
     source: AOI_LAYER_IDS.source,
     filter: ["==", ["get", "feature_role"], "area"],
-    paint: { "line-color": "#ffffff", "line-width": 10, "line-opacity": 0.82 },
+    paint: { "line-color": "#ffffff", "line-width": 10, "line-opacity": haloOpacity },
   });
   addLayerIfMissing(map, {
     id: AOI_LAYER_IDS.outline,
@@ -57,8 +64,8 @@ export function installOrUpdateAoiLayer(
     filter: ["==", ["get", "feature_role"], "area"],
     paint: {
       "line-color": visualState.color,
-      "line-width": 6,
-      "line-opacity": 1,
+      "line-width": lineWidth,
+      "line-opacity": lineOpacity,
       "line-dasharray": visualState.dashed ? [2, 1.5] : [1, 0.01],
     },
   });
@@ -72,7 +79,7 @@ export function installOrUpdateAoiLayer(
       "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 9, 7],
       "circle-stroke-color": visualState.color,
       "circle-stroke-width": 3,
-      "circle-opacity": 1,
+      "circle-opacity": hasActiveZones ? 0.4 : 1,
     },
   });
   if (map.getStyle().glyphs) {
@@ -97,8 +104,11 @@ export function installOrUpdateAoiLayer(
   }
 
   map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-color", visualState.color);
-  map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-opacity", visualState.fillOpacity);
+  map.setPaintProperty(AOI_LAYER_IDS.fill, "fill-opacity", fillOpacity);
+  map.setPaintProperty(AOI_LAYER_IDS.halo, "line-opacity", haloOpacity);
   map.setPaintProperty(AOI_LAYER_IDS.outline, "line-color", visualState.color);
+  map.setPaintProperty(AOI_LAYER_IDS.outline, "line-width", lineWidth);
+  map.setPaintProperty(AOI_LAYER_IDS.outline, "line-opacity", lineOpacity);
   map.setPaintProperty(AOI_LAYER_IDS.outline, "line-dasharray", visualState.dashed ? [2, 1.5] : [1, 0.01]);
   map.setPaintProperty(AOI_LAYER_IDS.vertices, "circle-stroke-color", visualState.color);
   bringAoiLayersToFront(map);

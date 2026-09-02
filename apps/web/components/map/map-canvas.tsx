@@ -23,8 +23,7 @@ import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-
 import { DrawingControls } from "./drawing-controls";
 import { installAoiHoverInteractions, installOrUpdateAoiLayer, bringAoiLayersToFront } from "./layers/aoi-layer";
 import { installOrUpdateManagedRoadsLayer } from "./layers/managed-roads-layer";
-import { MapLegend } from "./map-legend";
-
+import { installOrUpdateZonesLayer, removeZonesLayer, bringZonesLayersToFront, installZoneClickInteraction } from "./layers/spatial-zones-layer";
 import { MapStatus, type MapLoadStatus } from "./map-status";
 import { MapStyleSelector } from "./map-style-selector";
 import { useRoadColorStore } from "@/stores/road-color-store";
@@ -39,6 +38,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const applyingGeometry = useRef(false);
   const disposeEditorRef = useRef<() => void>(() => undefined);
   const disposeHoverRef = useRef<() => void>(() => undefined);
+  const disposeZoneClickRef = useRef<() => void>(() => undefined);
   const initialGeometryFitDone = useRef(false);
   const baseLoadFailedRef = useRef(false);
   const styleEditorReadyRef = useRef(false);
@@ -188,6 +188,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
 
     return () => {
       disposeHoverRef.current();
+      disposeZoneClickRef.current();
       disposeEditor();
       popupRef.current?.remove();
       map.off("load", handleLoad);
@@ -214,6 +215,10 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     if (!same) replaceDrawGeometry(draw, geometry, applyingGeometry);
   }, [geometry, geometryRevision]);
 
+  const hasActiveZones = Boolean(
+    result?.spatial_segmentation?.status === "available" && (result.spatial_segmentation.zones.length > 0),
+  );
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleEditorReadyRef.current) return;
@@ -223,10 +228,31 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     } catch (e) {
       console.warn("Erro ao atualizar camada de rodovias.", e);
     }
-    installOrUpdateAoiLayer(map, geometry, aoiVisualState);
+    installOrUpdateAoiLayer(map, geometry, aoiVisualState, { hasActiveZones });
     disposeHoverRef.current = geometry ? installAoiHoverInteractions(map) : () => undefined;
     bringAoiLayersToFront(map);
-  }, [aoiVisualState, geometry, activeRoadColors, activeRoadVisibility]);
+    if (hasActiveZones) {
+      bringZonesLayersToFront(map);
+    }
+  }, [aoiVisualState, geometry, activeRoadColors, activeRoadVisibility, hasActiveZones]);
+
+  // Spatial segmentation zones
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleEditorReadyRef.current) return;
+    const seg = result?.spatial_segmentation;
+    const zones = seg?.status === "available" ? seg.zones : [];
+    disposeZoneClickRef.current();
+    if (zones.length > 0) {
+      installOrUpdateZonesLayer(map, zones);
+      bringZonesLayersToFront(map);
+      const interaction = installZoneClickInteraction(map);
+      disposeZoneClickRef.current = interaction.dispose;
+    } else {
+      removeZonesLayer(map);
+      disposeZoneClickRef.current = () => undefined;
+    }
+  }, [result]);
 
   useEffect(() => {
     if (fitRequestId > 0 && geometry && mapRef.current) fitMapToGeometry(mapRef.current, geometry);
@@ -319,12 +345,6 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
       {geometry ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
       <MapStyleSelector active="operational" />
-      {loadStatus === "ready" && (
-        <>
-          <MapLegend mapStyle="operational" aoiState={aoiVisualState} hasGeometry={Boolean(geometry)} />
-
-        </>
-      )}
     </div>
   );
 }

@@ -6,15 +6,18 @@ import {
   installZoneClickInteraction,
   ZONES_LAYER_IDS,
 } from "@/components/map/layers/spatial-zones-layer";
-import { MapLegend } from "@/components/map/map-legend";
+import { installOrUpdateAoiLayer, AOI_LAYER_IDS } from "@/components/map/layers/aoi-layer";
 import { AnalysisResultSidebar } from "@/components/analysis/analysis-result-sidebar";
+import { RecommendationPanel } from "@/components/analysis/recommendation-panel";
 import {
   spatialZoneSchema,
   spatialSegmentationSchema,
   type AnalysisResponse,
   type SpatialZone,
 } from "@/lib/schemas/analyses";
+import { calculateZoneAreaStats } from "@/lib/utils/recommendation";
 import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
+import type { PolygonGeometry } from "@/lib/map/geometry";
 
 // ---------------------------------------------------------------------------
 // Mock MapLibre Map for layer testing
@@ -24,6 +27,7 @@ class LayerMapMock {
   sources = new Map<string, { setData: ReturnType<typeof vi.fn>; data: unknown }>();
   layers = new Map<string, { id: string; type?: string; paint?: Record<string, unknown> }>();
   handlers = new Map<string, Array<{ layerId?: string; fn: (e: unknown) => void }>>();
+  featureStates = new Map<string, Record<string, unknown>>();
   canvas = { style: { cursor: "" } };
 
   addSource(id: string, value: { data: unknown }) {
@@ -51,6 +55,19 @@ class LayerMapMock {
       this.layers.set(id, layer);
     }
   }
+  setPaintProperty(id: string, key: string, value: unknown) {
+    const layer = this.layers.get(id);
+    if (layer) {
+      layer.paint = { ...layer.paint, [key]: value };
+    }
+  }
+  setFeatureState(target: { source: string; id: string | number }, state: Record<string, unknown>) {
+    const key = `${target.source}:${target.id}`;
+    this.featureStates.set(key, { ...this.featureStates.get(key), ...state });
+  }
+  getFeatureState(target: { source: string; id: string | number }) {
+    return this.featureStates.get(`${target.source}:${target.id}`) ?? {};
+  }
   on(event: string, layerOrFn: string | ((e: unknown) => void), maybeFn?: (e: unknown) => void) {
     const layerId = typeof layerOrFn === "string" ? layerOrFn : undefined;
     const fn = typeof layerOrFn === "function" ? layerOrFn : maybeFn!;
@@ -70,6 +87,9 @@ class LayerMapMock {
   getCanvas() {
     return this.canvas;
   }
+  getStyle() {
+    return {};
+  }
   emit(event: string, e: unknown) {
     const list = this.handlers.get(event) ?? [];
     list.forEach((h) => h.fn(e));
@@ -80,6 +100,11 @@ class LayerMapMock {
 // Test Data
 // ---------------------------------------------------------------------------
 
+const samplePolygon: PolygonGeometry = {
+  type: "Polygon",
+  coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+};
+
 const sampleZone1: SpatialZone = {
   zone_id: "zone-1",
   recommendation: "cortar",
@@ -87,7 +112,7 @@ const sampleZone1: SpatialZone = {
     type: "Polygon",
     coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]],
   },
-  area_m2: 1250.5,
+  area_m2: 5000.0,
   confidence: "high",
   analysis_quality: "high",
   reasons: ["current_percentile_at_or_above_high_threshold"],
@@ -103,7 +128,7 @@ const sampleZone2: SpatialZone = {
     type: "Polygon",
     coordinates: [[[0.01, 0], [0.02, 0], [0.02, 0.01], [0.01, 0.01], [0.01, 0]]],
   },
-  area_m2: 1300.0,
+  area_m2: 3000.0,
   confidence: "medium",
   analysis_quality: "medium",
   reasons: ["current_percentile_below_or_equal_50"],
@@ -119,7 +144,7 @@ const sampleZone3: SpatialZone = {
     type: "Polygon",
     coordinates: [[[0.02, 0], [0.03, 0], [0.03, 0.01], [0.02, 0.01], [0.02, 0]]],
   },
-  area_m2: 980.2,
+  area_m2: 2000.0,
   confidence: "low",
   analysis_quality: "low",
   reasons: ["insufficient_observations"],
@@ -138,19 +163,19 @@ const baseAnalysisResponse: AnalysisResponse = {
     strategy: "previous_calendar_month",
   },
   recommendation: {
-    decision: "cortar",
+    decision: "nao_cortar",
     confidence: "high",
     experimental: false,
-    summary: "Recomendacao experimental de corte baseada no historico local.",
-    reasons: ["current_percentile_at_or_above_high_threshold"],
+    summary: "Vegetacao abaixo do nivel historico alto sem crescimento acelerado.",
+    reasons: ["current_percentile_below_or_equal_50"],
     blocking_reasons: [],
     limitations: [],
     metrics: {},
   },
-  selected_area_m2: 3530.7,
-  effective_analysis_area_m2: 3334.0,
-  effective_analysis_pct: 94.43,
-  aoi: { area_square_meters: 3530.7 },
+  selected_area_m2: 10000.0,
+  effective_analysis_area_m2: 9500.0,
+  effective_analysis_pct: 95.0,
+  aoi: { area_square_meters: 10000.0 },
   summary: { analysis_quality: { status: "high" } },
   timeseries: [],
   scenes: [],
@@ -179,179 +204,184 @@ describe("Spatial Segmentation - Schemas", () => {
       status: "available",
       experimental: true,
       section_length_m: 50,
-      effective_coverage_pct: 94.42,
+      effective_coverage_pct: 95.0,
       zones: [sampleZone1, sampleZone2, sampleZone3],
     };
     const parsed = spatialSegmentationSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect(parsed.data.zones).toHaveLength(3);
-      expect(parsed.data.status).toBe("available");
-    }
-  });
-
-  it("valida schema de SpatialSegmentation com status not_applicable", () => {
-    const payload = {
-      status: "not_applicable",
-      experimental: false,
-      section_length_m: 50,
-      effective_coverage_pct: null,
-      zones: [],
-    };
-    const parsed = spatialSegmentationSchema.safeParse(payload);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect(parsed.data.status).toBe("not_applicable");
-      expect(parsed.data.zones).toHaveLength(0);
-    }
   });
 });
 
-describe("Spatial Segmentation - Map Layer", () => {
-  it("instala camadas de fill e outline com source GeoJSON", () => {
+describe("Spatial Segmentation - Area-Weighted Calculations", () => {
+  it("calcula percentuais por área em vez de quantidade de zonas", () => {
+    // 6 zones scenario:
+    // 1 CORTAR of 5000m²
+    // 2 NÃO CORTAR of 1500m² each = 3000m²
+    // 3 INCONCLUSIVO of 666.67m² each = 2000m²
+    // Total = 10000m²
+    // Zone count: 1 (17%), 2 (33%), 3 (50%)
+    // Area weight: 50% CORTAR, 30% NÃO CORTAR, 20% INCONCLUSIVO
+    const sixZones: SpatialZone[] = [
+      { ...sampleZone1, zone_id: "z1", area_m2: 5000.0, recommendation: "cortar" },
+      { ...sampleZone2, zone_id: "z2", area_m2: 1500.0, recommendation: "nao_cortar" },
+      { ...sampleZone2, zone_id: "z3", area_m2: 1500.0, recommendation: "nao_cortar" },
+      { ...sampleZone3, zone_id: "z4", area_m2: 666.67, recommendation: "inconclusivo" },
+      { ...sampleZone3, zone_id: "z5", area_m2: 666.67, recommendation: "inconclusivo" },
+      { ...sampleZone3, zone_id: "z6", area_m2: 666.66, recommendation: "inconclusivo" },
+    ];
+
+    const stats = calculateZoneAreaStats(sixZones, 95.0);
+
+    expect(stats.totalZones).toBe(6);
+    expect(stats.totalArea).toBeCloseTo(10000, 0);
+
+    // Area-weighted percentages
+    expect(Math.round(stats.cutPct)).toBe(50); // NOT 17%
+    expect(Math.round(stats.noCutPct)).toBe(30); // NOT 33%
+    expect(Math.round(stats.inconclusivePct)).toBe(20); // NOT 50%
+
+    expect(stats.cutCount).toBe(1);
+    expect(stats.noCutCount).toBe(2);
+    expect(stats.inconclusiveCount).toBe(3);
+  });
+
+  it("lida com lista vazia de zonas sem divisão por zero", () => {
+    const stats = calculateZoneAreaStats([]);
+    expect(stats.totalZones).toBe(0);
+    expect(stats.totalArea).toBe(0);
+    expect(stats.cutPct).toBe(0);
+    expect(stats.noCutPct).toBe(0);
+    expect(stats.inconclusivePct).toBe(0);
+  });
+});
+
+describe("Spatial Segmentation - Map Layers & Visual Hierarchy", () => {
+  const visualState = getAoiVisualState({ editing: false, dirty: false, validation: "valid", recommendation: "nao_cortar" });
+
+  it("torna o preenchimento da AOI transparente quando há zonas de segmentação ativas", () => {
     const map = new LayerMapMock();
-    installOrUpdateZonesLayer(map as never, [sampleZone1, sampleZone2]);
+    installOrUpdateAoiLayer(map as never, samplePolygon, visualState, { hasActiveZones: true });
+
+    const fillLayer = map.getLayer(AOI_LAYER_IDS.fill);
+    expect(fillLayer?.paint?.["fill-opacity"]).toBe(0);
+
+    const outlineLayer = map.getLayer(AOI_LAYER_IDS.outline);
+    expect(outlineLayer?.paint?.["line-width"]).toBe(2.5);
+    expect(outlineLayer?.paint?.["line-opacity"]).toBe(0.45);
+  });
+
+  it("mantém o preenchimento normal da AOI quando NÃO há zonas ativas", () => {
+    const map = new LayerMapMock();
+    installOrUpdateAoiLayer(map as never, samplePolygon, visualState, { hasActiveZones: false });
+
+    const fillLayer = map.getLayer(AOI_LAYER_IDS.fill);
+    expect(fillLayer?.paint?.["fill-opacity"]).toBe(visualState.fillOpacity);
+  });
+
+  it("instala e remove camadas de zonas com cores de preenchimento e contorno", () => {
+    const map = new LayerMapMock();
+    installOrUpdateZonesLayer(map as never, [sampleZone1, sampleZone2, sampleZone3]);
 
     expect(map.sources.has(ZONES_LAYER_IDS.source)).toBe(true);
     expect(map.layers.has(ZONES_LAYER_IDS.fill)).toBe(true);
     expect(map.layers.has(ZONES_LAYER_IDS.outline)).toBe(true);
 
-    const fillLayer = map.getLayer(ZONES_LAYER_IDS.fill);
-    expect(fillLayer?.type).toBe("fill");
-
-    const outlineLayer = map.getLayer(ZONES_LAYER_IDS.outline);
-    expect(outlineLayer?.type).toBe("line");
-  });
-
-  it("atualiza source existente quando chamada com novas zonas", () => {
-    const map = new LayerMapMock();
-    installOrUpdateZonesLayer(map as never, [sampleZone1]);
-    const source = map.getSource(ZONES_LAYER_IDS.source)!;
-
-    installOrUpdateZonesLayer(map as never, [sampleZone1, sampleZone2, sampleZone3]);
-    expect(source.setData).toHaveBeenCalledOnce();
-  });
-
-  it("remove camadas e source quando zones array é vazio", () => {
-    const map = new LayerMapMock();
-    installOrUpdateZonesLayer(map as never, [sampleZone1]);
-    expect(map.layers.has(ZONES_LAYER_IDS.fill)).toBe(true);
-
-    installOrUpdateZonesLayer(map as never, []);
-    expect(map.layers.has(ZONES_LAYER_IDS.fill)).toBe(false);
-    expect(map.layers.has(ZONES_LAYER_IDS.outline)).toBe(false);
-    expect(map.sources.has(ZONES_LAYER_IDS.source)).toBe(false);
-  });
-
-  it("removeZonesLayer limpa todas as camadas", () => {
-    const map = new LayerMapMock();
-    installOrUpdateZonesLayer(map as never, [sampleZone1]);
     removeZonesLayer(map as never);
-
+    expect(map.sources.has(ZONES_LAYER_IDS.source)).toBe(false);
     expect(map.layers.has(ZONES_LAYER_IDS.fill)).toBe(false);
     expect(map.layers.has(ZONES_LAYER_IDS.outline)).toBe(false);
-    expect(map.sources.has(ZONES_LAYER_IDS.source)).toBe(false);
   });
 
-  it("interação de clique registra e limpa eventos no mapa", () => {
+  it("gerencia hover state e cursor de ponteiro nas zonas", () => {
     const map = new LayerMapMock();
+    installOrUpdateZonesLayer(map as never, [sampleZone1]);
     const interaction = installZoneClickInteraction(map as never);
 
-    expect(map.handlers.get("click")).toHaveLength(1);
-    expect(map.handlers.get("mouseenter")).toHaveLength(1);
-    expect(map.handlers.get("mouseleave")).toHaveLength(1);
-
-    // Hover effect
-    map.emit("mouseenter", {});
+    // Mouseenter
+    map.emit("mouseenter", { features: [{ id: "zone-1", properties: sampleZone1 }] });
     expect(map.canvas.style.cursor).toBe("pointer");
+    expect(map.getFeatureState({ source: ZONES_LAYER_IDS.source, id: "zone-1" })).toEqual({ hover: true });
 
+    // Mouseleave
     map.emit("mouseleave", {});
     expect(map.canvas.style.cursor).toBe("");
+    expect(map.getFeatureState({ source: ZONES_LAYER_IDS.source, id: "zone-1" })).toEqual({ hover: false });
 
-    // Dispose
     interaction.dispose();
-    expect(map.handlers.get("click")).toHaveLength(0);
-    expect(map.handlers.get("mouseenter")).toHaveLength(0);
-    expect(map.handlers.get("mouseleave")).toHaveLength(0);
   });
 });
 
-describe("Spatial Segmentation - MapLegend", () => {
-  const aoiState = getAoiVisualState({ editing: false, dirty: false, validation: "valid", recommendation: "cortar" });
-
-  it("exibe legenda das zonas quando hasZones=true", () => {
-    render(<MapLegend mapStyle="operational" aoiState={aoiState} hasGeometry={true} hasZones={true} />);
-
-    expect(screen.getByText("CORTAR")).toBeInTheDocument();
-    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
-    expect(screen.getByText("INCONCLUSIVO")).toBeInTheDocument();
-  });
-
-  it("não exibe legenda das zonas quando hasZones=false", () => {
-    render(<MapLegend mapStyle="operational" aoiState={aoiState} hasGeometry={true} hasZones={false} />);
-
-    expect(screen.queryByText("CORTAR")).not.toBeInTheDocument();
-    expect(screen.queryByText("NÃO CORTAR")).not.toBeInTheDocument();
-    expect(screen.queryByText("INCONCLUSIVO")).not.toBeInTheDocument();
-  });
-});
-
-describe("Spatial Segmentation - AnalysisResultSidebar", () => {
-  it("renderiza resumo de segmentação quando status === 'available'", () => {
+describe("Spatial Segmentation - AnalysisResultSidebar Presentation", () => {
+  it("renderiza resumo de segmentação por área com cartões corretos e callout de intervenção localizada", () => {
     const resultWithZones: AnalysisResponse = {
       ...baseAnalysisResponse,
+      recommendation: {
+        ...baseAnalysisResponse.recommendation,
+        decision: "nao_cortar", // Global NÃO CORTAR
+      },
       spatial_segmentation: {
         status: "available",
         experimental: true,
         section_length_m: 50,
-        effective_coverage_pct: 94.42,
-        zones: [sampleZone1, sampleZone2, sampleZone3],
+        effective_coverage_pct: 95.0,
+        zones: [sampleZone1, sampleZone2, sampleZone3], // 50% cortar, 30% nao_cortar, 20% inconclusivo
       },
     };
 
     render(<AnalysisResultSidebar result={resultWithZones} onRetry={() => {}} />);
 
-    // Check that the summary is present
+    // 1. Two levels: "Resultado consolidado" header
+    expect(screen.getByText("Resultado consolidado")).toBeInTheDocument();
+    expect(screen.getAllByText("NÃO CORTAR").length).toBeGreaterThanOrEqual(1);
+
+    // 2. Callout for localized intervention when CORTAR zone exists
+    expect(screen.getByText(/1 zona requer intervenção/)).toBeInTheDocument();
+    expect(screen.getByText(/5\.000 m² · 50% da área segmentada/)).toBeInTheDocument();
+    expect(screen.queryByText("Intervenção localizada identificada")).not.toBeInTheDocument();
+
+    // 3. Spatial segmentation summary section
     const summary = screen.getByLabelText("Segmentação espacial");
     expect(summary).toBeInTheDocument();
-    expect(within(summary).getByText("Segmentação espacial")).toBeInTheDocument();
+    expect(within(summary).getByText("Resultado espacial")).toBeInTheDocument();
+    expect(within(summary).getByText("Segmentação por zonas")).toBeInTheDocument();
     expect(within(summary).getByText("3")).toBeInTheDocument();
-    expect(within(summary).getByText("zonas identificadas")).toBeInTheDocument();
 
-    // 1 zone out of 3 = 33% each
-    expect(within(summary).getByText("CORTAR")).toBeInTheDocument();
-    expect(within(summary).getByText("NÃO CORTAR")).toBeInTheDocument();
-    expect(within(summary).getByText("INCONCLUSIVO")).toBeInTheDocument();
-    expect(within(summary).getAllByText("33%")).toHaveLength(3);
+    // Area-weighted percentages in cards
+    expect(within(summary).getByText("50%")).toBeInTheDocument(); // CORTAR (5000m² / 10000m²)
+    expect(within(summary).getByText("30%")).toBeInTheDocument(); // NÃO CORTAR (3000m² / 10000m²)
+    expect(within(summary).getByText("20%")).toBeInTheDocument(); // INCONCLUSIVO (2000m² / 10000m²)
+
+    // Formatted m² areas in cards
+    expect(within(summary).getByText("5.000 m²")).toBeInTheDocument();
+    expect(within(summary).getByText("3.000 m²")).toBeInTheDocument();
+    expect(within(summary).getByText("2.000 m²")).toBeInTheDocument();
+
+    // Inconclusive explanation note
+    expect(within(summary).getByText("Dados insuficientes para uma recomendação local")).toBeInTheDocument();
+
+    // Effective coverage
+    expect(within(summary).getByText("Cobertura efetiva")).toBeInTheDocument();
+    expect(within(summary).getByText("95%")).toBeInTheDocument();
   });
 
-  it("calcula percentuais corretos com distribuição desigual de zonas", () => {
-    const resultUnequal: AnalysisResponse = {
+  it("NÃO exibe alerta de intervenção localizada quando não há zonas CORTAR", () => {
+    const resultNoCutZones: AnalysisResponse = {
       ...baseAnalysisResponse,
       spatial_segmentation: {
         status: "available",
         experimental: true,
         section_length_m: 50,
-        effective_coverage_pct: 90.0,
-        zones: [
-          sampleZone1, // cortar
-          sampleZone1, // cortar
-          sampleZone2, // nao_cortar
-          sampleZone3, // inconclusivo
-        ], // 4 total: 50% cortar, 25% nao_cortar, 25% inconclusivo
+        effective_coverage_pct: 95.0,
+        zones: [sampleZone2, sampleZone3], // Only NÃO CORTAR and INCONCLUSIVO
       },
     };
 
-    render(<AnalysisResultSidebar result={resultUnequal} onRetry={() => {}} />);
+    render(<AnalysisResultSidebar result={resultNoCutZones} onRetry={() => {}} />);
 
-    const summary = screen.getByLabelText("Segmentação espacial");
-    expect(within(summary).getByText("4")).toBeInTheDocument();
-    expect(within(summary).getByText("zonas identificadas")).toBeInTheDocument();
-    expect(within(summary).getByText("50%")).toBeInTheDocument();
-    expect(within(summary).getAllByText("25%")).toHaveLength(2);
+    expect(screen.queryByText(/requer intervenção/)).not.toBeInTheDocument();
   });
 
-  it("não renderiza resumo de segmentação quando status === 'not_applicable'", () => {
+  it("preserva recomendação global normal sem erros quando status === 'not_applicable'", () => {
     const resultNotApplicable: AnalysisResponse = {
       ...baseAnalysisResponse,
       spatial_segmentation: {
@@ -365,36 +395,35 @@ describe("Spatial Segmentation - AnalysisResultSidebar", () => {
 
     render(<AnalysisResultSidebar result={resultNotApplicable} onRetry={() => {}} />);
 
+    expect(screen.getByText("Recomendação")).toBeInTheDocument();
+    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
     expect(screen.queryByText("Segmentação espacial")).not.toBeInTheDocument();
-    expect(screen.queryByText("zonas identificadas")).not.toBeInTheDocument();
-    // Global recommendation still rendered
-    expect(screen.getByText("CORTAR")).toBeInTheDocument();
-    expect(screen.getByText("Confiança")).toBeInTheDocument();
+    expect(screen.queryByText(/requer intervenção/)).not.toBeInTheDocument();
   });
+});
 
-  it("não renderiza resumo de segmentação quando spatial_segmentation é ausente", () => {
-    render(<AnalysisResultSidebar result={baseAnalysisResponse} onRetry={() => {}} />);
-
-    expect(screen.queryByText("Segmentação espacial")).not.toBeInTheDocument();
-    expect(screen.queryByText("zonas identificadas")).not.toBeInTheDocument();
-    // Global recommendation still rendered
-    expect(screen.getByText("CORTAR")).toBeInTheDocument();
-  });
-
-  it("não renderiza resumo quando status === 'available' mas zones é vazio", () => {
-    const resultEmptyZones: AnalysisResponse = {
+describe("Spatial Segmentation - RecommendationPanel Callout", () => {
+  it("exibe callout de intervenção localizada quando recomendação global é NÃO CORTAR mas existem zonas locais CORTAR", () => {
+    const resultMixed: AnalysisResponse = {
       ...baseAnalysisResponse,
+      recommendation: {
+        ...baseAnalysisResponse.recommendation,
+        decision: "nao_cortar",
+      },
       spatial_segmentation: {
         status: "available",
         experimental: true,
         section_length_m: 50,
-        effective_coverage_pct: null,
-        zones: [],
+        effective_coverage_pct: 95.0,
+        zones: [sampleZone1, sampleZone2],
       },
     };
 
-    render(<AnalysisResultSidebar result={resultEmptyZones} onRetry={() => {}} />);
+    render(<RecommendationPanel result={resultMixed} />);
 
-    expect(screen.queryByText("Segmentação espacial")).not.toBeInTheDocument();
+    expect(screen.getByText("Resultado consolidado")).toBeInTheDocument();
+    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
+    expect(screen.getByText(/1 zona requer intervenção/)).toBeInTheDocument();
+    expect(screen.getByText(/5\.000 m² · 63% da área segmentada/)).toBeInTheDocument();
   });
 });

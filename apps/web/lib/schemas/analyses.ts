@@ -38,6 +38,27 @@ export const heightEstimationSchema = z.object({
   provenance: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
+export const spatialZoneSchema = z.object({
+  zone_id: z.string(),
+  recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
+  geometry: z.record(z.string(), z.unknown()),
+  area_m2: z.number().nonnegative(),
+  confidence: z.enum(["high", "medium", "low"]),
+  analysis_quality: z.enum(["high", "medium", "low"]),
+  reasons: z.array(z.string()),
+  start_distance_m: z.number().nonnegative(),
+  end_distance_m: z.number().nonnegative(),
+  road_ref: z.string(),
+});
+
+export const spatialSegmentationSchema = z.object({
+  status: z.enum(["available", "not_applicable", "unavailable"]),
+  experimental: z.boolean(),
+  section_length_m: z.number().positive(),
+  effective_coverage_pct: z.number().nonnegative().max(100).nullable(),
+  zones: z.array(spatialZoneSchema),
+});
+
 export const analysisResponseSchema = z.object({
   analysis_id: z.string().uuid(),
   status: z.string(),
@@ -61,6 +82,7 @@ export const analysisResponseSchema = z.object({
   selected_area_m2: z.number().positive().nullish(),
   effective_analysis_area_m2: z.number().nonnegative().nullish(),
   effective_analysis_pct: z.number().nonnegative().nullish(),
+  spatial_segmentation: spatialSegmentationSchema.optional(),
   aoi: recordSchema,
   summary: recordSchema,
   timeseries: z.array(recordSchema),
@@ -79,6 +101,8 @@ export const healthSchema = z.object({
 export type GeometryDocument = z.infer<typeof geometrySchema>;
 export type GeometryValidation = z.infer<typeof geometryValidationSchema>;
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;
+export type SpatialZone = z.infer<typeof spatialZoneSchema>;
+export type SpatialSegmentation = z.infer<typeof spatialSegmentationSchema>;
 
 export function parseGeometryText(value: string): GeometryDocument {
   let parsed: unknown;

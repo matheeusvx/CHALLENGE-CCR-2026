@@ -1,4 +1,4 @@
-import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import type { AnalysisResponse, SpatialZone } from "@/lib/schemas/analyses";
 
 const reasonLabels: Record<string, string> = {
   current_percentile_below_or_equal_50: "A vegetação está abaixo do nível considerado alto no histórico recente.",
@@ -96,3 +96,63 @@ export function formatArea(value: number | null) {
 
 export const formatOperationalDate = formatDateBR;
 export const formatOperationalArea = formatArea;
+
+export type ZoneAreaStats = {
+  totalArea: number;
+  totalZones: number;
+  cutArea: number;
+  cutCount: number;
+  cutPct: number;
+  noCutArea: number;
+  noCutCount: number;
+  noCutPct: number;
+  inconclusiveArea: number;
+  inconclusiveCount: number;
+  inconclusivePct: number;
+  coveragePct?: number | null;
+};
+
+export function calculateZoneAreaStats(zones: SpatialZone[], coveragePct?: number | null): ZoneAreaStats {
+  const totalZones = zones.length;
+  let totalArea = 0;
+  let cutArea = 0;
+  let cutCount = 0;
+  let noCutArea = 0;
+  let noCutCount = 0;
+  let inconclusiveArea = 0;
+  let inconclusiveCount = 0;
+
+  for (const zone of zones) {
+    const area = typeof zone.area_m2 === "number" && Number.isFinite(zone.area_m2) ? zone.area_m2 : 0;
+    totalArea += area;
+    if (zone.recommendation === "cortar") {
+      cutArea += area;
+      cutCount += 1;
+    } else if (zone.recommendation === "nao_cortar") {
+      noCutArea += area;
+      noCutCount += 1;
+    } else if (zone.recommendation === "inconclusivo") {
+      inconclusiveArea += area;
+      inconclusiveCount += 1;
+    }
+  }
+
+  const cutPct = totalArea > 0 ? (cutArea / totalArea) * 100 : 0;
+  const noCutPct = totalArea > 0 ? (noCutArea / totalArea) * 100 : 0;
+  const inconclusivePct = totalArea > 0 ? (inconclusiveArea / totalArea) * 100 : 0;
+
+  return {
+    totalArea,
+    totalZones,
+    cutArea,
+    cutCount,
+    cutPct,
+    noCutArea,
+    noCutCount,
+    noCutPct,
+    inconclusiveArea,
+    inconclusiveCount,
+    inconclusivePct,
+    coveragePct,
+  };
+}
