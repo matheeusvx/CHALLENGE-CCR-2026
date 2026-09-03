@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+import os
+import shutil
+from pathlib import Path as _Path
+
+# O historico usa um banco temporario e isolado. Precisa ser definido antes de
+# importar a aplicacao, que cria as tabelas na inicializacao.
+_TEST_DB_DIR = _Path(__file__).resolve().parent / ".pytest_tmp_api"
+shutil.rmtree(_TEST_DB_DIR, ignore_errors=True)
+_TEST_DB_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{(_TEST_DB_DIR / 'history.db').as_posix()}"
+
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4

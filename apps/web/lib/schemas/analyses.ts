@@ -92,6 +92,36 @@ export const analysisResponseSchema = z.object({
   errors: z.array(recordSchema),
 });
 
+export const analysisHistoryItemSchema = z.object({
+  analysis_id: z.string(),
+  created_at: z.string(),
+  status: z.string(),
+  decision: z.enum(["cortar", "nao_cortar", "inconclusivo"]).nullable().optional(),
+  confidence: z.enum(["high", "medium", "low"]).nullable().optional(),
+  summary: z.string().nullable().optional(),
+  period_start: z.string().nullable().optional(),
+  period_end: z.string().nullable().optional(),
+  selected_area_m2: z.number().nullable().optional(),
+  analysis_quality_status: z.enum(["high", "medium", "low"]).nullable().optional(),
+  observation_count: z.number().int().nullable().optional(),
+  nearest_km: z.number().int().nullable().optional(),
+  centroid: z.object({ longitude: z.number(), latitude: z.number() }).nullable().optional(),
+});
+
+export const analysisHistoryPageSchema = z.object({
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+  items: z.array(analysisHistoryItemSchema),
+});
+
+export const analysisHistoryDetailSchema = z.object({
+  analysis_id: z.string(),
+  created_at: z.string(),
+  geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  result: analysisResponseSchema,
+});
+
 export const healthSchema = z.object({
   status: z.literal("ok"),
   service: z.string(),
@@ -101,6 +131,9 @@ export const healthSchema = z.object({
 export type GeometryDocument = z.infer<typeof geometrySchema>;
 export type GeometryValidation = z.infer<typeof geometryValidationSchema>;
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;
+export type AnalysisHistoryItem = z.infer<typeof analysisHistoryItemSchema>;
+export type AnalysisHistoryPage = z.infer<typeof analysisHistoryPageSchema>;
+export type AnalysisHistoryDetail = z.infer<typeof analysisHistoryDetailSchema>;
 export type SpatialZone = z.infer<typeof spatialZoneSchema>;
 export type SpatialSegmentation = z.infer<typeof spatialSegmentationSchema>;
 

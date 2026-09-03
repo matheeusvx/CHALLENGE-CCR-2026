@@ -78,11 +78,71 @@ docker compose up --build
 O Compose aguarda o healthcheck da API antes de iniciar o frontend. Nao ha
 segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 
+## Historico operacional e banco de dados
+
+As analises executadas passam a ser gravadas em um banco relacional, junto com os
+dados de referencia fornecidos pela CCR Motiva. A decisao continua sendo produzida
+exclusivamente pelo motor de satelite: o banco apenas registra o resultado.
+
+O padrao e SQLite em arquivo (`data/motiva.db`), sem servico externo. Como todo o
+acesso passa por SQLAlchemy, trocar `DATABASE_URL` por um PostgreSQL nao exige
+alteracao de codigo.
+
+### Tabelas
+
+Referencia, semeada com os arquivos originais do desafio:
+
+- `highway`, `km_marker`: rodovia e marcos quilometricos georreferenciados;
+- `cross_section_position`: as posicoes transversais do unifilar (itens 1.1 a 1.12),
+  cada uma com o limite contratual de altura aplicavel ao local;
+- `segment`: celula de 500 m por posicao transversal;
+- `field_condition_observation`: classe de altura observada em campo por segmento e data;
+- `mowing_polygon`: poligonos de classificacao de rocada com o metodo exigido.
+
+Operacional, gravada a cada execucao:
+
+- `analysis`: decisao, confianca, periodo, areas, qualidade, geometria da AOI e a
+  resposta completa da API;
+- `analysis_observation`: a serie temporal NDVI usada na analise.
+
+### Limites contratuais de altura
+
+As classes do unifilar (`1` = h < 10 cm, `2` = 10 a 30 cm, `3` = h > 30 cm) refletem
+dois limites regulatorios distintos, e o limite aplicavel depende do local:
+
+- **30 cm** na faixa de dominio em geral, largura minima de 4 m
+  (ARTESP Anexo 06, item b.1.1; ANTT PER p. 31, item 6);
+- **10 cm** em areas nobres como acessos, trevos, pracas de pedagio e entornos de
+  instalacoes operacionais, largura minima de 10 m
+  (ARTESP Anexo 06, item b.1.1; ANTT PER p. 31, item 3).
+
+Por isso `cross_section_position.height_limit_cm` guarda o limite por posicao: a
+classe 2 ja e nao conformidade em um dispositivo, mas nao na faixa lateral comum.
+
+### Ingestao dos dados da CCR
+
+Os arquivos originais nao sao versionados. Aponte o script para a pasta extraida:
+
+```powershell
+python -m scripts.ingest_motiva_data --data-dir "C:\caminho\Arquivos - Dados challenge MOTIVA"
+```
+
+A ingestao e idempotente: recria as tabelas de referencia a cada execucao e nunca
+toca no historico de analises.
+
+### Endpoints de historico
+
+- `GET /api/analyses`: lista paginada, da mais recente para a mais antiga, com
+  filtros `limit`, `offset` e `decision`;
+- `GET /api/analyses/{analysis_id}`: analise completa gravada, incluindo a
+  geometria da AOI, usada pelo frontend para reabrir uma analise anterior.
+
 ### Variaveis
 
 - `API_HOST` e `API_PORT`: bind da API;
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
+- `DATABASE_URL`: banco do historico operacional (padrao `sqlite:///data/motiva.db`);
 - `ANALYSIS_TIMEZONE`: timezone da data oficial da analise (padrao `America/Sao_Paulo`);
 - `MULTISOURCE_ENABLED`, `GEDI_ENABLED` e `ICESAT2_ENABLED`: fundacao futura,
   desabilitada por padrao e sem efeito sobre o baseline Sentinel-2;

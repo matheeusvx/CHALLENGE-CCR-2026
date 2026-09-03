@@ -1588,3 +1588,6 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   opacity: 1;
   color: var(--purple);
 }
+
+/* Marco quilometrico aproximado no cartao do historico */
+.history-card-km { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-muted); color: var(--muted); font: 600 11px/1.4 var(--font-mono); }

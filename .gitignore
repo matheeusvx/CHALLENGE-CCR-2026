@@ -31,3 +31,11 @@ models/*
 node_modules/
 coverage/
 apps/web/public/vendor/maplibre/
+
+# banco de dados operacional local
+data/*.db
+data/*.db-journal
+data/*.sqlite3
+
+# dados originais da CCR Motiva (confidenciais, nao versionar)
+data/motiva_raw/

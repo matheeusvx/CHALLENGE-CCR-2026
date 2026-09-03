@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -139,3 +139,39 @@ class AnalysisResponse(StrictModel):
     artifacts: dict[str, str]
     warnings: list[dict[str, Any]]
     errors: list[dict[str, Any]]
+
+
+class AnalysisHistoryItem(StrictModel):
+    """Resumo de uma analise gravada no historico."""
+
+    analysis_id: str
+    created_at: datetime
+    status: str
+    decision: str | None = None
+    confidence: str | None = None
+    summary: str | None = None
+    period_start: date | None = None
+    period_end: date | None = None
+    selected_area_m2: float | None = None
+    analysis_quality_status: str | None = None
+    observation_count: int | None = None
+    nearest_km: int | None = None
+    centroid: Centroid | None = None
+
+
+class AnalysisHistoryPage(StrictModel):
+    """Pagina de resultados do historico, mais recente primeiro."""
+
+    total: int
+    limit: int
+    offset: int
+    items: list[AnalysisHistoryItem]
+
+
+class AnalysisHistoryDetail(StrictModel):
+    """Analise completa recuperada do historico."""
+
+    analysis_id: str
+    created_at: datetime
+    geometry: dict[str, Any] | None = None
+    result: AnalysisResponse

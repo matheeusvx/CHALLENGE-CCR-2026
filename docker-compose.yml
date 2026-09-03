@@ -9,6 +9,7 @@ services:
       API_CORS_ORIGINS: http://localhost:3000
       API_OUTPUT_ROOT: outputs/satellite_monitoring
       ANALYSIS_TIMEZONE: America/Sao_Paulo
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///data/motiva.db}
       HEIGHT_ESTIMATION_ENABLED: ${HEIGHT_ESTIMATION_ENABLED:-false}
       SPATIAL_SEGMENTATION_ENABLED: ${SPATIAL_SEGMENTATION_ENABLED:-false}
       SPATIAL_SECTION_LENGTH_M: ${SPATIAL_SECTION_LENGTH_M:-50}
@@ -17,6 +18,9 @@ services:
       - "8000:8000"
     volumes:
       - ./outputs:/workspace/outputs
+      # O historico de analises vive em data/motiva.db e precisa sobreviver
+      # ao ciclo de vida do container.
+      - ./data:/workspace/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s

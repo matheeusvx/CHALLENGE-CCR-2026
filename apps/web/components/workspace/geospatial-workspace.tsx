@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { AnalysisMap } from "@/components/map/analysis-map";
 import { AreaPanel } from "@/components/analysis/area-panel";
@@ -9,7 +9,6 @@ import { AnalysisResultSidebar } from "@/components/analysis/analysis-result-sid
 import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
 import { getCurrentAnalysisResponse, isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
-import { useHistoryStore } from "@/stores/history-store";
 import { WorkspaceTabs } from "./workspace-tabs";
 
 export function GeospatialWorkspace() {
@@ -21,14 +20,15 @@ export function GeospatialWorkspace() {
   const validation = useMutation({
     mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => validateGeometry(geometry),
   });
-  const addHistoryEntry = useHistoryStore((store) => store.addEntry);
+  const queryClient = useQueryClient();
   const analysis = useMutation({
     mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => runAnalysis({ geometry }),
     onSuccess: (data, variables) => {
       const current = useAnalysisStore.getState();
       if (variables.revision !== current.geometryRevision || !isCurrentGeometryValidated(current)) return;
       current.applyAnalysisResult(data, variables.revision);
-      addHistoryEntry(data, variables.geometry, current.geometryValidation ?? undefined);
+      // A API ja gravou a analise no banco; aqui so atualizamos a listagem.
+      queryClient.invalidateQueries({ queryKey: ["analyses"] });
     },
   });
 

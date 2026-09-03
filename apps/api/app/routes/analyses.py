@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
 from src.satellite_monitoring.config import MonitoringConfig
+from src.satellite_monitoring.database import (
+    count_analyses,
+    get_analysis,
+    list_analyses,
+    save_analysis,
+    session_scope,
+)
 from src.satellite_monitoring.geometry import (
     calculate_geometry_metadata,
     extract_polygon_geometry,
@@ -32,13 +40,18 @@ from ..operational_profile import (
     resolve_analysis_period,
 )
 from ..schemas import (
+    AnalysisHistoryDetail,
+    AnalysisHistoryItem,
+    AnalysisHistoryPage,
     AnalysisResponse,
     AnalysisRunRequest,
+    Centroid,
     GeometryRequest,
     GeometryValidationResponse,
 )
 
 router = APIRouter(prefix="/api/analyses", tags=["analyses"])
+logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 ALLOWED_ARTIFACTS = {
@@ -240,7 +253,96 @@ def run_analysis(
         status_code = 502 if code == "SATELLITE_PROVIDER_ERROR" else 500
         raise ApiError(code, "O pipeline nao conseguiu concluir a analise.", status_code=status_code)
     analysis_registry.add(result)
-    return _to_api_response(result, analysis_period)
+    response = _to_api_response(result, analysis_period)
+    _persist_analysis(result, response, payload.geometry)
+    return response
+
+
+def _persist_analysis(
+    result: Any, response: AnalysisResponse, geometry: dict[str, Any]
+) -> None:
+    """Grava a analise no historico.
+
+    A persistencia e deliberadamente tolerante a falhas: a decisao do satelite
+    ja foi produzida e nao pode ser perdida por um problema de banco.
+    """
+
+    try:
+        with session_scope() as session:
+            save_analysis(
+                session,
+                response.model_dump(mode="json"),
+                geometry=geometry,
+                run_directory=(
+                    str(result.run_directory) if result.run_directory else None
+                ),
+                artifacts={
+                    name: str(value)
+                    for name, value in (result.artifacts or {}).items()
+                },
+            )
+    except Exception:  # pragma: no cover - nunca invalida a resposta
+        logger.exception("Falha ao gravar a analise no historico.")
+
+
+def _to_history_item(record: Any) -> AnalysisHistoryItem:
+    centroid = None
+    if record.centroid_longitude is not None and record.centroid_latitude is not None:
+        centroid = Centroid(
+            longitude=record.centroid_longitude, latitude=record.centroid_latitude
+        )
+    return AnalysisHistoryItem(
+        analysis_id=record.id,
+        created_at=record.created_at,
+        status=record.status,
+        decision=record.decision,
+        confidence=record.confidence,
+        summary=record.summary,
+        period_start=record.period_start,
+        period_end=record.period_end,
+        selected_area_m2=record.selected_area_m2,
+        analysis_quality_status=record.analysis_quality_status,
+        observation_count=record.observation_count,
+        nearest_km=record.nearest_km,
+        centroid=centroid,
+    )
+
+
+@router.get("", response_model=AnalysisHistoryPage)
+def list_analysis_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    decision: str | None = Query(None),
+) -> AnalysisHistoryPage:
+    """Historico de analises, da mais recente para a mais antiga."""
+
+    with session_scope() as session:
+        records = list_analyses(
+            session, limit=limit, offset=offset, decision=decision
+        )
+        total = count_analyses(session, decision=decision)
+        items = [_to_history_item(record) for record in records]
+    return AnalysisHistoryPage(
+        total=total, limit=limit, offset=offset, items=items
+    )
+
+
+@router.get("/{analysis_id}", response_model=AnalysisHistoryDetail)
+def get_analysis_history_detail(analysis_id: UUID) -> AnalysisHistoryDetail:
+    """Analise completa gravada, incluindo a geometria da AOI."""
+
+    with session_scope() as session:
+        record = get_analysis(session, str(analysis_id))
+        if record is None or not record.payload:
+            raise ApiError(
+                "ANALYSIS_NOT_FOUND", "Analise nao encontrada.", status_code=404
+            )
+        return AnalysisHistoryDetail(
+            analysis_id=record.id,
+            created_at=record.created_at,
+            geometry=record.geometry,
+            result=AnalysisResponse.model_validate(record.payload),
+        )
 
 
 @router.get("/{analysis_id}/artifacts/{artifact_name}", response_class=FileResponse)
