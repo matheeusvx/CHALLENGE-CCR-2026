@@ -109,10 +109,10 @@ def calculate_mask_intersection_area(
     area = 0.0
     for row, column in np.argwhere(accepted):
         corners = [
-            transform @ (int(column), int(row)),
-            transform @ (int(column) + 1, int(row)),
-            transform @ (int(column) + 1, int(row) + 1),
-            transform @ (int(column), int(row) + 1),
+            transform * (int(column), int(row)),
+            transform * (int(column) + 1, int(row)),
+            transform * (int(column) + 1, int(row) + 1),
+            transform * (int(column), int(row) + 1),
         ]
         area += float(aoi.intersection(Polygon(corners)).area)
     return area

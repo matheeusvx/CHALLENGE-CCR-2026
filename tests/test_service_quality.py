@@ -370,6 +370,10 @@ def test_spatial_accounting_does_not_change_recommendation(tmp_path) -> None:
     assert after.effective_analysis_pct == (
         after.effective_analysis_area_m2 / after.selected_area_m2 * 100.0
     )
+    assert not any(
+        warning["code"] == "EFFECTIVE_AREA_UNAVAILABLE"
+        for warning in after.warnings
+    )
     assert after.summary["spatial_accounting"]["metric_weighting_changed"] is False
 
 

@@ -10,7 +10,7 @@ import pytest
 from affine import Affine
 from pyproj import Transformer
 from rasterio.features import geometry_mask
-from shapely.geometry import mapping, shape
+from shapely.geometry import box, mapping, shape
 from shapely.ops import transform
 
 from src.satellite_monitoring.geometry import calculate_geometry_metadata
@@ -67,6 +67,33 @@ def test_effective_area_uses_partial_intersections_not_pixel_count_times_100() -
 
     assert area == pytest.approx(100.0)
     assert area != int(np.count_nonzero(accepted)) * 100
+
+
+@pytest.mark.parametrize(
+    ("accepted", "projected_geometry", "expected_area"),
+    [
+        (np.array([[True]], dtype=bool), box(0, 10, 10, 20), 100.0),
+        (np.ones((2, 2), dtype=bool), box(0, 0, 20, 20), 400.0),
+    ],
+)
+def test_real_affine_with_negative_pixel_height_transforms_pixel_corners(
+    accepted: np.ndarray,
+    projected_geometry,
+    expected_area: float,
+) -> None:
+    """Reproduz a grade north-up que falhava com ``Affine @ tuple``."""
+    area = calculate_effective_analysis_area(
+        _raster_data(
+            accepted,
+            affine=Affine(10, 0, 0, 0, -10, 20),
+            projected_geometry=mapping(projected_geometry),
+        ),
+        accepted,
+    )
+
+    assert np.isfinite(area)
+    assert area > 0
+    assert area == pytest.approx(expected_area)
 
 
 def test_frango_assado_reference_spatial_accounting() -> None:

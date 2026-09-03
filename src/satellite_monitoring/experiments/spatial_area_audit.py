@@ -109,10 +109,10 @@ def pixel_intersection_records(
     for row in range(rows):
         for column in range(columns):
             corners = [
-                transform_affine @ (column, row),
-                transform_affine @ (column + 1, row),
-                transform_affine @ (column + 1, row + 1),
-                transform_affine @ (column, row + 1),
+                transform_affine * (column, row),
+                transform_affine * (column + 1, row),
+                transform_affine * (column + 1, row + 1),
+                transform_affine * (column, row + 1),
             ]
             cell = Polygon(corners)
             intersection_area = float(geometry.intersection(cell).area)

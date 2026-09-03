@@ -194,10 +194,10 @@ def align_observations_to_reference(
 def _pixel_polygon(transform: Any, row: int, column: int) -> Polygon:
     return Polygon(
         [
-            transform @ (column, row),
-            transform @ (column + 1, row),
-            transform @ (column + 1, row + 1),
-            transform @ (column, row + 1),
+            transform * (column, row),
+            transform * (column + 1, row),
+            transform * (column + 1, row + 1),
+            transform * (column, row + 1),
         ]
     )
 
