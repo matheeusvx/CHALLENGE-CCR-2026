@@ -1,7 +1,12 @@
 __pycache__/
 *.pyc
+*.h5
 .venv/
 .env
+.env.local
+.env.*
+!.env.example
+!**/.env.example
 .DS_Store
 
 # outputs gerados
@@ -11,9 +16,18 @@ outputs/*
 # modelos treinados
 models/*
 !models/.gitkeep
+!models/height_estimator_v0.json
 
 # notebooks temporários
 .ipynb_checkpoints/
 
 # arquivos do VS Code
 .vscode/
+# arquivos temporarios do pytest
+.pytest_tmp/
+.pytest_tmp_api/
+.pytest_cache/
+.next/
+node_modules/
+coverage/
+apps/web/public/vendor/maplibre/

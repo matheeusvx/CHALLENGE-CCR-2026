@@ -1,0 +1,58 @@
+{
+  "campaign_id": "field_20260821",
+  "crs": "EPSG:4326",
+  "samples": [
+    {
+      "sample_id": "CAMPO_20260821_VIDEO_01_HIGH",
+      "observed_at": "2026-08-21",
+      "location_name": "Trecho de vegetação alta do Vídeo 1",
+      "geometry": null,
+      "measured_height_cm": null,
+      "height_p50_cm": null,
+      "height_p90_cm": null,
+      "height_max_cm": null,
+      "real_class": "unknown",
+      "qualitative_condition": "high_vegetation",
+      "measurement_quality": "visual_only",
+      "source": "field_video",
+      "video_reference": "VIDEO_01",
+      "recommendation_at_collection_geometry": "cortar"
+    },
+    {
+      "sample_id": "CAMPO_20260821_VIDEO_01_LOW",
+      "observed_at": "2026-08-21",
+      "location_name": "Região próxima ao Frango Assado",
+      "latitude": -23.292111,
+      "longitude": -46.844444,
+      "geometry": null,
+      "measured_height_cm": 14,
+      "height_p50_cm": null,
+      "height_p90_cm": null,
+      "height_max_cm": null,
+      "real_class": "le_30_cm",
+      "boundary_case": false,
+      "measurement_quality": "confirmed_single_measurement",
+      "source": "field_video",
+      "video_reference": "VIDEO_01",
+      "recommendation_at_collection_geometry": "nao_cortar"
+    },
+    {
+      "sample_id": "CAMPO_20260821_VIDEO_02",
+      "observed_at": "2026-08-21",
+      "location_name": "Segundo ponto de campo do Vídeo 2",
+      "latitude": -23.129694,
+      "longitude": -46.951,
+      "geometry": null,
+      "measured_height_cm": 30,
+      "height_p50_cm": null,
+      "height_p90_cm": null,
+      "height_max_cm": null,
+      "real_class": "le_30_cm",
+      "boundary_case": true,
+      "measurement_quality": "confirmed_single_measurement",
+      "source": "field_video",
+      "video_reference": "VIDEO_02",
+      "recommendation_at_collection_geometry": "nao_cortar"
+    }
+  ]
+}
