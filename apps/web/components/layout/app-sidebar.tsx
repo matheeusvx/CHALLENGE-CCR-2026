@@ -1,4 +1,5 @@
 import { Activity, Database, FileClock, Leaf, Settings } from "lucide-react";
+import { GuiaWidget } from "@/components/guia/guia-widget";
 
 export type AppView = "analysis" | "history" | "sources" | "settings";
 
@@ -23,6 +24,7 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
           </button>
         ))}
       </nav>
+      <GuiaWidget />
       <div className="sidebar-foot"><span>Operação rodoviária</span><strong>Ambiente de análise</strong></div>
     </aside>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { toApiUrl } from "@/lib/api/client";
 
 type ChatMessage = {
@@ -25,6 +26,15 @@ export function GuiaWidget() {
   useEffect(() => {
     fimRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensagens, aberto]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAberto(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [aberto]);
 
   const enviar = async (evento: React.FormEvent) => {
     evento.preventDefault();
@@ -79,9 +89,29 @@ export function GuiaWidget() {
   };
 
   return (
-    <div className="guia-widget">
+    <div className="sidebar-guia">
+      <button
+        type="button"
+        className={`guia-sidebar-btn ${aberto ? "active" : ""}`}
+        aria-label={aberto ? "Fechar assistente GuIA" : "Abrir assistente GuIA"}
+        aria-expanded={aberto}
+        aria-haspopup="dialog"
+        onClick={() => setAberto((v) => !v)}
+      >
+        <span className="guia-sidebar-icon" aria-hidden="true">
+          <Sparkles size={17} />
+        </span>
+        <span className="guia-sidebar-copy">
+          <strong>GuIA</strong>
+          <small>Assistente virtual</small>
+        </span>
+        {aberto ? (
+          <span className="guia-sidebar-indicator" aria-hidden="true" />
+        ) : null}
+      </button>
+
       {aberto ? (
-        <div className="guia-panel" role="dialog" aria-label="Assistente Guia">
+        <div className="guia-panel" role="dialog" aria-label="Assistente GuIA">
           <header className="guia-panel-header">
             <div className="guia-avatar" aria-hidden="true">
               G
@@ -131,15 +161,6 @@ export function GuiaWidget() {
           </form>
         </div>
       ) : null}
-
-      <button
-        type="button"
-        className="guia-fab"
-        aria-label={aberto ? "Fechar assistente Guia" : "Abrir assistente Guia"}
-        onClick={() => setAberto((v) => !v)}
-      >
-        {aberto ? "×" : "Guia"}
-      </button>
     </div>
   );
 }
