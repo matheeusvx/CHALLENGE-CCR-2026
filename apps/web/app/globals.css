@@ -1171,3 +1171,30 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   color: var(--text);
   font-family: var(--font-mono);
 }
+
+/* ==========================================================================
+   Assistente Guia — widget de chat flutuante
+   ========================================================================== */
+.guia-widget { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
+.guia-fab { min-width: 56px; height: 56px; padding: 0 18px; border: 0; border-radius: 28px; background: var(--purple); color: #fff; font-weight: 600; font-size: 15px; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.28); transition: transform .15s, background .2s; }
+.guia-fab:hover { background: var(--purple-dark); transform: translateY(-1px); }
+.guia-panel { width: 360px; max-width: calc(100vw - 48px); height: 520px; max-height: calc(100vh - 120px); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,.32); display: flex; flex-direction: column; overflow: hidden; }
+.guia-panel-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: var(--purple); color: #fff; }
+.guia-avatar { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.22); display: grid; place-items: center; font-weight: 700; font-size: 17px; }
+.guia-header-info { display: flex; flex-direction: column; line-height: 1.2; }
+.guia-header-info strong { font-size: 15px; }
+.guia-header-info span { font-size: 12px; opacity: .85; }
+.guia-close { margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+.guia-close:hover { background: rgba(255,255,255,.16); }
+.guia-messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: var(--surface-muted); }
+.guia-message { display: flex; }
+.guia-message.operador { justify-content: flex-end; }
+.guia-bubble { max-width: 80%; padding: 9px 13px; border-radius: 13px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+.guia-message.guia .guia-bubble { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.guia-message.operador .guia-bubble { background: var(--purple); color: #fff; border-bottom-right-radius: 4px; }
+.guia-bubble.guia-typing { color: var(--muted); font-style: italic; }
+.guia-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
+.guia-input input { flex: 1; padding: 10px 13px; border: 1px solid var(--border); border-radius: 20px; font-size: 14px; background: var(--surface); color: var(--text); outline: none; }
+.guia-input input:focus { border-color: var(--purple); }
+.guia-input button { padding: 0 18px; border: 0; border-radius: 20px; background: var(--purple); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+.guia-input button:disabled { opacity: .55; cursor: not-allowed; }

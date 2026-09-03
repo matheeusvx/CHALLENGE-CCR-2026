@@ -7,6 +7,7 @@ import { SettingsView } from "@/components/views/settings-view";
 import { SourcesView } from "@/components/views/sources-view";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
+import { GuiaWidget } from "@/components/guia/guia-widget";
 import { AppHeader } from "./app-header";
 import { OnboardingTour } from "./onboarding-tour";
 import { AppSidebar, type AppView } from "./app-sidebar";
@@ -56,6 +57,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
       <OnboardingTour onNavigate={handleTourNavigate} />
+      <GuiaWidget />
     </div>
   );
 }

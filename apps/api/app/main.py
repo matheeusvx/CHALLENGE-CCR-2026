@@ -1,11 +1,19 @@
 """Ponto de entrada ASGI da API."""
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .exceptions import install_exception_handlers
 from .routes.analyses import router as analyses_router
+from .routes.guia import router as guia_router
 from .routes.health import router as health_router
 
 
@@ -24,6 +32,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health_router)
     app.include_router(analyses_router)
+    app.include_router(guia_router)
     install_exception_handlers(app)
     return app
 
