@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { RotateCcw, Sparkles } from "lucide-react";
 import { toApiUrl } from "@/lib/api/client";
+import { FormattedMessage } from "./guia-message-formatter";
+import { useGuiaLayout } from "./use-guia-layout";
 
 type ChatMessage = {
   autor: "guia" | "operador";
@@ -22,6 +24,15 @@ export function GuiaWidget() {
   const [carregando, setCarregando] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const fimRef = useRef<HTMLDivElement | null>(null);
+
+  const {
+    layout,
+    isDragging,
+    isResizing,
+    resetLayout,
+    headerDragProps,
+    resizeHandleProps,
+  } = useGuiaLayout();
 
   useEffect(() => {
     fimRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -111,29 +122,59 @@ export function GuiaWidget() {
       </button>
 
       {aberto ? (
-        <div className="guia-panel" role="dialog" aria-label="Assistente GuIA">
-          <header className="guia-panel-header">
+        <div
+          className={`guia-panel ${isDragging ? "is-dragging" : ""} ${isResizing ? "is-resizing" : ""}`}
+          role="dialog"
+          aria-label="Assistente GuIA"
+          style={{
+            left: `${layout.x}px`,
+            top: `${layout.y}px`,
+            width: `${layout.width}px`,
+            height: `${layout.height}px`,
+          }}
+        >
+          <header
+            className="guia-panel-header"
+            {...headerDragProps}
+            title="Arraste para mover a janela"
+          >
             <div className="guia-avatar" aria-hidden="true">
-              G
+              <Sparkles size={18} />
             </div>
             <div className="guia-header-info">
-              <strong>Guia</strong>
+              <strong>GuIA</strong>
               <span>Assistente CCR 2026</span>
             </div>
-            <button
-              type="button"
-              className="guia-close"
-              aria-label="Fechar chat"
-              onClick={() => setAberto(false)}
-            >
-              ×
-            </button>
+            <div className="guia-header-actions">
+              <button
+                type="button"
+                className="guia-header-action guia-reset"
+                aria-label="Restaurar tamanho e posição"
+                title="Restaurar tamanho e posição"
+                data-no-drag="true"
+                onClick={resetLayout}
+              >
+                <RotateCcw size={15} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="guia-header-action guia-close"
+                aria-label="Fechar chat"
+                title="Fechar chat"
+                data-no-drag="true"
+                onClick={() => setAberto(false)}
+              >
+                ×
+              </button>
+            </div>
           </header>
 
           <div className="guia-messages">
             {mensagens.map((m, i) => (
               <div key={i} className={`guia-message ${m.autor}`}>
-                <div className="guia-bubble">{m.texto}</div>
+                <div className="guia-bubble">
+                  <FormattedMessage text={m.texto} />
+                </div>
               </div>
             ))}
             {carregando ? (
@@ -159,6 +200,23 @@ export function GuiaWidget() {
               Enviar
             </button>
           </form>
+
+          {/* Handle de redimensionamento */}
+          <div
+            className="guia-resize-handle"
+            {...resizeHandleProps}
+            title="Redimensionar janela"
+            aria-hidden="true"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path
+                d="M9 1L1 9M9 5L5 9M9 9H9.01"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
         </div>
       ) : null}
     </div>
