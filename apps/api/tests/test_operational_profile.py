@@ -70,6 +70,9 @@ def test_operational_profile_has_validated_experimental_values() -> None:
 def test_multisource_feature_flags_are_disabled_by_default(monkeypatch) -> None:
     for variable in (
         "MULTISOURCE_ENABLED",
+        "SENTINEL1_ENABLED",
+        "SENTINEL1_COLLECTION",
+        "SENTINEL1_MAX_SCENES",
         "GEDI_ENABLED",
         "ICESAT2_ENABLED",
         "MULTISOURCE_FUSION_MODE",
@@ -79,6 +82,9 @@ def test_multisource_feature_flags_are_disabled_by_default(monkeypatch) -> None:
     configured = ApiSettings()
 
     assert configured.multisource_enabled is False
+    assert configured.sentinel1_enabled is False
+    assert configured.sentinel1_collection == "sentinel-1-grd"
+    assert configured.sentinel1_max_scenes == 8
     assert configured.gedi_enabled is False
     assert configured.icesat2_enabled is False
     assert configured.multisource_fusion_mode == "disabled"
@@ -86,6 +92,9 @@ def test_multisource_feature_flags_are_disabled_by_default(monkeypatch) -> None:
 
 def test_multisource_feature_flags_read_explicit_environment(monkeypatch) -> None:
     monkeypatch.setenv("MULTISOURCE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL1_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL1_COLLECTION", "sentinel-1-rtc")
+    monkeypatch.setenv("SENTINEL1_MAX_SCENES", "5")
     monkeypatch.setenv("GEDI_ENABLED", "1")
     monkeypatch.setenv("ICESAT2_ENABLED", "yes")
     monkeypatch.setenv("MULTISOURCE_FUSION_MODE", "shadow")
@@ -93,6 +102,9 @@ def test_multisource_feature_flags_read_explicit_environment(monkeypatch) -> Non
     configured = ApiSettings()
 
     assert configured.multisource_enabled is True
+    assert configured.sentinel1_enabled is True
+    assert configured.sentinel1_collection == "sentinel-1-rtc"
+    assert configured.sentinel1_max_scenes == 5
     assert configured.gedi_enabled is True
     assert configured.icesat2_enabled is True
     assert configured.multisource_fusion_mode == "shadow"

@@ -123,6 +123,7 @@ def test_analysis_response_remains_compatible_without_spatial_accounting(
     assert body["effective_analysis_area_m2"] is None
     assert body["effective_analysis_pct"] is None
     assert "spatial_segmentation" not in body
+    assert "multisource" not in body
 
 
 def test_analysis_response_exposes_optional_shadow_segmentation(
@@ -159,6 +160,62 @@ def test_analysis_response_exposes_optional_shadow_segmentation(
     assert body["spatial_segmentation"]["section_length_m"] == 50
     assert body["spatial_segmentation"]["effective_coverage_pct"] == 94.42
     assert body["spatial_segmentation"]["zones"][0]["road_ref"] == "SP-330"
+    assert body["recommendation"]["decision"] == "nao_cortar"
+
+
+def test_analysis_response_exposes_shadow_multisource_evidence(
+    client: TestClient, valid_payload: dict
+) -> None:
+    def service(config, *, analysis_id: str, **__):
+        result = make_result(analysis_id)
+        result.multisource = {
+            "enabled": True,
+            "fusion_mode": "shadow",
+            "official_recommendation_changed": False,
+            "generated_at": "2026-08-10T12:00:00+00:00",
+            "configuration": {
+                "sentinel1_enabled": True,
+                "sentinel1_collection": "sentinel-1-grd",
+                "sentinel1_max_scenes": 8,
+                "analysis_period": "2026-07-10/2026-08-10",
+            },
+            "sources": [
+                {
+                    "source": "sentinel-1",
+                    "status": "available",
+                    "quality": 91.0,
+                    "coverage": 96.0,
+                    "observed_at": "2026-08-08T09:00:00+00:00",
+                    "observations": [
+                        {
+                            "observed_at": "2026-08-08T09:00:00+00:00",
+                            "metrics": {
+                                "item_id": "S1A_TEST",
+                                "vv_amplitude_median": 123.0,
+                                "vh_amplitude_median": 31.0,
+                            },
+                        }
+                    ],
+                    "metrics": {"observation_count": 1},
+                    "provenance": {
+                        "collection": "sentinel-1-grd",
+                        "asset_semantics": "detected_grd_amplitude_values_uncalibrated_by_pipeline",
+                    },
+                    "warnings": [],
+                }
+            ],
+        }
+        return result
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    body = client.post("/api/analyses/run", json=valid_payload).json()
+
+    assert body["multisource"]["fusion_mode"] == "shadow"
+    assert body["multisource"]["official_recommendation_changed"] is False
+    assert body["multisource"]["sources"][0]["source"] == "sentinel-1"
+    assert body["multisource"]["sources"][0]["observations"][0]["metrics"][
+        "item_id"
+    ] == "S1A_TEST"
     assert body["recommendation"]["decision"] == "nao_cortar"
 
 
@@ -330,3 +387,22 @@ def test_missing_artifact_and_path_traversal_are_rejected(client: TestClient) ->
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "ARTIFACT_NOT_FOUND"
     assert traversal.status_code in {404, 422}
+
+
+def test_multisource_artifact_is_served_without_internal_path(
+    client: TestClient, tmp_path
+) -> None:
+    analysis_id = str(uuid4())
+    artifact = tmp_path / "multisource_evidence.json"
+    artifact.write_text('{"fusion_mode":"shadow"}\n', encoding="utf-8")
+    result = make_result(analysis_id, run_directory=tmp_path)
+    result.artifacts["multisource_evidence"] = artifact
+    analysis_registry.add(result)
+
+    response = client.get(
+        f"/api/analyses/{analysis_id}/artifacts/multisource_evidence"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"fusion_mode": "shadow"}
+    assert str(tmp_path) not in response.text

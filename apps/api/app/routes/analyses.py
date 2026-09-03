@@ -51,6 +51,7 @@ ALLOWED_ARTIFACTS = {
     "recommendation_csv": "text/csv",
     "chart": "image/png",
     "aoi": "application/geo+json",
+    "multisource_evidence": "application/json",
 }
 
 
@@ -130,6 +131,7 @@ def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisRe
         ),
         effective_analysis_pct=getattr(result, "effective_analysis_pct", None),
         spatial_segmentation=getattr(result, "spatial_segmentation", None),
+        multisource=getattr(result, "multisource", None),
         aoi=result.aoi,
         summary=public_summary,
         timeseries=result.timeseries,
@@ -212,6 +214,11 @@ def run_analysis(
             spatial_segmentation_enabled=settings.spatial_segmentation_enabled,
             spatial_section_length_m=settings.spatial_section_length_m,
             spatial_regularization_enabled=settings.spatial_regularization_enabled,
+            multisource_enabled=settings.multisource_enabled,
+            sentinel1_enabled=settings.sentinel1_enabled,
+            sentinel1_collection=settings.sentinel1_collection,
+            sentinel1_max_scenes=settings.sentinel1_max_scenes,
+            multisource_fusion_mode=settings.multisource_fusion_mode,
         )
         result = service(config, analysis_id=str(uuid4()))
     except InvalidAnalysisGeometryError as exc:

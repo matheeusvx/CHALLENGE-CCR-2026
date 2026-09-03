@@ -41,6 +41,17 @@ class ApiSettings:
     icesat2_enabled: bool = field(
         default_factory=lambda: _read_bool("ICESAT2_ENABLED")
     )
+    sentinel1_enabled: bool = field(
+        default_factory=lambda: _read_bool("SENTINEL1_ENABLED")
+    )
+    sentinel1_collection: str = field(
+        default_factory=lambda: os.getenv(
+            "SENTINEL1_COLLECTION", "sentinel-1-grd"
+        ).strip()
+    )
+    sentinel1_max_scenes: int = field(
+        default_factory=lambda: int(os.getenv("SENTINEL1_MAX_SCENES", "8"))
+    )
     height_estimation_enabled: bool = field(
         default_factory=lambda: _read_bool("HEIGHT_ESTIMATION_ENABLED")
     )
@@ -68,6 +79,10 @@ class ApiSettings:
             )
         if self.spatial_section_length_m <= 0:
             raise ValueError("SPATIAL_SECTION_LENGTH_M must be positive.")
+        if not self.sentinel1_collection:
+            raise ValueError("SENTINEL1_COLLECTION cannot be empty.")
+        if self.sentinel1_max_scenes <= 0:
+            raise ValueError("SENTINEL1_MAX_SCENES must be positive.")
 
     @property
     def cors_origins(self) -> list[str]:

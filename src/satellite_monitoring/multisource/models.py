@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from typing import Any
 
 MetricValue = str | int | float | bool | None
 
@@ -38,6 +39,12 @@ class EvidenceObservation:
     observed_at: datetime
     metrics: dict[str, MetricValue] = field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "observed_at": self.observed_at.isoformat(),
+            "metrics": dict(self.metrics),
+        }
+
 
 @dataclass(frozen=True)
 class SourceEvidence:
@@ -50,7 +57,7 @@ class SourceEvidence:
     coverage: float | None = None
     observed_at: datetime | None = None
     metrics: dict[str, MetricValue] = field(default_factory=dict)
-    provenance: dict[str, str] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -59,3 +66,16 @@ class SourceEvidence:
         for field_name, value in (("quality", self.quality), ("coverage", self.coverage)):
             if value is not None and not 0 <= value <= 100:
                 raise ValueError(f"{field_name} must be between 0 and 100.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "status": self.status.value,
+            "quality": self.quality,
+            "coverage": self.coverage,
+            "observed_at": self.observed_at.isoformat() if self.observed_at else None,
+            "observations": [observation.to_dict() for observation in self.observations],
+            "metrics": dict(self.metrics),
+            "provenance": dict(self.provenance),
+            "warnings": list(self.warnings),
+        }

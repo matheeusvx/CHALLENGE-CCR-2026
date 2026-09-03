@@ -29,6 +29,8 @@ DEFAULT_RECENT_INTERVENTION_DAYS = 20
 DEFAULT_TEMPORAL_OUTLIER_MIN_DEVIATION = 0.06
 DEFAULT_TEMPORAL_OUTLIER_MAD_MULTIPLIER = 3.0
 DEFAULT_TEMPORAL_RETURN_RATIO = 0.5
+DEFAULT_SENTINEL1_COLLECTION = "sentinel-1-grd"
+DEFAULT_SENTINEL1_MAX_SCENES = 8
 
 
 def parse_iso_date(value: str) -> date:
@@ -81,6 +83,11 @@ class MonitoringConfig:
     spatial_segmentation_enabled: bool = False
     spatial_section_length_m: int = 50
     spatial_regularization_enabled: bool = False
+    multisource_enabled: bool = False
+    sentinel1_enabled: bool = False
+    sentinel1_collection: str = DEFAULT_SENTINEL1_COLLECTION
+    sentinel1_max_scenes: int = DEFAULT_SENTINEL1_MAX_SCENES
+    multisource_fusion_mode: str = "disabled"
 
     def __post_init__(self) -> None:
         circular_values = (self.latitude, self.longitude, self.radius_meters)
@@ -164,6 +171,12 @@ class MonitoringConfig:
             raise ValueError("A razao de retorno temporal deve estar entre 0 e 1.")
         if self.spatial_section_length_m <= 0:
             raise ValueError("O comprimento da section deve ser maior que zero.")
+        if self.sentinel1_max_scenes <= 0:
+            raise ValueError("A quantidade maxima de cenas Sentinel-1 deve ser positiva.")
+        if not self.sentinel1_collection.strip():
+            raise ValueError("A collection Sentinel-1 nao pode ser vazia.")
+        if self.multisource_fusion_mode not in {"disabled", "shadow"}:
+            raise ValueError("O modo multisource deve ser 'disabled' ou 'shadow'.")
 
     @property
     def datetime_range(self) -> str:
@@ -212,6 +225,12 @@ class MonitoringConfig:
             values.pop("spatial_section_length_m", None)
         if not self.spatial_regularization_enabled:
             values.pop("spatial_regularization_enabled", None)
+        if not self.multisource_enabled:
+            values.pop("multisource_enabled", None)
+            values.pop("sentinel1_enabled", None)
+            values.pop("sentinel1_collection", None)
+            values.pop("sentinel1_max_scenes", None)
+            values.pop("multisource_fusion_mode", None)
         values["start_date"] = self.start_date.isoformat() if self.start_date else None
         values["end_date"] = self.end_date.isoformat() if self.end_date else None
         values["geometry_file"] = str(self.geometry_file) if self.geometry_file else None

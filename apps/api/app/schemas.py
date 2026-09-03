@@ -120,6 +120,32 @@ class SpatialSegmentationResponse(StrictModel):
     zones: list[SpatialZoneResponse]
 
 
+class EvidenceObservationResponse(StrictModel):
+    observed_at: str
+    metrics: dict[str, Any]
+
+
+class SourceEvidenceResponse(StrictModel):
+    source: str
+    status: Literal["available", "no_coverage", "unavailable", "error", "disabled"]
+    quality: float | None = Field(None, ge=0, le=100)
+    coverage: float | None = Field(None, ge=0, le=100)
+    observed_at: str | None = None
+    observations: list[EvidenceObservationResponse]
+    metrics: dict[str, Any]
+    provenance: dict[str, Any]
+    warnings: list[str]
+
+
+class MultisourceResponse(StrictModel):
+    enabled: bool
+    fusion_mode: Literal["disabled", "shadow"]
+    official_recommendation_changed: Literal[False]
+    generated_at: str
+    configuration: dict[str, Any]
+    sources: list[SourceEvidenceResponse]
+
+
 class AnalysisResponse(StrictModel):
     analysis_id: str
     status: str
@@ -130,6 +156,9 @@ class AnalysisResponse(StrictModel):
     effective_analysis_area_m2: float | None = Field(None, ge=0)
     effective_analysis_pct: float | None = Field(None, ge=0)
     spatial_segmentation: SpatialSegmentationResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
+    multisource: MultisourceResponse | None = Field(
         None, exclude_if=lambda value: value is None
     )
     aoi: dict[str, Any]

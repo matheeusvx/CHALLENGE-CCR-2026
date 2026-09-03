@@ -84,10 +84,13 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `API_CORS_ORIGINS`: origens permitidas, separadas por virgula;
 - `API_OUTPUT_ROOT`: raiz dos artefatos gerados;
 - `ANALYSIS_TIMEZONE`: timezone da data oficial da analise (padrao `America/Sao_Paulo`);
-- `MULTISOURCE_ENABLED`, `GEDI_ENABLED` e `ICESAT2_ENABLED`: fundacao futura,
-  desabilitada por padrao e sem efeito sobre o baseline Sentinel-2;
-- `MULTISOURCE_FUSION_MODE`: aceita `disabled` ou `shadow`; nenhum modo altera
-  a decisao nesta etapa;
+- `MULTISOURCE_ENABLED`: habilita a coleta de evidencias auxiliares; permanece
+  desabilitado por padrao;
+- `SENTINEL1_ENABLED`, `SENTINEL1_COLLECTION` e `SENTINEL1_MAX_SCENES`: controlam
+  a evidencia SAR Sentinel-1 por janela da AOI (padrao `sentinel-1-grd`, 8 cenas);
+- `GEDI_ENABLED` e `ICESAT2_ENABLED`: reservados e desabilitados por padrao;
+- `MULTISOURCE_FUSION_MODE`: aceita `disabled` ou `shadow`. Em `shadow`, a
+  evidencia Sentinel-1 e auditavel, mas nunca altera a decisao oficial;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
 
 ### Workspace geoespacial
@@ -104,6 +107,12 @@ e bloqueia **Executar analise** ate uma nova validacao. As abas **Area** e
 **Resultado** compartilham o mesmo estado, por isso alternar entre elas nao
 remove a geometria. A recomendacao altera o contorno no mapa e tambem e
 apresentada em texto, com confianca e periodo oficial retornado pela API.
+
+O Sentinel-2 fornece a evidencia optica, o NDVI e a serie temporal usados pela
+recommendation. Quando habilitado em modo `shadow`, o Sentinel-1 acrescenta
+metricas estruturais de amplitude GRD VV/VH como evidencia SAR complementar.
+Essas metricas nao medem diretamente altura, biomassa, volume ou necessidade de
+corte e nao sao tratadas como backscatter fisicamente calibrado pelo pipeline.
 
 ### Perfil operacional web
 
