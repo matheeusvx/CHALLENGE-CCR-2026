@@ -281,3 +281,57 @@ class AnalysisObservation(Base):
     valid_pixel_percentage: Mapped[float | None] = mapped_column(Float)
 
     analysis: Mapped[Analysis] = relationship(back_populates="observations")
+
+class NdviFieldSample(Base):
+    """Amostra de treino alinhando NDVI de satelite e condicao observada em campo.
+
+    Cada linha e um par (quilometro, data de levantamento): a AOI e a uniao dos
+    poligonos de rocada daquele km, e o rotulo vem das observacoes de campo da
+    mesma data.
+
+    A resolucao e quilometrica, e nao por posicao transversal, porque os
+    poligonos entregues pela concessionaria carregam o metodo de rocada e o km,
+    mas nao a posicao na secao. Sem o eixo da rodovia nao ha como derivar essa
+    associacao com seguranca.
+    """
+
+    __tablename__ = "ndvi_field_sample"
+    __table_args__ = (
+        UniqueConstraint("km", "observed_on", name="uq_ndvi_field_sample"),
+        Index("ix_ndvi_field_sample_date", "observed_on"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    km: Mapped[int] = mapped_column(Integer, index=True)
+    observed_on: Mapped[date] = mapped_column(Date)
+
+    # Alinhamento temporal com a cena Sentinel-2 escolhida.
+    scene_item_id: Mapped[str | None] = mapped_column(String(160))
+    scene_datetime: Mapped[str | None] = mapped_column(String(40))
+    alignment_days: Mapped[int | None] = mapped_column(Integer)
+
+    aoi_polygon_count: Mapped[int | None] = mapped_column(Integer)
+    aoi_area_m2: Mapped[float | None] = mapped_column(Float)
+
+    ndvi_mean: Mapped[float | None] = mapped_column(Float)
+    ndvi_median: Mapped[float | None] = mapped_column(Float)
+    ndvi_std: Mapped[float | None] = mapped_column(Float)
+    ndvi_min: Mapped[float | None] = mapped_column(Float)
+    ndvi_max: Mapped[float | None] = mapped_column(Float)
+
+    valid_pixel_percentage: Mapped[float | None] = mapped_column(Float)
+    valid_pixel_count: Mapped[int | None] = mapped_column(Integer)
+    aoi_coverage_percentage: Mapped[float | None] = mapped_column(Float)
+    scene_quality_score: Mapped[float | None] = mapped_column(Float)
+    quality_status: Mapped[str | None] = mapped_column(String(16))
+    accepted_for_timeseries: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Rotulos derivados do unifilar, agregados no quilometro.
+    worst_height_class: Mapped[str | None] = mapped_column(String(2))
+    applicable_count: Mapped[int | None] = mapped_column(Integer)
+    non_compliant_count: Mapped[int | None] = mapped_column(Integer)
+    non_compliant_share: Mapped[float | None] = mapped_column(Float)
+    non_compliant_any: Mapped[bool | None] = mapped_column(Boolean)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+

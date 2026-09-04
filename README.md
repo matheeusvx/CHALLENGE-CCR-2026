@@ -193,6 +193,73 @@ e o horizonte util do modelo. O ganho maior viria de alinhar temporalmente a
 serie NDVI de cada segmento com a classe observada em campo, o que transformaria
 o apoio em um preditor de altura de fato.
 
+### Dataset NDVI x condicao de campo
+
+`scripts/build_ndvi_field_dataset.py` monta o conjunto que ligaria a leitura de
+satelite ao ground truth da concessionaria. Para cada par (quilometro, data de
+vistoria):
+
+* a AOI e a uniao dos poligonos de rocada daquele km, area de vegetacao real
+  informada pela CCR, e nao um buffer arbitrario;
+* as features vem da cena Sentinel-2 valida mais proxima da vistoria, extraidas
+  pelo mesmo caminho do pipeline (`datasets.training_scenes`), de modo que so
+  entram cenas que passariam nos portoes de qualidade de uma analise real;
+* o rotulo vem do unifilar da mesma data, agregado no quilometro.
+
+```bash
+python -m scripts.build_ndvi_field_dataset
+```
+
+O resultado vai para a tabela `ndvi_field_sample` e a execucao e incremental.
+
+A janela de alinhamento e limitada automaticamente a menos da metade do menor
+intervalo entre vistorias. Sem esse limite, a mesma cena Sentinel-2 pode ficar
+mais proxima de duas vistorias diferentes e gerar linhas com features identicas
+e rotulos distintos.
+
+### Resultado da avaliacao: sem sinal na resolucao quilometrica
+
+Com os dados disponiveis, **o NDVI agregado por quilometro nao prediz a condicao
+observada em campo**. Sobre as amostras construidas a partir das vistorias de
+2026-03-13 e 2026-03-20:
+
+Sobre 38 amostras (24 com alguma nao conformidade):
+
+| Rotulo | AUC do NDVI |
+|---|---|
+| Qualquer nao conformidade no km | 0.571 |
+| Existe classe 3 (h > 30 cm) no km | 0.468 |
+| Classe 3 apenas onde o limite e 30 cm | 0.468 |
+
+A correlacao entre NDVI e a fracao de pontos nao conformes e de -0.06, ou seja,
+praticamente nula. A variacao de NDVI entre as duas datas tambem nao acompanha
+as rocadas observadas: a correlacao com o numero de celulas cortadas e +0.14,
+com o sinal invertido em relacao ao esperado, ja que rocar deveria reduzir o
+NDVI.
+
+A causa mais provavel e incompatibilidade de resolucao, e nao falha de modelo:
+
+* o rotulo e por posicao transversal, enquanto o NDVI e a media de todas as
+  posicoes daquele quilometro;
+* a agregacao do rotulo e do tipo "existe alguma nao conformidade", enquanto a
+  feature e uma media, o que e estruturalmente incompativel;
+* faixas laterais costumam ser mais estreitas que o pixel de 10 m do Sentinel-2,
+  entao o valor lido mistura vegetacao, asfalto e solo.
+
+Isso e coerente com o `height_estimator_v0`, que ja registrava ROC-AUC 0.585 no
+proprio artefato. Os dois caminhos batem no mesmo teto.
+
+Por isso **nenhum modelo foi treinado sobre esse conjunto**: seria um modelo sem
+sinal. A infraestrutura fica pronta e o mesmo comando volta a ser util assim que
+uma destas condicoes existir:
+
+1. o vinculo entre poligono e posicao transversal, que depende do eixo da
+   rodovia; com ele o rotulo passa a descrever exatamente a area medida;
+2. imagens de resolucao maior que a largura das faixas, como PlanetScope ou
+   levantamento aereo;
+3. mais vistorias, que permitem trabalhar com variacao temporal por trecho em
+   vez de comparacao entre trechos.
+
 ### Variaveis
 
 - `API_HOST` e `API_PORT`: bind da API;

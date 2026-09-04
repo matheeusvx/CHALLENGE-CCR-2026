@@ -134,17 +134,26 @@ class KilometreContext:
         return self.non_compliant_count / self.applicable_count
 
 
-def kilometre_context(session: Session, km: int) -> KilometreContext:
-    """Ultima condicao observada em campo para o quilometro informado."""
+def kilometre_context(
+    session: Session, km: int, *, on: date | None = None
+) -> KilometreContext:
+    """Condicao observada em campo para o quilometro informado.
+
+    Por padrao usa o levantamento mais recente; ``on`` fixa uma data especifica,
+    o que e necessario para montar amostras de treino alinhadas no tempo.
+    """
 
     context = KilometreContext(km=km)
 
-    latest = session.execute(
-        select(func.max(FieldConditionObservation.observed_on))
-        .join(Segment, FieldConditionObservation.segment_id == Segment.id)
-        .where(Segment.chainage_start_m >= km * 1000)
-        .where(Segment.chainage_start_m < (km + 1) * 1000)
-    ).scalar()
+    if on is not None:
+        latest = on
+    else:
+        latest = session.execute(
+            select(func.max(FieldConditionObservation.observed_on))
+            .join(Segment, FieldConditionObservation.segment_id == Segment.id)
+            .where(Segment.chainage_start_m >= km * 1000)
+            .where(Segment.chainage_start_m < (km + 1) * 1000)
+        ).scalar()
     if latest is None:
         return context
     context.last_survey_on = latest
@@ -184,6 +193,8 @@ def kilometre_context(session: Session, km: int) -> KilometreContext:
             }
         )
     context.class_counts = dict(contagem)
+    if on is not None and context.observation_count == 0:
+        context.last_survey_on = None
 
     metodos = session.execute(
         select(MowingPolygon.method, func.sum(MowingPolygon.area_m2))

@@ -15,6 +15,7 @@ from .models import (
     Highway,
     KmMarker,
     MowingPolygon,
+    NdviFieldSample,
     Segment,
     exceeds_height_limit,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "Highway",
     "KmMarker",
     "MowingPolygon",
+    "NdviFieldSample",
     "STRICT_HEIGHT_LIMIT_CM",
     "Segment",
     "count_analyses",
