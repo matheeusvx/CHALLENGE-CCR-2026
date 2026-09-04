@@ -31,3 +31,9 @@ models/*
 node_modules/
 coverage/
 apps/web/public/vendor/maplibre/
+*.sqlite3
+*.sqlite
+*.db
+*-journal
+*-wal
+*-shm

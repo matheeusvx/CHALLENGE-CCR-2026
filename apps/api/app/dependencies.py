@@ -10,6 +10,7 @@ from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.service import AnalysisResult, run_monitoring_analysis
 
 from .config import settings
+from .validation.repository import ValidationSampleRepository
 
 AnalysisService = Callable[..., AnalysisResult]
 
@@ -34,5 +35,18 @@ class AnalysisRegistry:
     def get(self, analysis_id: str) -> AnalysisResult | None:
         return self._results.get(analysis_id)
 
+    def clear(self) -> None:
+        self._results.clear()
+
 
 analysis_registry = AnalysisRegistry()
+
+
+def get_analysis_registry() -> AnalysisRegistry:
+    return analysis_registry
+
+
+def get_validation_repository() -> ValidationSampleRepository:
+    # The repository owns no persistent Connection. Each operation opens and closes
+    # its own SQLite connection, which is safe for FastAPI's worker threads.
+    return ValidationSampleRepository(settings.validation_db_path)

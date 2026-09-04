@@ -45,6 +45,18 @@ def test_analysis_timezone_default_is_operational_timezone() -> None:
     assert ApiSettings().analysis_timezone == DEFAULT_ANALYSIS_TIMEZONE
 
 
+def test_validation_database_relative_path_is_repository_rooted(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VALIDATION_DB_PATH", "data/custom-validation.sqlite3")
+
+    configured = ApiSettings()
+
+    assert configured.validation_db_path.is_absolute()
+    assert configured.validation_db_path.name == "custom-validation.sqlite3"
+    assert configured.validation_db_path.parent.name == "data"
+
+
 def test_operational_profile_has_validated_experimental_values() -> None:
     assert DEFAULT_OPERATIONAL_ANALYSIS_PROFILE.to_dict() == {
         "profile_id": "roadside_grass_default",

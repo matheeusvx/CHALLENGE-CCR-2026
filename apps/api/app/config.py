@@ -9,6 +9,19 @@ from pathlib import Path
 from .operational_profile import DEFAULT_ANALYSIS_TIMEZONE
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _validation_db_path() -> Path:
+    raw_value = os.getenv("VALIDATION_DB_PATH")
+    if not raw_value:
+        return PROJECT_ROOT / "data" / "validation" / "validation.sqlite3"
+    configured = Path(raw_value).expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
 def _read_bool(name: str, default: bool = False) -> bool:
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -28,6 +41,7 @@ class ApiSettings:
     output_root: Path = Path(
         os.getenv("API_OUTPUT_ROOT", "outputs/satellite_monitoring")
     )
+    validation_db_path: Path = field(default_factory=_validation_db_path)
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
     )
