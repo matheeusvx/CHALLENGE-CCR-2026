@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from collections.abc import Iterable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -252,6 +254,131 @@ def _quality(
     return float(np.clip(sum(components.values()), 0.0, 100.0)), components
 
 
+def _normalize_relative_orbit(value: object) -> int | None:
+    """Normaliza o inteiro definido pela extensao STAC sat; invalido vira unknown."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, np.integer)):
+        candidate = int(value)
+    elif isinstance(value, str):
+        try:
+            candidate = int(value.strip())
+        except ValueError:
+            return None
+    elif isinstance(value, (float, np.floating)) and float(value).is_integer():
+        candidate = int(value)
+    else:
+        return None
+    return candidate if candidate > 0 else None
+
+
+def group_observations_by_relative_orbit(
+    observations: Iterable[EvidenceObservation],
+) -> dict[int | None, tuple[EvidenceObservation, ...]]:
+    """Separa series Sentinel-1; ``None`` representa a trilha auditavel unknown."""
+    grouped: dict[int | None, list[EvidenceObservation]] = defaultdict(list)
+    for observation in observations:
+        orbit = _normalize_relative_orbit(observation.metrics.get("relative_orbit"))
+        grouped[orbit].append(observation)
+    return {
+        orbit: tuple(items)
+        for orbit, items in sorted(
+            grouped.items(),
+            key=lambda entry: (entry[0] is None, entry[0] if entry[0] is not None else 0),
+        )
+    }
+
+
+def _observation_values(
+    observations: Iterable[EvidenceObservation], name: str
+) -> list[float]:
+    return [
+        float(observation.metrics[name])
+        for observation in observations
+        if observation.metrics.get(name) is not None
+    ]
+
+
+def _median_observation_metric(
+    observations: Iterable[EvidenceObservation], name: str
+) -> float | None:
+    values = _observation_values(observations, name)
+    return float(np.median(values)) if values else None
+
+
+def _mean_observation_metric(
+    observations: Iterable[EvidenceObservation], name: str
+) -> float:
+    values = _observation_values(observations, name)
+    return float(np.mean(values)) if values else 0.0
+
+
+def _aggregate_observations(
+    observations: tuple[EvidenceObservation, ...],
+) -> dict[str, Any]:
+    """Resume uma unica geometria orbital, sem inferir significado fisico."""
+    return {
+        "observation_count": len(observations),
+        "vv_amplitude_median": _median_observation_metric(
+            observations, "vv_amplitude_median"
+        ),
+        "vh_amplitude_median": _median_observation_metric(
+            observations, "vh_amplitude_median"
+        ),
+        "vh_vv_amplitude_ratio_median": _median_observation_metric(
+            observations, "vh_vv_amplitude_ratio"
+        ),
+        "mean_valid_pixel_percentage": _mean_observation_metric(
+            observations, "valid_pixel_percentage"
+        ),
+        "mean_coverage": _mean_observation_metric(observations, "coverage"),
+        "first_observation": min(item.observed_at for item in observations).isoformat(),
+        "latest_observation": max(item.observed_at for item in observations).isoformat(),
+    }
+
+
+def select_canonical_orbit_observations(
+    observations: Iterable[EvidenceObservation],
+) -> tuple[int | None, tuple[EvidenceObservation, ...]]:
+    """Seleciona deterministicamente uma serie orbital conhecida para uso temporal.
+
+    Prioriza quantidade, cobertura, pixels validos, recencia e, por fim, o menor
+    numero de orbita. Observacoes ``unknown`` nunca recebem uma orbita por inferencia.
+    """
+    grouped = group_observations_by_relative_orbit(observations)
+    known_groups = {
+        orbit: items for orbit, items in grouped.items() if orbit is not None
+    }
+    if not known_groups:
+        return None, ()
+
+    def priority(
+        entry: tuple[int, tuple[EvidenceObservation, ...]],
+    ) -> tuple[int, float, float, datetime, int]:
+        orbit, items = entry
+        return (
+            len(items),
+            _mean_observation_metric(items, "coverage"),
+            _mean_observation_metric(items, "valid_pixel_percentage"),
+            max(item.observed_at for item in items),
+            -orbit,
+        )
+
+    return max(known_groups.items(), key=priority)
+
+
+def _temporal_comparability(
+    relative_orbits: list[int], unassigned_count: int
+) -> str:
+    if not relative_orbits:
+        return "relative_orbit_unavailable"
+    if len(relative_orbits) > 1:
+        return "multiple_relative_orbits_requires_grouping"
+    if unassigned_count:
+        return "unassigned_relative_orbits_require_grouping"
+    return "single_relative_orbit_available"
+
+
 class Sentinel1Provider:
     """Coleta evidencia Sentinel-1 IW VV/VH complementar em modo shadow."""
 
@@ -333,11 +460,14 @@ class Sentinel1Provider:
                 warnings.append(f"{item.id}: raster unavailable ({type(exc).__name__}).")
                 continue
             properties = item.properties
+            relative_orbit = _normalize_relative_orbit(
+                properties.get("sat:relative_orbit")
+            )
             metrics = {
                 "item_id": str(item.id),
                 "platform": properties.get("platform") or properties.get("constellation"),
                 "orbit_state": properties.get("sat:orbit_state"),
-                "relative_orbit": properties.get("sat:relative_orbit"),
+                "relative_orbit": relative_orbit,
                 "instrument_mode": properties.get("sar:instrument_mode"),
                 "polarizations": ",".join(polarizations),
                 "metadata_polarizations": ",".join(metadata_polarizations),
@@ -369,16 +499,41 @@ class Sentinel1Provider:
             warnings.append(
                 "Multiple orbit states are present; no temporal trend was inferred."
             )
+        grouped_observations = group_observations_by_relative_orbit(observations)
+        relative_orbits = [
+            orbit for orbit in grouped_observations if orbit is not None
+        ]
+        unassigned_count = len(grouped_observations.get(None, ()))
+        if len(relative_orbits) > 1:
+            formatted_orbits = ", ".join(str(orbit) for orbit in relative_orbits)
+            warnings.append(
+                "Multiple Sentinel-1 relative orbits are present "
+                f"({formatted_orbits}); global metrics are descriptive only and "
+                "temporal comparison must use a single relative orbit."
+            )
+        if unassigned_count:
+            warnings.append(
+                f"{unassigned_count} Sentinel-1 observation(s) have no valid "
+                "sat:relative_orbit; they remain in the unknown group and are "
+                "excluded from canonical relative-orbit selection."
+            )
+        metrics_by_relative_orbit = {
+            str(orbit) if orbit is not None else "unknown": _aggregate_observations(items)
+            for orbit, items in grouped_observations.items()
+        }
+        canonical_relative_orbit, canonical_observations = (
+            select_canonical_orbit_observations(observations)
+        )
+        canonical_metrics = (
+            {
+                "relative_orbit": canonical_relative_orbit,
+                **_aggregate_observations(canonical_observations),
+            }
+            if canonical_relative_orbit is not None
+            else None
+        )
         quality, components = _quality(observations)
         coverage = float(np.mean([float(item.metrics["coverage"]) for item in observations]))
-
-        def aggregate(name: str) -> float | None:
-            values = [
-                float(item.metrics[name])
-                for item in observations
-                if item.metrics.get(name) is not None
-            ]
-            return float(np.median(values)) if values else None
 
         return SourceEvidence(
             source=self.source,
@@ -390,9 +545,18 @@ class Sentinel1Provider:
             metrics={
                 "observation_count": len(observations),
                 "latest_observation": max(item.observed_at for item in observations).isoformat(),
-                "vv_amplitude_median_across_observations": aggregate("vv_amplitude_median"),
-                "vh_amplitude_median_across_observations": aggregate("vh_amplitude_median"),
-                "vh_vv_amplitude_ratio_median": aggregate("vh_vv_amplitude_ratio"),
+                # Campos globais legados: podem misturar geometrias e sao apenas
+                # descritivos; consumidores temporais devem usar canonical_metrics.
+                "vv_amplitude_median_across_observations": _median_observation_metric(
+                    observations, "vv_amplitude_median"
+                ),
+                "vh_amplitude_median_across_observations": _median_observation_metric(
+                    observations, "vh_amplitude_median"
+                ),
+                "vh_vv_amplitude_ratio_median": _median_observation_metric(
+                    observations, "vh_vv_amplitude_ratio"
+                ),
+                "global_metrics_temporal_use": "descriptive_only",
                 "mean_valid_pixel_percentage": float(
                     np.mean(
                         [float(item.metrics["valid_pixel_percentage"]) for item in observations]
@@ -404,6 +568,16 @@ class Sentinel1Provider:
                     for item in observations
                 ),
                 "orbit_states": ",".join(orbit_states),
+                "orbit_state_values": orbit_states,
+                "relative_orbits": relative_orbits,
+                "unassigned_relative_orbit_observation_count": unassigned_count,
+                "metrics_by_relative_orbit": metrics_by_relative_orbit,
+                "canonical_relative_orbit": canonical_relative_orbit,
+                "canonical_observation_count": len(canonical_observations),
+                "canonical_metrics": canonical_metrics,
+                "temporal_comparability": _temporal_comparability(
+                    relative_orbits, unassigned_count
+                ),
                 "quality_formula": (
                     "25 VV + 25 VH fraction + 25 valid-pixel fraction + "
                     "15 AOI coverage + 10 observation support (3 observations)"
@@ -424,4 +598,10 @@ class Sentinel1Provider:
             "asset_semantics": "detected_grd_amplitude_values_uncalibrated_by_pipeline",
             "radiometric_conversion": "none",
             "spatial_read": "windowed_cog",
+            "temporal_grouping": "sat:relative_orbit",
+            "canonical_relative_orbit_selection": (
+                "observation_count_desc,mean_coverage_desc,"
+                "mean_valid_pixel_percentage_desc,latest_observation_desc,"
+                "relative_orbit_asc"
+            ),
         }

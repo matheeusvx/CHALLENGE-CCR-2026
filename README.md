@@ -113,6 +113,9 @@ recommendation. Quando habilitado em modo `shadow`, o Sentinel-1 acrescenta
 metricas estruturais de amplitude GRD VV/VH como evidencia SAR complementar.
 Essas metricas nao medem diretamente altura, biomassa, volume ou necessidade de
 corte e nao sao tratadas como backscatter fisicamente calibrado pelo pipeline.
+As medianas globais Sentinel-1 sao estatisticas descritivas e podem misturar
+geometrias de aquisicao. Comparacoes temporais futuras devem usar exclusivamente
+as `canonical_metrics`, calculadas dentro de uma unica `sat:relative_orbit`.
 
 ### Perfil operacional web
 

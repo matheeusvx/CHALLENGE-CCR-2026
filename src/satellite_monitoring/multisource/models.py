@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypeAlias
 
-MetricValue = str | int | float | bool | None
+MetricScalar: TypeAlias = str | int | float | bool | None
+MetricValue: TypeAlias = (
+    MetricScalar | list["MetricValue"] | dict[str, "MetricValue"]
+)
 
 
 class EvidenceStatus(str, Enum):

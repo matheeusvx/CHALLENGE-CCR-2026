@@ -196,7 +196,23 @@ def test_analysis_response_exposes_shadow_multisource_evidence(
                             },
                         }
                     ],
-                    "metrics": {"observation_count": 1},
+                    "metrics": {
+                        "observation_count": 1,
+                        "relative_orbits": [53],
+                        "canonical_relative_orbit": 53,
+                        "canonical_observation_count": 1,
+                        "metrics_by_relative_orbit": {
+                            "53": {
+                                "observation_count": 1,
+                                "vv_amplitude_median": 123.0,
+                            }
+                        },
+                        "canonical_metrics": {
+                            "relative_orbit": 53,
+                            "observation_count": 1,
+                            "vv_amplitude_median": 123.0,
+                        },
+                    },
                     "provenance": {
                         "collection": "sentinel-1-grd",
                         "asset_semantics": "detected_grd_amplitude_values_uncalibrated_by_pipeline",
@@ -216,6 +232,13 @@ def test_analysis_response_exposes_shadow_multisource_evidence(
     assert body["multisource"]["sources"][0]["observations"][0]["metrics"][
         "item_id"
     ] == "S1A_TEST"
+    assert body["multisource"]["sources"][0]["metrics"]["relative_orbits"] == [53]
+    assert body["multisource"]["sources"][0]["metrics"][
+        "metrics_by_relative_orbit"
+    ]["53"]["vv_amplitude_median"] == 123.0
+    assert body["multisource"]["sources"][0]["metrics"][
+        "canonical_metrics"
+    ]["relative_orbit"] == 53
     assert body["recommendation"]["decision"] == "nao_cortar"
 
 
