@@ -5,17 +5,20 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
 import numpy as np
 import rasterio
+from affine import Affine
 from rasterio.enums import Resampling
 from rasterio.errors import WindowError
 from rasterio.features import geometry_mask, geometry_window
+from rasterio.transform import GCPTransformer
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_geom
+from rasterio.windows import Window
 
 from ...stac_client import open_stac_client
 from ..models import (
@@ -23,6 +26,13 @@ from ..models import (
     EvidenceObservation,
     EvidenceStatus,
     SourceEvidence,
+)
+from .sentinel1_calibration import (
+    Sentinel1CalibrationError,
+    Sentinel1CalibrationUnavailable,
+    calculate_sigma0_metrics,
+    calibrate_sigma0,
+    load_calibration_lut,
 )
 
 
@@ -45,6 +55,20 @@ class Sentinel1RasterMetrics:
     vh_amplitude_mean: float | None = None
     vh_amplitude_std: float | None = None
     vh_vv_amplitude_ratio: float | None = None
+    radiometric_calibration_status: str = "unavailable"
+    vv_radiometric_calibration_status: str = "unavailable"
+    vh_radiometric_calibration_status: str = "unavailable"
+    vv_sigma0_median_linear: float | None = None
+    vv_sigma0_mean_linear: float | None = None
+    vv_sigma0_std_linear: float | None = None
+    vh_sigma0_median_linear: float | None = None
+    vh_sigma0_mean_linear: float | None = None
+    vh_sigma0_std_linear: float | None = None
+    vv_sigma0_median_db: float | None = None
+    vh_sigma0_median_db: float | None = None
+    vh_vv_sigma0_ratio_median: float | None = None
+    vh_minus_vv_db_median: float | None = None
+    _radiometric_calibration_warning: str | None = None
 
 
 def _finite_values(array: np.ma.MaskedArray, inside_aoi: np.ndarray) -> np.ndarray:
@@ -118,6 +142,237 @@ def _asset_key(item: Any, polarization: str) -> str | None:
         if any(str(band.get("polarization", "")).lower() == expected for band in bands):
             return key
     return None
+
+
+def _calibration_asset_key(item: Any, polarization: str) -> str | None:
+    """Resolve somente o nome confirmado na colecao sentinel-1-grd do MPC."""
+    expected = f"schema-calibration-{polarization.lower()}"
+    return next((key for key in item.assets if key.lower() == expected), None)
+
+
+def _densify_ring(
+    ring: list[list[float]] | tuple[tuple[float, ...], ...],
+    *,
+    intervals: int = 16,
+) -> list[list[float]]:
+    dense: list[list[float]] = []
+    for start, end in zip(ring, ring[1:], strict=False):
+        for step in range(intervals):
+            fraction = step / intervals
+            dense.append(
+                [
+                    float(start[0]) + fraction * (float(end[0]) - float(start[0])),
+                    float(start[1]) + fraction * (float(end[1]) - float(start[1])),
+                ]
+            )
+    dense.append([float(ring[-1][0]), float(ring[-1][1])])
+    return dense
+
+
+def _geometry_to_native_pixels(
+    transformer: GCPTransformer,
+    geometry: Mapping[str, object],
+) -> dict[str, object]:
+    geometry_type = str(geometry.get("type"))
+    coordinates = geometry.get("coordinates")
+    if geometry_type not in {"Polygon", "MultiPolygon"} or not isinstance(
+        coordinates, (list, tuple)
+    ):
+        raise Sentinel1CalibrationError("unsupported_aoi_geometry")
+
+    polygons = [coordinates] if geometry_type == "Polygon" else coordinates
+    transformed_polygons: list[list[list[list[float]]]] = []
+    for polygon in polygons:
+        transformed_rings: list[list[list[float]]] = []
+        for ring in polygon:
+            dense = _densify_ring(ring)
+            xs = [coordinate[0] for coordinate in dense]
+            ys = [coordinate[1] for coordinate in dense]
+            rows, columns = transformer.rowcol(xs, ys, op=lambda value: value)
+            if not np.all(np.isfinite(rows)) or not np.all(np.isfinite(columns)):
+                raise Sentinel1CalibrationError("nonfinite_native_aoi_coordinates")
+            transformed_rings.append(
+                [[float(column), float(row)] for row, column in zip(rows, columns, strict=True)]
+            )
+        transformed_polygons.append(transformed_rings)
+    return {
+        "type": geometry_type,
+        "coordinates": (
+            transformed_polygons[0] if geometry_type == "Polygon" else transformed_polygons
+        ),
+    }
+
+
+def _native_window_and_mask(
+    dataset: Any,
+    geometry: Mapping[str, object],
+) -> tuple[Window, np.ndarray]:
+    """Mapeia AOI para a grade measurement original, sem passar por WarpedVRT."""
+    if dataset.crs is not None:
+        native_geometry = transform_geom(
+            "EPSG:4326", dataset.crs, dict(geometry), precision=15
+        )
+        window = geometry_window(dataset, [native_geometry])
+        mask = geometry_mask(
+            [native_geometry],
+            out_shape=(int(window.height), int(window.width)),
+            transform=dataset.window_transform(window),
+            invert=True,
+        )
+        return window, mask
+
+    gcps, gcp_crs = dataset.gcps
+    if not gcps or gcp_crs is None:
+        raise Sentinel1CalibrationError("native_grid_georeferencing_unavailable")
+    source_geometry = transform_geom("EPSG:4326", gcp_crs, dict(geometry), precision=15)
+    with GCPTransformer(gcps) as transformer:
+        native_geometry = _geometry_to_native_pixels(transformer, source_geometry)
+
+    coordinate_pairs: list[list[float]] = []
+    polygons = (
+        [native_geometry["coordinates"]]
+        if native_geometry["type"] == "Polygon"
+        else native_geometry["coordinates"]
+    )
+    for polygon in polygons:
+        for ring in polygon:
+            coordinate_pairs.extend(ring)
+    columns = [coordinate[0] for coordinate in coordinate_pairs]
+    rows = [coordinate[1] for coordinate in coordinate_pairs]
+    column_start = max(0, int(np.floor(min(columns))))
+    row_start = max(0, int(np.floor(min(rows))))
+    column_stop = min(dataset.width, int(np.ceil(max(columns))) + 1)
+    row_stop = min(dataset.height, int(np.ceil(max(rows))) + 1)
+    if column_stop <= column_start or row_stop <= row_start:
+        raise Sentinel1CalibrationError("aoi_outside_native_measurement_grid")
+    window = Window(
+        column_start,
+        row_start,
+        column_stop - column_start,
+        row_stop - row_start,
+    )
+    # GCP line/sample referenciam centros; o deslocamento de meia celula preserva
+    # essa convencao ao rasterizar a geometria no espaco de pixels nativo.
+    pixel_transform = Affine.translation(column_start - 0.5, row_start - 0.5)
+    mask = geometry_mask(
+        [native_geometry],
+        out_shape=(int(window.height), int(window.width)),
+        transform=pixel_transform,
+        invert=True,
+    )
+    return window, mask
+
+
+def _same_native_grid(reference: Any, candidate: Any) -> bool:
+    if reference.width != candidate.width or reference.height != candidate.height:
+        return False
+    if reference.crs is not None or candidate.crs is not None:
+        return reference.crs == candidate.crs and reference.transform == candidate.transform
+    reference_gcps, reference_crs = reference.gcps
+    candidate_gcps, candidate_crs = candidate.gcps
+    if reference_crs != candidate_crs or len(reference_gcps) != len(candidate_gcps):
+        return False
+    return all(
+        np.allclose(
+            (left.row, left.col, left.x, left.y, left.z),
+            (right.row, right.col, right.x, right.y, right.z),
+            rtol=0.0,
+            atol=1e-9,
+        )
+        for left, right in zip(reference_gcps, candidate_gcps, strict=True)
+    )
+
+
+def _calibrate_polarization(
+    item: Any,
+    polarization: str,
+    dn: np.ma.MaskedArray,
+    window: Window,
+) -> tuple[np.ma.MaskedArray | None, str, str | None]:
+    calibration_key = _calibration_asset_key(item, polarization)
+    if calibration_key is None:
+        return None, "unavailable", f"missing_{polarization.lower()}_calibration_asset"
+    try:
+        lut = load_calibration_lut(item.assets[calibration_key].href)
+        if lut.polarization != polarization.upper():
+            raise Sentinel1CalibrationError("calibration_polarization_mismatch")
+        sigma0 = calibrate_sigma0(
+            dn,
+            lut,
+            line_offset=int(window.row_off),
+            sample_offset=int(window.col_off),
+        )
+    except Sentinel1CalibrationUnavailable as exc:
+        return None, "unavailable", str(exc)
+    except Sentinel1CalibrationError as exc:
+        return None, "failed", str(exc)
+    except Exception:
+        return None, "failed", "unexpected_calibration_error"
+    return sigma0, "calibrated", None
+
+
+def _read_sigma0_window(
+    item: Any,
+    geometry: Mapping[str, object],
+) -> dict[str, object]:
+    vv_key = _asset_key(item, "VV")
+    vh_key = _asset_key(item, "VH")
+    if vv_key is None:
+        raise Sentinel1CalibrationUnavailable("missing_vv_measurement_asset")
+
+    env_options = {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "GDAL_HTTP_MULTIRANGE": "YES",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff,.TIF,.TIFF",
+    }
+    with rasterio.Env(**env_options), ExitStack() as stack:
+        vv_source = stack.enter_context(rasterio.open(item.assets[vv_key].href))
+        window, inside_aoi = _native_window_and_mask(vv_source, geometry)
+        vv_dn = vv_source.read(1, window=window, masked=True)
+        vv_sigma0, vv_status, vv_reason = _calibrate_polarization(
+            item, "VV", vv_dn, window
+        )
+
+        vh_sigma0 = None
+        vh_status = "not_applicable"
+        vh_reason = None
+        if vh_key is not None:
+            vh_source = stack.enter_context(rasterio.open(item.assets[vh_key].href))
+            if not _same_native_grid(vv_source, vh_source):
+                vh_status = "failed"
+                vh_reason = "vv_vh_native_grid_mismatch"
+            else:
+                vh_dn = vh_source.read(1, window=window, masked=True)
+                vh_sigma0, vh_status, vh_reason = _calibrate_polarization(
+                    item, "VH", vh_dn, window
+                )
+
+        statuses = [vv_status] + ([vh_status] if vh_key is not None else [])
+        if all(status == "calibrated" for status in statuses):
+            overall_status = "calibrated"
+        elif "calibrated" in statuses:
+            overall_status = "partial"
+        elif "failed" in statuses:
+            overall_status = "failed"
+        else:
+            overall_status = "unavailable"
+        reasons = [reason for reason in (vv_reason, vh_reason) if reason]
+        sigma0_metrics = calculate_sigma0_metrics(
+            vv_sigma0,
+            vh_sigma0,
+            inside_aoi=inside_aoi,
+        )
+        if vv_status == "calibrated" and sigma0_metrics.vv_sigma0_median_linear is None:
+            overall_status = "failed"
+            vv_status = "failed"
+            reasons.append("no_valid_vv_sigma0_pixels_in_aoi")
+        return {
+            "radiometric_calibration_status": overall_status,
+            "vv_radiometric_calibration_status": vv_status,
+            "vh_radiometric_calibration_status": vh_status,
+            **sigma0_metrics.__dict__,
+            "_radiometric_calibration_warning": ",".join(reasons) or None,
+        }
 
 
 def _georeferenced_view(stack: ExitStack, dataset: Any) -> Any:
@@ -202,7 +457,7 @@ def read_sentinel1_window(
             if vh_key is not None:
                 vh_view = _aligned_view(stack, item.assets[vh_key].href, reference)
                 vh = vh_view.read(1, window=window, masked=True)
-            return calculate_amplitude_metrics(
+            raw_metrics = calculate_amplitude_metrics(
                 vv,
                 vh,
                 inside_aoi=inside_aoi,
@@ -211,6 +466,25 @@ def read_sentinel1_window(
             )
     except (WindowError, ValueError, rasterio.errors.RasterioError) as exc:
         raise Sentinel1RasterError(f"Falha ao recortar assets Sentinel-1: {exc}") from exc
+
+    try:
+        calibrated_metrics = _read_sigma0_window(item, geometry)
+    except Sentinel1CalibrationUnavailable as exc:
+        calibrated_metrics = {
+            "radiometric_calibration_status": "unavailable",
+            "_radiometric_calibration_warning": str(exc),
+        }
+    except Sentinel1CalibrationError as exc:
+        calibrated_metrics = {
+            "radiometric_calibration_status": "failed",
+            "_radiometric_calibration_warning": str(exc),
+        }
+    except Exception:
+        calibrated_metrics = {
+            "radiometric_calibration_status": "failed",
+            "_radiometric_calibration_warning": "unexpected_calibration_error",
+        }
+    return replace(raw_metrics, **calibrated_metrics)
 
 
 def _item_datetime(item: Any) -> datetime:
@@ -317,7 +591,7 @@ def _aggregate_observations(
     observations: tuple[EvidenceObservation, ...],
 ) -> dict[str, Any]:
     """Resume uma unica geometria orbital, sem inferir significado fisico."""
-    return {
+    metrics = {
         "observation_count": len(observations),
         "vv_amplitude_median": _median_observation_metric(
             observations, "vv_amplitude_median"
@@ -335,6 +609,24 @@ def _aggregate_observations(
         "first_observation": min(item.observed_at for item in observations).isoformat(),
         "latest_observation": max(item.observed_at for item in observations).isoformat(),
     }
+    for name in (
+        "vv_sigma0_median_linear",
+        "vh_sigma0_median_linear",
+        "vv_sigma0_median_db",
+        "vh_sigma0_median_db",
+        "vh_vv_sigma0_ratio_median",
+        "vh_minus_vv_db_median",
+    ):
+        metrics[name] = _median_observation_metric(observations, name)
+    metrics["calibrated_observation_count"] = sum(
+        observation.metrics.get("radiometric_calibration_status") == "calibrated"
+        for observation in observations
+    )
+    metrics["vv_calibrated_observation_count"] = sum(
+        observation.metrics.get("vv_radiometric_calibration_status") == "calibrated"
+        for observation in observations
+    )
+    return metrics
 
 
 def select_canonical_orbit_observations(
@@ -463,6 +755,12 @@ class Sentinel1Provider:
             relative_orbit = _normalize_relative_orbit(
                 properties.get("sat:relative_orbit")
             )
+            calibration_warning = raster._radiometric_calibration_warning
+            raster_metrics = {
+                key: value
+                for key, value in raster.__dict__.items()
+                if not key.startswith("_")
+            }
             metrics = {
                 "item_id": str(item.id),
                 "platform": properties.get("platform") or properties.get("constellation"),
@@ -471,8 +769,15 @@ class Sentinel1Provider:
                 "instrument_mode": properties.get("sar:instrument_mode"),
                 "polarizations": ",".join(polarizations),
                 "metadata_polarizations": ",".join(metadata_polarizations),
-                **raster.__dict__,
+                **raster_metrics,
             }
+            if raster.radiometric_calibration_status != "calibrated":
+                detail = calibration_warning or raster.radiometric_calibration_status
+                warnings.append(
+                    f"{item.id}: radiometric calibration "
+                    f"{raster.radiometric_calibration_status} ({detail}); raw GRD "
+                    "amplitude metrics were preserved."
+                )
             if "VH" in polarizations and raster.vh_amplitude_median is None:
                 metrics["polarizations"] = "VV"
                 warnings.append(f"{item.id}: VH has no valid pixels in the AOI.")
@@ -534,6 +839,30 @@ class Sentinel1Provider:
         )
         quality, components = _quality(observations)
         coverage = float(np.mean([float(item.metrics["coverage"]) for item in observations]))
+        calibrated_observation_count = sum(
+            item.metrics.get("radiometric_calibration_status") == "calibrated"
+            for item in observations
+        )
+        partially_calibrated_observation_count = sum(
+            item.metrics.get("radiometric_calibration_status") == "partial"
+            for item in observations
+        )
+        vv_calibrated_observation_count = sum(
+            item.metrics.get("vv_radiometric_calibration_status") == "calibrated"
+            for item in observations
+        )
+        calibration_statuses = {
+            str(item.metrics.get("radiometric_calibration_status"))
+            for item in observations
+        }
+        if calibrated_observation_count == len(observations):
+            source_calibration_status = "calibrated"
+        elif calibrated_observation_count or partially_calibrated_observation_count:
+            source_calibration_status = "partial"
+        elif "failed" in calibration_statuses:
+            source_calibration_status = "failed"
+        else:
+            source_calibration_status = "unavailable"
 
         return SourceEvidence(
             source=self.source,
@@ -555,6 +884,24 @@ class Sentinel1Provider:
                 ),
                 "vh_vv_amplitude_ratio_median": _median_observation_metric(
                     observations, "vh_vv_amplitude_ratio"
+                ),
+                "vv_sigma0_median_linear_across_observations": (
+                    _median_observation_metric(observations, "vv_sigma0_median_linear")
+                ),
+                "vh_sigma0_median_linear_across_observations": (
+                    _median_observation_metric(observations, "vh_sigma0_median_linear")
+                ),
+                "vv_sigma0_median_db_across_observations": (
+                    _median_observation_metric(observations, "vv_sigma0_median_db")
+                ),
+                "vh_sigma0_median_db_across_observations": (
+                    _median_observation_metric(observations, "vh_sigma0_median_db")
+                ),
+                "vh_vv_sigma0_ratio_median_across_observations": (
+                    _median_observation_metric(observations, "vh_vv_sigma0_ratio_median")
+                ),
+                "vh_minus_vv_db_median_across_observations": (
+                    _median_observation_metric(observations, "vh_minus_vv_db_median")
                 ),
                 "global_metrics_temporal_use": "descriptive_only",
                 "mean_valid_pixel_percentage": float(
@@ -578,6 +925,18 @@ class Sentinel1Provider:
                 "temporal_comparability": _temporal_comparability(
                     relative_orbits, unassigned_count
                 ),
+                "radiometric_calibration_status": source_calibration_status,
+                "calibrated_observation_count": calibrated_observation_count,
+                "partially_calibrated_observation_count": (
+                    partially_calibrated_observation_count
+                ),
+                "vv_calibrated_observation_count": vv_calibrated_observation_count,
+                "uncalibrated_observation_count": (
+                    len(observations) - calibrated_observation_count
+                ),
+                "calibrated_observation_fraction": (
+                    calibrated_observation_count / len(observations)
+                ),
                 "quality_formula": (
                     "25 VV + 25 VH fraction + 25 valid-pixel fraction + "
                     "15 AOI coverage + 10 observation support (3 observations)"
@@ -596,8 +955,34 @@ class Sentinel1Provider:
             "instrument_mode": "IW",
             "preferred_polarizations": "VV,VH",
             "asset_semantics": "detected_grd_amplitude_values_uncalibrated_by_pipeline",
-            "radiometric_conversion": "none",
+            "radiometric_calibration": "sigma0",
+            "calibration_source": (
+                "Microsoft Planetary Computer STAC assets "
+                "schema-calibration-{polarization} containing Sentinel-1 Level-1 LUTs"
+            ),
+            "calibration_formula": "sigma0_linear = DN^2 / sigmaNought^2",
+            "calibration_lut_interpolation": "bilinear_native_image_line_sample",
+            "db_conversion": "10*log10(sigma0_linear), positive finite pixels only",
+            "polarimetric_metrics": (
+                "pixelwise co-valid VH/VV sigma0 ratio and VH-minus-VV dB median"
+            ),
+            "calibrated_observation_definition": (
+                "all measurement polarizations present in the item have sigma0 metrics"
+            ),
+            "vv_calibrated_observation_definition": "VV sigma0 metrics available",
+            "radiometric_conversion": "sentinel-1-level1-sigma0-lut",
+            "thermal_noise_correction": "not_applied_by_pipeline",
+            "thermal_noise_annotation_source": (
+                "Microsoft Planetary Computer STAC assets schema-noise-{polarization}"
+            ),
+            "thermal_noise_annotation_use": "not_used_by_pipeline",
+            "source_product_thermal_noise_correction": (
+                "unknown_not_exposed_by_planetary_computer_stac_item"
+            ),
+            "terrain_correction": False,
+            "rtc": False,
             "spatial_read": "windowed_cog",
+            "calibration_grid": "native_measurement_line_sample_before_georeferencing",
             "temporal_grouping": "sat:relative_orbit",
             "canonical_relative_orbit_selection": (
                 "observation_count_desc,mean_coverage_desc,"

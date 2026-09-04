@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -87,6 +88,25 @@ def _raster(
         vh_amplitude_mean=(vv + 1.0) * ratio if ratio is not None else None,
         vh_amplitude_std=2.0 if ratio is not None else None,
         vh_vv_amplitude_ratio=ratio,
+    )
+
+
+def _calibrated_raster(*, vv: float, sigma0: float) -> Sentinel1RasterMetrics:
+    return replace(
+        _raster(vv=vv),
+        radiometric_calibration_status="calibrated",
+        vv_radiometric_calibration_status="calibrated",
+        vh_radiometric_calibration_status="calibrated",
+        vv_sigma0_median_linear=sigma0,
+        vv_sigma0_mean_linear=sigma0,
+        vv_sigma0_std_linear=0.0,
+        vh_sigma0_median_linear=sigma0 / 4.0,
+        vh_sigma0_mean_linear=sigma0 / 4.0,
+        vh_sigma0_std_linear=0.0,
+        vv_sigma0_median_db=10.0 * np.log10(sigma0),
+        vh_sigma0_median_db=10.0 * np.log10(sigma0 / 4.0),
+        vh_vv_sigma0_ratio_median=0.25,
+        vh_minus_vv_db_median=10.0 * np.log10(0.25),
     )
 
 
@@ -201,7 +221,8 @@ def test_dual_polarization_metrics_quality_and_orbit_provenance() -> None:
     assert evidence.observations[0].metrics["relative_orbit"] == 42
     assert evidence.observations[1].metrics["vh_vv_amplitude_ratio"] == 0.25
     assert any("Multiple orbit states" in warning for warning in evidence.warnings)
-    assert evidence.provenance["radiometric_conversion"] == "none"
+    assert evidence.provenance["radiometric_calibration"] == "sigma0"
+    assert evidence.provenance["terrain_correction"] is False
     assert evidence.provenance["temporal_grouping"] == "sat:relative_orbit"
 
 
@@ -211,16 +232,15 @@ def test_same_relative_orbit_has_group_metrics_without_relative_orbit_warning() 
     evidence = provider.collect_evidence(GEOMETRY, PERIOD)
 
     assert evidence.metrics["relative_orbits"] == [42]
-    assert evidence.metrics["metrics_by_relative_orbit"]["42"] == {
-        "observation_count": 2,
-        "vv_amplitude_median": 100.0,
-        "vh_amplitude_median": 25.0,
-        "vh_vv_amplitude_ratio_median": 0.25,
-        "mean_valid_pixel_percentage": 96.0,
-        "mean_coverage": 96.0,
-        "first_observation": "2026-08-02T00:00:00+00:00",
-        "latest_observation": "2026-08-20T00:00:00+00:00",
-    }
+    orbit_metrics = evidence.metrics["metrics_by_relative_orbit"]["42"]
+    assert orbit_metrics["observation_count"] == 2
+    assert orbit_metrics["vv_amplitude_median"] == 100.0
+    assert orbit_metrics["vh_amplitude_median"] == 25.0
+    assert orbit_metrics["vh_vv_amplitude_ratio_median"] == 0.25
+    assert orbit_metrics["mean_valid_pixel_percentage"] == 96.0
+    assert orbit_metrics["mean_coverage"] == 96.0
+    assert orbit_metrics["first_observation"] == "2026-08-02T00:00:00+00:00"
+    assert orbit_metrics["latest_observation"] == "2026-08-20T00:00:00+00:00"
     assert not any("relative orbits are present" in warning for warning in evidence.warnings)
 
 
@@ -237,8 +257,17 @@ def test_multiple_descending_relative_orbits_are_grouped_and_canonical_isolated(
         "orbit-126-a": 100.0,
         "orbit-126-b": 104.0,
     }
+    sigma0_by_item = {
+        "orbit-53-a": 0.04,
+        "orbit-53-b": 0.044,
+        "orbit-126-a": 0.1,
+        "orbit-126-b": 0.104,
+    }
     provider, _ = _provider(
-        items, reader=lambda item, _: _raster(vv=vv_by_item[item.id])
+        items,
+        reader=lambda item, _: _calibrated_raster(
+            vv=vv_by_item[item.id], sigma0=sigma0_by_item[item.id]
+        ),
     )
 
     evidence = provider.collect_evidence(GEOMETRY, PERIOD)
@@ -253,6 +282,19 @@ def test_multiple_descending_relative_orbits_are_grouped_and_canonical_isolated(
     assert metrics["canonical_relative_orbit"] == 126
     assert metrics["canonical_observation_count"] == 2
     assert metrics["canonical_metrics"]["vv_amplitude_median"] == 102.0
+    assert metrics["metrics_by_relative_orbit"]["53"][
+        "vv_sigma0_median_linear"
+    ] == pytest.approx(0.042)
+    assert metrics["metrics_by_relative_orbit"]["126"][
+        "vv_sigma0_median_linear"
+    ] == pytest.approx(0.102)
+    assert metrics["vv_sigma0_median_linear_across_observations"] == pytest.approx(
+        0.072
+    )
+    assert metrics["canonical_metrics"]["vv_sigma0_median_linear"] == pytest.approx(
+        0.102
+    )
+    assert metrics["canonical_metrics"]["calibrated_observation_count"] == 2
     assert metrics["canonical_metrics"]["observation_count"] == 2
     assert metrics["temporal_comparability"] == "multiple_relative_orbits_requires_grouping"
     assert "trend" not in metrics["canonical_metrics"]
@@ -483,7 +525,10 @@ def test_stac_failure_isolated_by_orchestrator() -> None:
 def test_runtime_shadow_payload_and_artifact_include_orbit_grouping(
     tmp_path,
 ) -> None:
-    provider, _ = _provider([_item("scene", 20)])
+    provider, _ = _provider(
+        [_item("scene", 20)],
+        reader=lambda *_: _calibrated_raster(vv=100.0, sigma0=0.04),
+    )
     config = MonitoringConfig(
         geometry=GEOMETRY,
         start_date=PERIOD.start_date,
@@ -513,4 +558,6 @@ def test_runtime_shadow_payload_and_artifact_include_orbit_grouping(
     serialized = artifact.read_text(encoding="utf-8")
     assert '"metrics_by_relative_orbit"' in serialized
     assert '"canonical_metrics"' in serialized
+    assert '"vv_sigma0_median_linear": 0.04' in serialized
+    assert '"radiometric_calibration_status": "calibrated"' in serialized
     assert '"temporal_grouping": "sat:relative_orbit"' in serialized

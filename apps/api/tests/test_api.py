@@ -193,6 +193,9 @@ def test_analysis_response_exposes_shadow_multisource_evidence(
                                 "item_id": "S1A_TEST",
                                 "vv_amplitude_median": 123.0,
                                 "vh_amplitude_median": 31.0,
+                                "radiometric_calibration_status": "calibrated",
+                                "vv_sigma0_median_linear": 0.04,
+                                "vv_sigma0_median_db": -13.9794,
                             },
                         }
                     ],
@@ -205,12 +208,14 @@ def test_analysis_response_exposes_shadow_multisource_evidence(
                             "53": {
                                 "observation_count": 1,
                                 "vv_amplitude_median": 123.0,
+                                "vv_sigma0_median_linear": 0.04,
                             }
                         },
                         "canonical_metrics": {
                             "relative_orbit": 53,
                             "observation_count": 1,
                             "vv_amplitude_median": 123.0,
+                            "vv_sigma0_median_linear": 0.04,
                         },
                     },
                     "provenance": {
@@ -239,6 +244,12 @@ def test_analysis_response_exposes_shadow_multisource_evidence(
     assert body["multisource"]["sources"][0]["metrics"][
         "canonical_metrics"
     ]["relative_orbit"] == 53
+    assert body["multisource"]["sources"][0]["observations"][0]["metrics"][
+        "radiometric_calibration_status"
+    ] == "calibrated"
+    assert body["multisource"]["sources"][0]["metrics"][
+        "canonical_metrics"
+    ]["vv_sigma0_median_linear"] == 0.04
     assert body["recommendation"]["decision"] == "nao_cortar"
 
 

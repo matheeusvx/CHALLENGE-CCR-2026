@@ -110,9 +110,13 @@ apresentada em texto, com confianca e periodo oficial retornado pela API.
 
 O Sentinel-2 fornece a evidencia optica, o NDVI e a serie temporal usados pela
 recommendation. Quando habilitado em modo `shadow`, o Sentinel-1 acrescenta
-metricas estruturais de amplitude GRD VV/VH como evidencia SAR complementar.
+as amplitudes GRD VV/VH cruas e metricas sigma0 lineares/dB calibradas pelos LUTs
+oficiais Level-1 como evidencia SAR complementar. A calibracao ocorre na grade
+line/sample nativa antes da georreferenciacao, usando `DN^2 / sigmaNought^2` e
+interpolacao bilinear do LUT. Ela nao aplica correcao de terreno nem transforma o
+resultado em RTC; o pipeline tambem nao aplica remocao de ruido termico.
 Essas metricas nao medem diretamente altura, biomassa, volume ou necessidade de
-corte e nao sao tratadas como backscatter fisicamente calibrado pelo pipeline.
+corte.
 As medianas globais Sentinel-1 sao estatisticas descritivas e podem misturar
 geometrias de aquisicao. Comparacoes temporais futuras devem usar exclusivamente
 as `canonical_metrics`, calculadas dentro de uma unica `sat:relative_orbit`.
