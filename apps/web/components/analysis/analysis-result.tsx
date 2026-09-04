@@ -1,4 +1,5 @@
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import { DecisionSupportPanel } from "./decision-support-panel";
 import { OperationalContext } from "./operational-context";
 import { HeightEstimationCard } from "./height-estimation-card";
 import { RecommendationPanel } from "./recommendation-panel";
@@ -20,6 +21,7 @@ export function AnalysisResult({ result }: { result: AnalysisResponse }) {
         heightEstimation={result.height_estimation}
         recommendation={result.recommendation.decision}
       />
+      <DecisionSupportPanel support={result.decision_support} />
       <div className="result-executive-grid">
         <OperationalContext result={result} />
         <ResultReasons result={result} />

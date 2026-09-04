@@ -116,3 +116,31 @@ def test_artefato_continua_acessivel_apos_perder_o_cache(
     response = client.get(f"/api/analyses/{analysis_id}/artifacts/summary")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_resposta_traz_apoio_do_historico_sem_alterar_a_decisao(
+    client: TestClient, valid_payload: dict
+) -> None:
+    """O apoio e aditivo e degrada quando nao ha dado de campo para o trecho."""
+
+    _clear_history()
+    analysis_id = str(uuid4())
+
+    def service(*_, analysis_id: str, **__):
+        return make_result(analysis_id)
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    response = client.post("/api/analyses/run", json=valid_payload)
+    assert response.status_code == 200
+    body = response.json()
+
+    # A decisao do satelite permanece intacta.
+    assert body["recommendation"]["decision"] == "nao_cortar"
+    assert body["recommendation"]["confidence"] == "high"
+
+    apoio = body["decision_support"]
+    assert apoio["experimental"] is True
+    # Sem dados de referencia carregados, o apoio se declara sem base.
+    assert apoio["status"] == "insufficient_history"
+    assert apoio["suggestion"] is None
+    assert apoio["score"] is None

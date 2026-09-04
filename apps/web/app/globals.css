@@ -1591,3 +1591,32 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
 
 /* Marco quilometrico aproximado no cartao do historico */
 .history-card-km { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-muted); color: var(--muted); font: 600 11px/1.4 var(--font-mono); }
+
+/* ==========================================================================
+   Apoio do historico (evidencia complementar, nunca a decisao oficial)
+   ========================================================================== */
+.support-panel { padding: 22px 24px; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 11px; background: var(--surface); display: grid; gap: 14px; box-shadow: var(--shadow-sm); }
+.support-panel[data-status="stale_field_data"], .support-panel[data-status="insufficient_history"], .support-panel[data-status="unavailable"] { border-left-color: var(--muted); }
+.support-head { display: flex; align-items: center; gap: 12px; }
+.support-icon { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 10px; background: var(--accent-grad); color: #fff; display: grid; place-items: center; box-shadow: 0 6px 16px var(--accent-glow); }
+.support-head > div { min-width: 0; }
+.support-head span:first-child { color: var(--accent); font: 650 10px/1.2 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+.support-head h2 { margin: 3px 0 0; font-size: 17px; font-weight: 650; }
+.support-agreement { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid transparent; border-radius: 999px; font: 700 11px/1 var(--font-mono); white-space: nowrap; }
+.support-agreement.concorda { color: #2f9e6a; background: rgba(39,134,91,.14); border-color: rgba(39,134,91,.30); }
+.support-agreement.diverge { color: #c08a2a; background: rgba(192,138,42,.14); border-color: rgba(192,138,42,.32); }
+.support-agreement.indeterminado { color: var(--muted); background: var(--surface-muted); border-color: var(--border); }
+.support-disclaimer { margin: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.support-status-message { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.support-metrics { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; padding: 14px 0; border-block: 1px solid var(--border); }
+.support-metrics dt { color: var(--muted); font-size: 11px; }
+.support-metrics dd { margin: 4px 0 0; font: 650 15px/1.3 var(--font-mono); }
+.support-suggestion.cortar { color: #d75a32; }
+.support-suggestion.nao_cortar { color: #2f9e6a; }
+.support-suggestion.inconclusivo { color: #c08a2a; }
+.support-context { margin: 0; display: grid; gap: 10px; }
+.support-context div { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.support-context svg { color: var(--accent); }
+.support-context dt { color: var(--muted); font-size: 12px; }
+.support-context dd { margin: 0; font: 600 12.5px var(--font-mono); text-align: right; }
+.support-factors { margin: 0; padding: 0 0 0 18px; color: var(--muted); font-size: 12.5px; line-height: 1.6; display: grid; gap: 5px; }

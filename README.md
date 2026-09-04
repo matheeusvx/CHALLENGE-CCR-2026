@@ -137,6 +137,62 @@ toca no historico de analises.
 - `GET /api/analyses/{analysis_id}`: analise completa gravada, incluindo a
   geometria da AOI, usada pelo frontend para reabrir uma analise anterior.
 
+## Apoio a decisao por historico (ML)
+
+Sobre o banco roda um modelo de apoio, `regrowth-support-v0`, que estima a
+probabilidade de a vegetacao de um trecho estar acima do limite contratual do
+local a partir da ultima condicao observada em campo.
+
+**O modelo nao decide.** A recomendacao continua sendo produzida exclusivamente
+por `cut_recommendation.recommend_cut`. O apoio entra na resposta da API como o
+campo aditivo `decision_support` e e util sobretudo quando o satelite devolve
+confianca baixa ou `inconclusivo` — inclusive na faixa morta entre os percentis
+50 e 75, em que a regra nunca conclui.
+
+### Como funciona
+
+O alvo de treino sao as transicoes observadas entre levantamentos de campo
+consecutivos: cada celula do unifilar vira um par (condicao em t, condicao em
+t+1), e o rotulo e o descumprimento do limite do local no segundo levantamento.
+As features sao apenas duas, a classe de altura atual e o limite contratual da
+posicao transversal, porque o volume de exemplos positivos nao sustenta um
+modelo maior.
+
+```bash
+python -m scripts.train_regrowth_support
+```
+
+O artefato vai para `models/regrowth_support_v0.json` com metricas, contagens e
+limitacoes registradas.
+
+### Degradacao explicita
+
+O apoio prefere se calar a inventar certeza. O campo `status` assume:
+
+- `available` — ha vistoria recente e o modelo opina;
+- `stale_field_data` — ha historico, porem antigo demais para extrapolar; a
+  resposta traz apenas o retrato descritivo da ultima vistoria;
+- `insufficient_history` — nao ha vistoria para o quilometro da area analisada;
+- `unavailable` — modelo ausente ou falha ao avaliar.
+
+O horizonte empirico do modelo e o intervalo entre os levantamentos disponiveis.
+Passado `MAX_FIELD_DATA_AGE_DAYS`, a extrapolacao perde base e o apoio deixa de
+sugerir decisao.
+
+### Limitacoes atuais
+
+Com os dois levantamentos disponiveis ate aqui (2026-03-13 e 2026-03-20), o
+conjunto de treino tem 248 transicoes e apenas 19 exemplos positivos. A
+validacao usa `StratifiedGroupKFold` por quilometro, para que segmentos vizinhos
+nao caiam em lados opostos da particao. As metricas registradas no artefato
+devem ser lidas com essa amostra em mente: o recall e alto e a precisao e baixa,
+ou seja, o modelo sinaliza mais nao conformidades do que realmente ocorrem.
+
+Cada novo levantamento entregue pela concessionaria amplia o conjunto de treino
+e o horizonte util do modelo. O ganho maior viria de alinhar temporalmente a
+serie NDVI de cada segmento com a classe observada em campo, o que transformaria
+o apoio em um preditor de altura de fato.
+
 ### Variaveis
 
 - `API_HOST` e `API_PORT`: bind da API;

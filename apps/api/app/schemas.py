@@ -120,6 +120,31 @@ class SpatialSegmentationResponse(StrictModel):
     zones: list[SpatialZoneResponse]
 
 
+class DecisionSupportResponse(StrictModel):
+    """Evidencia de apoio vinda do historico operacional.
+
+    Campo aditivo: nunca altera `recommendation`, que continua sendo produzida
+    exclusivamente pelo motor de satelite.
+    """
+
+    status: Literal[
+        "available", "stale_field_data", "insufficient_history", "unavailable"
+    ]
+    experimental: bool = True
+    model_version: str | None = None
+    calibration_status: str | None = None
+    suggestion: Literal["cortar", "nao_cortar", "inconclusivo"] | None = None
+    score: float | None = None
+    confidence: Literal["low", "medium"] | None = None
+    agreement: Literal["concorda", "diverge", "indeterminado"] | None = None
+    reference_km: int | None = None
+    last_survey_on: date | None = None
+    days_since_survey: int | None = None
+    prediction_horizon_days: int
+    factors: list[str] = []
+    context: dict[str, Any] = {}
+
+
 class AnalysisResponse(StrictModel):
     analysis_id: str
     status: str
@@ -130,6 +155,9 @@ class AnalysisResponse(StrictModel):
     effective_analysis_area_m2: float | None = Field(None, ge=0)
     effective_analysis_pct: float | None = Field(None, ge=0)
     spatial_segmentation: SpatialSegmentationResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
+    decision_support: DecisionSupportResponse | None = Field(
         None, exclude_if=lambda value: value is None
     )
     aoi: dict[str, Any]

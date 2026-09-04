@@ -59,6 +59,23 @@ export const spatialSegmentationSchema = z.object({
   zones: z.array(spatialZoneSchema),
 });
 
+export const decisionSupportSchema = z.object({
+  status: z.enum(["available", "stale_field_data", "insufficient_history", "unavailable"]),
+  experimental: z.boolean(),
+  model_version: z.string().nullish(),
+  calibration_status: z.string().nullish(),
+  suggestion: z.enum(["cortar", "nao_cortar", "inconclusivo"]).nullish(),
+  score: z.number().nullish(),
+  confidence: z.enum(["low", "medium"]).nullish(),
+  agreement: z.enum(["concorda", "diverge", "indeterminado"]).nullish(),
+  reference_km: z.number().int().nullish(),
+  last_survey_on: z.string().nullish(),
+  days_since_survey: z.number().int().nullish(),
+  prediction_horizon_days: z.number().int(),
+  factors: z.array(z.string()).default([]),
+  context: recordSchema.default({}),
+});
+
 export const analysisResponseSchema = z.object({
   analysis_id: z.string().uuid(),
   status: z.string(),
@@ -83,6 +100,7 @@ export const analysisResponseSchema = z.object({
   effective_analysis_area_m2: z.number().nonnegative().nullish(),
   effective_analysis_pct: z.number().nonnegative().nullish(),
   spatial_segmentation: spatialSegmentationSchema.optional(),
+  decision_support: decisionSupportSchema.optional(),
   aoi: recordSchema,
   summary: recordSchema,
   timeseries: z.array(recordSchema),
@@ -136,6 +154,7 @@ export type AnalysisHistoryPage = z.infer<typeof analysisHistoryPageSchema>;
 export type AnalysisHistoryDetail = z.infer<typeof analysisHistoryDetailSchema>;
 export type SpatialZone = z.infer<typeof spatialZoneSchema>;
 export type SpatialSegmentation = z.infer<typeof spatialSegmentationSchema>;
+export type DecisionSupport = z.infer<typeof decisionSupportSchema>;
 
 export function parseGeometryText(value: string): GeometryDocument {
   let parsed: unknown;

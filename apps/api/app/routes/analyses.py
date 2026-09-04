@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
 from src.satellite_monitoring.config import MonitoringConfig
+from src.satellite_monitoring.decision_support import build_decision_support
 from src.satellite_monitoring.database import (
     count_analyses,
     get_analysis,
@@ -46,6 +47,7 @@ from ..schemas import (
     AnalysisResponse,
     AnalysisRunRequest,
     Centroid,
+    DecisionSupportResponse,
     GeometryRequest,
     GeometryValidationResponse,
 )
@@ -254,22 +256,28 @@ def run_analysis(
         raise ApiError(code, "O pipeline nao conseguiu concluir a analise.", status_code=status_code)
     analysis_registry.add(result)
     response = _to_api_response(result, analysis_period)
-    _persist_analysis(result, response, payload.geometry)
+    support = _persist_analysis(result, response, payload.geometry, analysis_period)
+    if support is not None:
+        response.decision_support = DecisionSupportResponse.model_validate(support)
     return response
 
 
 def _persist_analysis(
-    result: Any, response: AnalysisResponse, geometry: dict[str, Any]
-) -> None:
-    """Grava a analise no historico.
+    result: Any,
+    response: AnalysisResponse,
+    geometry: dict[str, Any],
+    analysis_period: AnalysisPeriod,
+) -> dict[str, Any] | None:
+    """Grava a analise no historico e monta a evidencia de apoio.
 
-    A persistencia e deliberadamente tolerante a falhas: a decisao do satelite
-    ja foi produzida e nao pode ser perdida por um problema de banco.
+    Persistencia e apoio sao deliberadamente tolerantes a falhas: a decisao do
+    satelite ja foi produzida e nao pode ser perdida nem alterada por um
+    problema de banco ou de modelo.
     """
 
     try:
         with session_scope() as session:
-            save_analysis(
+            record = save_analysis(
                 session,
                 response.model_dump(mode="json"),
                 geometry=geometry,
@@ -281,8 +289,16 @@ def _persist_analysis(
                     for name, value in (result.artifacts or {}).items()
                 },
             )
+            support = build_decision_support(
+                session,
+                km=record.nearest_km,
+                reference_date=analysis_period.end_date,
+                decision=response.recommendation.decision,
+            )
+            return support.to_dict()
     except Exception:  # pragma: no cover - nunca invalida a resposta
         logger.exception("Falha ao gravar a analise no historico.")
+        return None
 
 
 def _to_history_item(record: Any) -> AnalysisHistoryItem:
