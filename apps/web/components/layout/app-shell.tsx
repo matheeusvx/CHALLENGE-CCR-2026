@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { HistoryView } from "@/components/views/history-view";
 import { SettingsView } from "@/components/views/settings-view";
 import { SourcesView } from "@/components/views/sources-view";
+import { ValidationView } from "@/components/views/validation-view";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { AppHeader } from "./app-header";
@@ -52,6 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           {activeView === "history" ? <HistoryView onStartNewAnalysis={startNewAnalysis} onOpenWorkspace={() => setActiveView("analysis")} /> : null}
           {activeView === "sources" ? <SourcesView /> : null}
+          {activeView === "validation" ? <ValidationView onStartNewAnalysis={startNewAnalysis} /> : null}
           {activeView === "settings" ? <SettingsView onNavigate={handleNavigation} /> : null}
         </main>
       </div>

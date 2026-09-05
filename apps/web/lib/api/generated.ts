@@ -72,6 +72,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/guia/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat */
+        post: operations["chat_api_guia_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/validation-samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Validation Samples */
+        get: operations["list_validation_samples_api_validation_samples_get"];
+        put?: never;
+        /** Create Validation Sample */
+        post: operations["create_validation_sample_api_validation_samples_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/validation-samples/{sample_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Validation Sample */
+        get: operations["get_validation_sample_api_validation_samples__sample_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/validation-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Validation Summary */
+        get: operations["validation_summary_api_validation_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/validation-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Validation Samples */
+        get: operations["export_validation_samples_api_validation_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -111,6 +197,8 @@ export interface components {
             effective_analysis_area_m2?: number | null;
             /** Effective Analysis Pct */
             effective_analysis_pct?: number | null;
+            spatial_segmentation?: components["schemas"]["SpatialSegmentationResponse"] | null;
+            multisource?: components["schemas"]["MultisourceResponse"] | null;
             /** Aoi */
             aoi: {
                 [key: string]: unknown;
@@ -171,6 +259,20 @@ export interface components {
             /** Latitude */
             latitude: number;
         };
+        /** ChatRequest */
+        ChatRequest: {
+            /** Mensagem */
+            mensagem: string;
+            /** Session Id */
+            session_id?: string | null;
+        };
+        /** ChatResponse */
+        ChatResponse: {
+            /** Resposta */
+            resposta: string;
+            /** Session Id */
+            session_id: string;
+        };
         /** DecisionParameters */
         DecisionParameters: {
             /** Decision Min Observations */
@@ -187,6 +289,15 @@ export interface components {
             max_gap_days?: number | null;
             /** Recent Intervention Days */
             recent_intervention_days?: number | null;
+        };
+        /** EvidenceObservationResponse */
+        EvidenceObservationResponse: {
+            /** Observed At */
+            observed_at: string;
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            };
         };
         /** GeometryRequest */
         GeometryRequest: {
@@ -270,6 +381,34 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * MaintenanceTruth
+         * @enum {string}
+         */
+        MaintenanceTruth: "cut" | "no_cut" | "uncertain";
+        /** MultisourceResponse */
+        MultisourceResponse: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Fusion Mode
+             * @enum {string}
+             */
+            fusion_mode: "disabled" | "shadow";
+            /**
+             * Official Recommendation Changed
+             * @constant
+             */
+            official_recommendation_changed: false;
+            /** Generated At */
+            generated_at: string;
+            /** Configuration */
+            configuration: {
+                [key: string]: unknown;
+            };
+            /** Sources */
+            sources: components["schemas"]["SourceEvidenceResponse"][];
+        };
         /** RecommendationResponse */
         RecommendationResponse: {
             /**
@@ -297,6 +436,84 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** SourceEvidenceResponse */
+        SourceEvidenceResponse: {
+            /** Source */
+            source: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "no_coverage" | "unavailable" | "error" | "disabled";
+            /** Quality */
+            quality?: number | null;
+            /** Coverage */
+            coverage?: number | null;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Observations */
+            observations: components["schemas"]["EvidenceObservationResponse"][];
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            };
+            /** Provenance */
+            provenance: {
+                [key: string]: unknown;
+            };
+            /** Warnings */
+            warnings: string[];
+        };
+        /** SpatialSegmentationResponse */
+        SpatialSegmentationResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "not_applicable" | "unavailable";
+            /** Experimental */
+            experimental: boolean;
+            /** Section Length M */
+            section_length_m: number;
+            /** Effective Coverage Pct */
+            effective_coverage_pct?: number | null;
+            /** Zones */
+            zones: components["schemas"]["SpatialZoneResponse"][];
+        };
+        /** SpatialZoneResponse */
+        SpatialZoneResponse: {
+            /** Zone Id */
+            zone_id: string;
+            /**
+             * Recommendation
+             * @enum {string}
+             */
+            recommendation: "cortar" | "nao_cortar" | "inconclusivo";
+            /** Geometry */
+            geometry: {
+                [key: string]: unknown;
+            };
+            /** Area M2 */
+            area_m2: number;
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
+            /**
+             * Analysis Quality
+             * @enum {string}
+             */
+            analysis_quality: "high" | "medium" | "low";
+            /** Reasons */
+            reasons: string[];
+            /** Start Distance M */
+            start_distance_m: number;
+            /** End Distance M */
+            end_distance_m: number;
+            /** Road Ref */
+            road_ref: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -306,6 +523,200 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** ValidationSampleCreate */
+        ValidationSampleCreate: {
+            /**
+             * Analysis Id
+             * Format: uuid
+             */
+            analysis_id: string;
+            vegetation_class: components["schemas"]["VegetationClass"];
+            maintenance_truth: components["schemas"]["MaintenanceTruth"];
+            validation_source: components["schemas"]["ValidationSource"];
+            /**
+             * Reference Date
+             * Format: date
+             */
+            reference_date: string;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** ValidationSampleDetail */
+        ValidationSampleDetail: {
+            /**
+             * Sample Id
+             * Format: uuid
+             */
+            sample_id: string;
+            /**
+             * Analysis Id
+             * Format: uuid
+             */
+            analysis_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            vegetation_class: components["schemas"]["VegetationClass"];
+            maintenance_truth: components["schemas"]["MaintenanceTruth"];
+            validation_source: components["schemas"]["ValidationSource"];
+            /**
+             * Reference Date
+             * Format: date
+             */
+            reference_date: string;
+            /** Notes */
+            notes?: string | null;
+            /** Selected Area M2 */
+            selected_area_m2?: number | null;
+            /** S2 Decision */
+            s2_decision?: string | null;
+            /** S2 Confidence */
+            s2_confidence?: string | null;
+            /** S2 Ndvi Mean */
+            s2_ndvi_mean?: number | null;
+            /** S2 Ndvi Median */
+            s2_ndvi_median?: number | null;
+            /** S2 Current Percentile */
+            s2_current_percentile?: number | null;
+            /** S1 Status */
+            s1_status?: string | null;
+            /** S1 Quality */
+            s1_quality?: number | null;
+            /** S1 Coverage */
+            s1_coverage?: number | null;
+            /** S1 Canonical Relative Orbit */
+            s1_canonical_relative_orbit?: number | null;
+            /** S1 Canonical Observation Count */
+            s1_canonical_observation_count?: number | null;
+            /** S1 Vv Sigma0 Linear */
+            s1_vv_sigma0_linear?: number | null;
+            /** S1 Vh Sigma0 Linear */
+            s1_vh_sigma0_linear?: number | null;
+            /** S1 Vv Sigma0 Db */
+            s1_vv_sigma0_db?: number | null;
+            /** S1 Vh Sigma0 Db */
+            s1_vh_sigma0_db?: number | null;
+            /** S1 Vh Minus Vv Db */
+            s1_vh_minus_vv_db?: number | null;
+            /** S1 Vh Vv Sigma0 Ratio */
+            s1_vh_vv_sigma0_ratio?: number | null;
+            /** Snapshot */
+            snapshot: {
+                [key: string]: unknown;
+            };
+        };
+        /** ValidationSampleList */
+        ValidationSampleList: {
+            /** Items */
+            items: components["schemas"]["ValidationSampleRow"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** ValidationSampleRow */
+        ValidationSampleRow: {
+            /**
+             * Sample Id
+             * Format: uuid
+             */
+            sample_id: string;
+            /**
+             * Analysis Id
+             * Format: uuid
+             */
+            analysis_id: string;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            vegetation_class: components["schemas"]["VegetationClass"];
+            maintenance_truth: components["schemas"]["MaintenanceTruth"];
+            validation_source: components["schemas"]["ValidationSource"];
+            /**
+             * Reference Date
+             * Format: date
+             */
+            reference_date: string;
+            /** Notes */
+            notes?: string | null;
+            /** Selected Area M2 */
+            selected_area_m2?: number | null;
+            /** S2 Decision */
+            s2_decision?: string | null;
+            /** S2 Confidence */
+            s2_confidence?: string | null;
+            /** S2 Ndvi Mean */
+            s2_ndvi_mean?: number | null;
+            /** S2 Ndvi Median */
+            s2_ndvi_median?: number | null;
+            /** S2 Current Percentile */
+            s2_current_percentile?: number | null;
+            /** S1 Status */
+            s1_status?: string | null;
+            /** S1 Quality */
+            s1_quality?: number | null;
+            /** S1 Coverage */
+            s1_coverage?: number | null;
+            /** S1 Canonical Relative Orbit */
+            s1_canonical_relative_orbit?: number | null;
+            /** S1 Canonical Observation Count */
+            s1_canonical_observation_count?: number | null;
+            /** S1 Vv Sigma0 Linear */
+            s1_vv_sigma0_linear?: number | null;
+            /** S1 Vh Sigma0 Linear */
+            s1_vh_sigma0_linear?: number | null;
+            /** S1 Vv Sigma0 Db */
+            s1_vv_sigma0_db?: number | null;
+            /** S1 Vh Sigma0 Db */
+            s1_vh_sigma0_db?: number | null;
+            /** S1 Vh Minus Vv Db */
+            s1_vh_minus_vv_db?: number | null;
+            /** S1 Vh Vv Sigma0 Ratio */
+            s1_vh_vv_sigma0_ratio?: number | null;
+        };
+        /**
+         * ValidationSource
+         * @enum {string}
+         */
+        ValidationSource: "visual_inspection" | "aerial_imagery" | "field_inspection" | "maintenance_record" | "other";
+        /** ValidationSummary */
+        ValidationSummary: {
+            /** Total Samples */
+            total_samples: number;
+            /** Target Total */
+            target_total: number;
+            /** Remaining Total */
+            remaining_total: number;
+            /** Target Per Class */
+            target_per_class: number;
+            /** Counts By Vegetation Class */
+            counts_by_vegetation_class: {
+                [key: string]: number;
+            };
+            /** By Vegetation Class */
+            by_vegetation_class: {
+                [key: string]: unknown;
+            };
+            /** Counts By Maintenance Truth */
+            counts_by_maintenance_truth: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * VegetationClass
+         * @enum {string}
+         */
+        VegetationClass: "low_grass" | "tall_dense_grass" | "shrub" | "tree" | "mixed";
     };
     responses: never;
     parameters: never;
@@ -427,6 +838,178 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_api_guia_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_validation_samples_api_validation_samples_get: {
+        parameters: {
+            query?: {
+                vegetation_class?: components["schemas"]["VegetationClass"] | null;
+                maintenance_truth?: components["schemas"]["MaintenanceTruth"] | null;
+                validation_source?: components["schemas"]["ValidationSource"] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSampleList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_validation_sample_api_validation_samples_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidationSampleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSampleDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_validation_sample_api_validation_samples__sample_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSampleDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validation_summary_api_validation_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationSummary"];
+                };
+            };
+        };
+    };
+    export_validation_samples_api_validation_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

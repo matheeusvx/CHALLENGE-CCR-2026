@@ -1,12 +1,13 @@
-import { Activity, Database, FileClock, Leaf, Settings } from "lucide-react";
+import { Activity, Database, FileClock, FlaskConical, Leaf, Settings } from "lucide-react";
 import { GuiaWidget } from "@/components/guia/guia-widget";
 
-export type AppView = "analysis" | "history" | "sources" | "settings";
+export type AppView = "analysis" | "history" | "sources" | "validation" | "settings";
 
 const navigation = [
   { id: "analysis", label: "Nova análise", icon: Activity },
   { id: "history", label: "Histórico", icon: FileClock },
   { id: "sources", label: "Fontes de dados", icon: Database },
+  { id: "validation", label: "Validação", icon: FlaskConical },
   { id: "settings", label: "Configurações", icon: Settings },
 ] satisfies Array<{ id: AppView; label: string; icon: typeof Activity }>;
 

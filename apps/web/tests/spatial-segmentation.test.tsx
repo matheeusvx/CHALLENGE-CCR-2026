@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   installOrUpdateZonesLayer,
   removeZonesLayer,
@@ -312,6 +313,15 @@ describe("Spatial Segmentation - Map Layers & Visual Hierarchy", () => {
 });
 
 describe("Spatial Segmentation - AnalysisResultSidebar Presentation", () => {
+  function renderWithQueryClient(ui: React.ReactElement) {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+    return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  }
+
   it("renderiza resumo de segmentação por área com cartões corretos e callout de intervenção localizada", () => {
     const resultWithZones: AnalysisResponse = {
       ...baseAnalysisResponse,
@@ -328,7 +338,7 @@ describe("Spatial Segmentation - AnalysisResultSidebar Presentation", () => {
       },
     };
 
-    render(<AnalysisResultSidebar result={resultWithZones} onRetry={() => {}} />);
+    renderWithQueryClient(<AnalysisResultSidebar result={resultWithZones} onRetry={() => {}} />);
 
     // 1. Two levels: "Resultado consolidado" header
     expect(screen.getByText("Resultado consolidado")).toBeInTheDocument();
@@ -376,7 +386,7 @@ describe("Spatial Segmentation - AnalysisResultSidebar Presentation", () => {
       },
     };
 
-    render(<AnalysisResultSidebar result={resultNoCutZones} onRetry={() => {}} />);
+    renderWithQueryClient(<AnalysisResultSidebar result={resultNoCutZones} onRetry={() => {}} />);
 
     expect(screen.queryByText(/requer intervenção/)).not.toBeInTheDocument();
   });
@@ -393,7 +403,7 @@ describe("Spatial Segmentation - AnalysisResultSidebar Presentation", () => {
       },
     };
 
-    render(<AnalysisResultSidebar result={resultNotApplicable} onRetry={() => {}} />);
+    renderWithQueryClient(<AnalysisResultSidebar result={resultNotApplicable} onRetry={() => {}} />);
 
     expect(screen.getByText("Recomendação")).toBeInTheDocument();
     expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
