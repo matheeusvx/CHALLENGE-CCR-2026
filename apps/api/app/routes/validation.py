@@ -23,12 +23,14 @@ from ..validation.models import (
     ValidationSampleList,
     ValidationSampleRow,
     ValidationBenchmark,
+    ValidationFusionBenchmark,
     ValidationTemporalBenchmark,
     ValidationSource,
     ValidationSummary,
     VegetationClass,
 )
 from ..validation.benchmark import build_validation_benchmark
+from ..validation.fusion_benchmark import build_validation_fusion_benchmark
 from ..validation.repository import DuplicateAnalysisError, ValidationSampleRepository
 from ..validation.service import CSV_COLUMNS, build_summary, create_record
 from ..validation.temporal_benchmark import ValidationTemporalBenchmarkRunner
@@ -127,6 +129,18 @@ def validation_temporal_benchmark(
     runner: TemporalBenchmarkDependency,
 ) -> dict:
     return runner.run(repository.all_details())
+
+
+@router.get(
+    "/validation-fusion-benchmark",
+    response_model=ValidationFusionBenchmark,
+)
+def validation_fusion_benchmark(
+    repository: RepositoryDependency,
+    runner: TemporalBenchmarkDependency,
+) -> dict:
+    temporal = runner.run(repository.all_details())
+    return build_validation_fusion_benchmark(temporal)
 
 
 @router.get("/validation-export")

@@ -122,3 +122,12 @@ class ValidationTemporalBenchmark(BaseModel):
     s2_disagreements: list[dict[str, Any]]
     orbit_check: dict[str, Any]
     methodology: dict[str, Any]
+
+
+class ValidationFusionBenchmark(BaseModel):
+    experimental: bool
+    candidate_rules: dict[str, Any]
+    combinations: dict[str, Any]
+    sample_matrix: list[dict[str, Any]]
+    partitions: dict[str, int]
+    methodology: dict[str, Any]
