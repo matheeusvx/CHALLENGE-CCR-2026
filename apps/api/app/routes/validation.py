@@ -21,10 +21,12 @@ from ..validation.models import (
     ValidationSampleDetail,
     ValidationSampleList,
     ValidationSampleRow,
+    ValidationBenchmark,
     ValidationSource,
     ValidationSummary,
     VegetationClass,
 )
+from ..validation.benchmark import build_validation_benchmark
 from ..validation.repository import DuplicateAnalysisError, ValidationSampleRepository
 from ..validation.service import CSV_COLUMNS, build_summary, create_record
 
@@ -102,6 +104,11 @@ def get_validation_sample(
 @router.get("/validation-summary", response_model=ValidationSummary)
 def validation_summary(repository: RepositoryDependency) -> dict:
     return build_summary(repository.all_rows())
+
+
+@router.get("/validation-benchmark", response_model=ValidationBenchmark)
+def validation_benchmark(repository: RepositoryDependency) -> dict:
+    return build_validation_benchmark(repository.all_details())
 
 
 @router.get("/validation-export")

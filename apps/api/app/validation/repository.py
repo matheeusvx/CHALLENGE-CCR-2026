@@ -176,6 +176,15 @@ class ValidationSampleRepository:
             ).fetchall()
         return [self._decode_row(row, include_snapshot=False) for row in rows]
 
+    def all_details(self) -> list[dict[str, Any]]:
+        """Return persisted snapshots for offline analytical consumers."""
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM validation_samples ORDER BY created_at DESC, sample_id DESC"
+            ).fetchall()
+        return [self._decode_row(row, include_snapshot=True) for row in rows]
+
     @staticmethod
     def _decode_row(
         row: sqlite3.Row, *, include_snapshot: bool = True

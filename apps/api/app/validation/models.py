@@ -98,3 +98,17 @@ class ValidationSummary(BaseModel):
     counts_by_vegetation_class: dict[str, int]
     by_vegetation_class: dict[str, Any]
     counts_by_maintenance_truth: dict[str, int]
+
+
+class ValidationBenchmark(BaseModel):
+    dataset: dict[str, Any]
+    class_statistics: dict[str, Any]
+    maintenance_statistics: dict[str, Any]
+    sentinel2_performance: dict[str, Any]
+    disagreements: list[dict[str, Any]]
+    pairwise_separation: dict[str, list[dict[str, Any]]]
+    feature_summary: dict[str, Any]
+    s1_s2_correlations: dict[str, dict[str, Any]]
+    orbit_bias_check: dict[str, Any]
+    warnings: list[str]
+    methodology: dict[str, Any]
