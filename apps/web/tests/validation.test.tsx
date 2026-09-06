@@ -27,7 +27,7 @@ vi.mock("@/components/map/analysis-map", () => ({
   AnalysisMap: () => <div data-testid="analysis-map" />,
 }));
 vi.mock("@/components/guia/guia-widget", () => ({
-  GuiaWidget: () => <div data-testid="guia-widget">GuIA Assistente</div>,
+  GuiaWidget: () => <div data-testid="guia-widget">gu.ia Assistente</div>,
 }));
 
 function createWrapper() {
@@ -269,12 +269,10 @@ describe("Validation Module — Navegação e Sidebar", () => {
 
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map((b) => b.textContent);
-    const validationIndex = labels.findIndex((l) => l?.includes("Validação"));
     const sourcesIndex = labels.findIndex((l) => l?.includes("Fontes de dados"));
-    const settingsIndex = labels.findIndex((l) => l?.includes("Configurações"));
-
+    const validationIndex = labels.findIndex((l) => l?.includes("Validação"));
     expect(sourcesIndex).toBeLessThan(validationIndex);
-    expect(validationIndex).toBeLessThan(settingsIndex);
+    expect(screen.queryByRole("button", { name: "Configurações" })).toBeNull();
   });
 
   it("clicar em 'Validação' na navegação abre a view de validação no AppShell", async () => {

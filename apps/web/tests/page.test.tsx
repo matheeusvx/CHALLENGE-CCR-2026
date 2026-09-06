@@ -101,7 +101,8 @@ describe("workspace geoespacial", () => {
     expect(screen.getByRole("heading", { name: "Fontes de dados" })).toBeInTheDocument();
     expect(screen.getByText(/Sentinel-2 L2A/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Configurações" }));
+    fireEvent.click(screen.getByTestId("operator-profile-trigger"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Configurações" }));
     expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Cobertura máxima de nuvens")).not.toBeInTheDocument();
 

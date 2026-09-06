@@ -29,9 +29,9 @@ describe("GuIA Floating & Resizable Integration", () => {
   // 2. Botão lateral
   it("renderiza o item do GuIA com título, subtítulo e ícone", () => {
     render(<GuiaWidget />);
-    const button = screen.getByRole("button", { name: /abrir assistente guia/i });
+    const button = screen.getByRole("button", { name: /abrir assistente gu\.?ia/i });
     expect(button).toBeInTheDocument();
-    expect(button).toHaveTextContent("GuIA");
+    expect(button).toHaveTextContent("gu.ia");
     expect(button).toHaveTextContent("Assistente virtual");
     expect(button).toHaveAttribute("aria-expanded", "false");
   });
@@ -39,7 +39,7 @@ describe("GuIA Floating & Resizable Integration", () => {
   // 3. Abertura e fechamento
   it("abre o painel de chat ao clicar no item GuIA da sidebar e fecha ao clicar novamente", () => {
     const { container } = render(<GuiaWidget />);
-    const button = screen.getByRole("button", { name: /abrir assistente guia/i });
+    const button = screen.getByRole("button", { name: /abrir assistente gu\.?ia/i });
 
     expect(container.querySelector(".guia-panel")).toBeNull();
 
@@ -57,7 +57,7 @@ describe("GuIA Floating & Resizable Integration", () => {
 
   it("fecha o painel ao clicar no botão '×'", () => {
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const closeBtn = screen.getByRole("button", { name: /fechar chat/i });
     fireEvent.click(closeBtn);
@@ -67,7 +67,7 @@ describe("GuIA Floating & Resizable Integration", () => {
 
   it("fecha o painel ao pressionar Escape", () => {
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     expect(container.querySelector(".guia-panel")).toBeInTheDocument();
 
@@ -78,7 +78,7 @@ describe("GuIA Floating & Resizable Integration", () => {
   // 4. Avatar sem "G" e com Sparkles
   it("avatar no header não contém a letra 'G' e possui ícone svg de Sparkles", () => {
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const avatar = container.querySelector(".guia-avatar");
     expect(avatar).toBeInTheDocument();
@@ -89,7 +89,7 @@ describe("GuIA Floating & Resizable Integration", () => {
   // 5. Drag e clamping
   it("permite arrastar o painel pelo header e respeita os limites da viewport", () => {
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const panel = container.querySelector(".guia-panel") as HTMLElement;
     const header = container.querySelector(".guia-panel-header") as HTMLElement;
@@ -136,7 +136,7 @@ describe("GuIA Floating & Resizable Integration", () => {
   // 6. Resize e limites mínimos
   it("permite redimensionar a janela e respeita min-width e min-height", () => {
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const resizeHandle = container.querySelector(".guia-resize-handle") as HTMLElement;
     expect(resizeHandle).toBeInTheDocument();
@@ -171,7 +171,7 @@ describe("GuIA Floating & Resizable Integration", () => {
     );
 
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const panel = container.querySelector(".guia-panel") as HTMLElement;
     expect(panel.style.left).toBe("400px");
@@ -187,7 +187,7 @@ describe("GuIA Floating & Resizable Integration", () => {
     );
 
     render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const resetBtn = screen.getByRole("button", { name: /restaurar tamanho e posição/i });
     expect(resetBtn).toBeInTheDocument();
@@ -222,7 +222,7 @@ describe("GuIA Floating & Resizable Integration", () => {
     } as unknown as Response);
 
     const { container } = render(<GuiaWidget />);
-    fireEvent.click(screen.getByRole("button", { name: /abrir assistente guia/i }));
+    fireEvent.click(screen.getByRole("button", { name: /abrir assistente gu\.?ia/i }));
 
     const input = screen.getByPlaceholderText(/digite sua mensagem/i);
     const submitBtn = screen.getByRole("button", { name: /enviar/i });

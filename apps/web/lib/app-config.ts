@@ -37,6 +37,7 @@ export type DataSource = {
   bands: string[];
   usage: string;
   status: DataSourceStatus;
+  notes?: string[];
 };
 
 /**
@@ -54,5 +55,22 @@ export const dataSources: DataSource[] = [
     bands: ["RED", "NIR", "SCL"],
     usage: "Cálculo do NDVI e máscara de qualidade (SCL) restritos à área delimitada pelo operador.",
     status: "active",
+  },
+  {
+    id: "sentinel-1-grd",
+    name: "Sentinel-1 GRD",
+    provider: "Microsoft Planetary Computer",
+    kind: "Radar SAR C-band",
+    resolution: "aproximadamente 10 m por pixel",
+    revisit: "Revisita de aproximadamente 6 dias",
+    bands: ["VV", "VH"],
+    usage: "Retroespalhamento SAR calibrado em sigma0 para análise complementar da estrutura radiométrica e evolução temporal da área.",
+    status: "active",
+    notes: [
+      "Funciona independentemente de cobertura de nuvens.",
+      "Utilizado atualmente em shadow mode.",
+      "Não altera diretamente a recomendação operacional.",
+      "Polarizações VV/VH não representam altura ou biomassa diretamente.",
+    ],
   },
 ];
