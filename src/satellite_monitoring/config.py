@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from .sentinel1_temporal import Sentinel1TemporalConfig
 
 STAC_ENDPOINT = "https://planetarycomputer.microsoft.com/api/stac/v1"
 COLLECTION_ID = "sentinel-2-l2a"
@@ -87,6 +89,7 @@ class MonitoringConfig:
     sentinel1_enabled: bool = False
     sentinel1_collection: str = DEFAULT_SENTINEL1_COLLECTION
     sentinel1_max_scenes: int = DEFAULT_SENTINEL1_MAX_SCENES
+    sentinel1_temporal: Sentinel1TemporalConfig = field(default_factory=Sentinel1TemporalConfig.from_environment)
     multisource_fusion_mode: str = "disabled"
 
     def __post_init__(self) -> None:
@@ -226,6 +229,7 @@ class MonitoringConfig:
         if not self.spatial_regularization_enabled:
             values.pop("spatial_regularization_enabled", None)
         if not self.multisource_enabled:
+            values.pop("sentinel1_temporal", None)
             values.pop("multisource_enabled", None)
             values.pop("sentinel1_enabled", None)
             values.pop("sentinel1_collection", None)

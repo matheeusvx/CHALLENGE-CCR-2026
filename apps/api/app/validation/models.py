@@ -112,3 +112,13 @@ class ValidationBenchmark(BaseModel):
     orbit_bias_check: dict[str, Any]
     warnings: list[str]
     methodology: dict[str, Any]
+
+
+class ValidationTemporalBenchmark(BaseModel):
+    generated_at: datetime
+    experimental: bool
+    samples: list[dict[str, Any]]
+    summary: dict[str, Any]
+    s2_disagreements: list[dict[str, Any]]
+    orbit_check: dict[str, Any]
+    methodology: dict[str, Any]

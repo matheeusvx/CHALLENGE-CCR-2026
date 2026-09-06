@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -12,6 +13,7 @@ from ..outputs import to_json_compatible
 from .models import CollectionPeriod
 from .orchestrator import MultisourceOrchestrator
 from .providers.sentinel1 import Sentinel1Provider
+from ..sentinel1_temporal import analyze_sentinel1_temporal
 
 
 def collect_multisource_evidence(
@@ -38,6 +40,23 @@ def collect_multisource_evidence(
         geometry,
         CollectionPeriod(config.start_date, config.end_date),
     )
+    enriched = []
+    for item in evidence:
+        if item.source == "sentinel-1":
+            try:
+                temporal = analyze_sentinel1_temporal(item, config.sentinel1_temporal)
+            except Exception as exc:
+                # An auxiliary temporal failure must preserve the collected source.
+                temporal = {
+                    "enabled": config.sentinel1_temporal.enabled,
+                    "status": "error",
+                    "combined_status": "insufficient_data",
+                    "relative_orbit": item.metrics.get("canonical_relative_orbit"),
+                    "interpretation_scope": "radiometric_change_only",
+                    "warnings": [f"temporal_analysis_failed:{type(exc).__name__}"],
+                }
+            item = replace(item, metrics={**item.metrics, "temporal_analysis": temporal})
+        enriched.append(item)
     return {
         "enabled": True,
         "fusion_mode": config.multisource_fusion_mode,
@@ -49,7 +68,7 @@ def collect_multisource_evidence(
             "sentinel1_max_scenes": config.sentinel1_max_scenes,
             "analysis_period": config.datetime_range,
         },
-        "sources": [item.to_dict() for item in evidence],
+        "sources": [item.to_dict() for item in enriched],
     }
 
 

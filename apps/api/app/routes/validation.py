@@ -13,6 +13,7 @@ from ..dependencies import (
     AnalysisRegistry,
     get_analysis_registry,
     get_validation_repository,
+    get_validation_temporal_benchmark_runner,
 )
 from ..exceptions import ApiError
 from ..validation.models import (
@@ -22,6 +23,7 @@ from ..validation.models import (
     ValidationSampleList,
     ValidationSampleRow,
     ValidationBenchmark,
+    ValidationTemporalBenchmark,
     ValidationSource,
     ValidationSummary,
     VegetationClass,
@@ -29,6 +31,7 @@ from ..validation.models import (
 from ..validation.benchmark import build_validation_benchmark
 from ..validation.repository import DuplicateAnalysisError, ValidationSampleRepository
 from ..validation.service import CSV_COLUMNS, build_summary, create_record
+from ..validation.temporal_benchmark import ValidationTemporalBenchmarkRunner
 
 
 router = APIRouter(prefix="/api", tags=["validation"])
@@ -36,6 +39,10 @@ RepositoryDependency = Annotated[
     ValidationSampleRepository, Depends(get_validation_repository)
 ]
 RegistryDependency = Annotated[AnalysisRegistry, Depends(get_analysis_registry)]
+TemporalBenchmarkDependency = Annotated[
+    ValidationTemporalBenchmarkRunner,
+    Depends(get_validation_temporal_benchmark_runner),
+]
 
 
 @router.post(
@@ -109,6 +116,17 @@ def validation_summary(repository: RepositoryDependency) -> dict:
 @router.get("/validation-benchmark", response_model=ValidationBenchmark)
 def validation_benchmark(repository: RepositoryDependency) -> dict:
     return build_validation_benchmark(repository.all_details())
+
+
+@router.get(
+    "/validation-temporal-benchmark",
+    response_model=ValidationTemporalBenchmark,
+)
+def validation_temporal_benchmark(
+    repository: RepositoryDependency,
+    runner: TemporalBenchmarkDependency,
+) -> dict:
+    return runner.run(repository.all_details())
 
 
 @router.get("/validation-export")

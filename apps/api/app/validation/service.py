@@ -6,6 +6,7 @@ import json
 import math
 import statistics
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -28,6 +29,46 @@ def _find_sentinel1(multisource: Any) -> dict[str, Any] | None:
     for source in _mapping(multisource).get("sources") or []:
         if isinstance(source, dict) and source.get("source") == "sentinel-1":
             return source
+    return None
+
+
+def _snapshot_geometry(result: AnalysisResult) -> dict[str, Any] | None:
+    """Prefer a real GeoJSON geometry and retain compatibility with test results."""
+
+    aoi = _mapping(getattr(result, "aoi", None))
+    if aoi.get("type") in {"Polygon", "MultiPolygon"}:
+        return aoi
+    if aoi.get("type") == "Feature" and isinstance(aoi.get("geometry"), dict):
+        return aoi["geometry"]
+
+    artifact = _mapping(getattr(result, "artifacts", None)).get("aoi")
+    if artifact:
+        try:
+            document = json.loads(Path(artifact).read_text(encoding="utf-8"))
+            if document.get("type") in {"Polygon", "MultiPolygon"}:
+                return document
+            if document.get("type") == "Feature" and isinstance(
+                document.get("geometry"), dict
+            ):
+                return document["geometry"]
+        except (OSError, TypeError, ValueError):
+            pass
+    return None
+
+
+def _snapshot_analysis_period(result: AnalysisResult) -> dict[str, str] | None:
+    multisource = _mapping(getattr(result, "multisource", None))
+    raw_range = _mapping(multisource.get("configuration")).get("analysis_period")
+    if isinstance(raw_range, str) and "/" in raw_range:
+        start_date, end_date = raw_range.split("/", 1)
+        if start_date and end_date:
+            return {"start_date": start_date, "end_date": end_date}
+
+    parameters = _mapping(_mapping(getattr(result, "summary", None)).get("parameters"))
+    start_date = parameters.get("start_date")
+    end_date = parameters.get("end_date")
+    if isinstance(start_date, str) and isinstance(end_date, str):
+        return {"start_date": start_date, "end_date": end_date}
     return None
 
 
@@ -66,7 +107,7 @@ def build_snapshot(
     canonical = _mapping(source_metrics.get("canonical_metrics"))
 
     aoi_snapshot = {
-        "geometry_geojson": aoi or None,
+        "geometry_geojson": _snapshot_geometry(result),
         "selected_area_m2": getattr(result, "selected_area_m2", None),
         "effective_analysis_area_m2": getattr(
             result, "effective_analysis_area_m2", None
@@ -166,6 +207,7 @@ def build_snapshot(
             "sample_id": sample_id,
             "analysis_id": str(ground_truth.analysis_id),
             "created_at": created_at,
+            "analysis_period": _snapshot_analysis_period(result),
             "aoi": aoi_snapshot,
             "sentinel2": sentinel2_snapshot,
             "sentinel1": sentinel1_snapshot,
