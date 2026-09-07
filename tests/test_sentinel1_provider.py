@@ -19,6 +19,7 @@ from src.satellite_monitoring.multisource import (
 )
 from src.satellite_monitoring.multisource.providers.sentinel1 import (
     Sentinel1Provider,
+    Sentinel1RasterError,
     Sentinel1RasterMetrics,
     calculate_amplitude_metrics,
     select_canonical_orbit_observations,
@@ -198,6 +199,22 @@ def test_zero_scenes_returns_no_coverage() -> None:
     assert evidence.status is EvidenceStatus.NO_COVERAGE
     assert evidence.coverage == 0.0
     assert evidence.observations == ()
+    assert evidence.metrics["scenes_found"] == 0
+    assert evidence.metrics["scenes_accepted"] == 0
+    assert evidence.metrics["failure_counts"] == {"no_scenes": 1}
+    assert "sentinel1_failure:no_scenes" in evidence.warnings
+
+
+def test_measurement_asset_missing_has_auditable_category() -> None:
+    item = _item("missing-vv", 20)
+    item.assets = {}
+    provider, _ = _provider([item])
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert evidence.status is EvidenceStatus.NO_COVERAGE
+    assert evidence.metrics["scenes_found"] == 1
+    assert evidence.metrics["failure_counts"] == {"measurement_asset_missing": 1}
 
 
 def test_dual_polarization_metrics_quality_and_orbit_provenance() -> None:
@@ -212,6 +229,12 @@ def test_dual_polarization_metrics_quality_and_orbit_provenance() -> None:
     assert evidence.coverage == 96.0
     assert evidence.quality == pytest.approx(95.066667)
     assert evidence.metrics["observation_count"] == 2
+    assert evidence.metrics["scenes_found"] == 2
+    assert evidence.metrics["scenes_attempted"] == 2
+    assert evidence.metrics["scenes_accepted"] == 2
+    assert evidence.metrics["scenes_rejected"] == 0
+    assert evidence.metrics["processing_duration_ms"] >= 0
+    assert evidence.metrics["canonical_orbit"] == 42
     assert evidence.metrics["dual_polarization_observation_count"] == 2
     assert evidence.metrics["orbit_states"] == "ascending,descending"
     assert evidence.metrics["orbit_state_values"] == ["ascending", "descending"]
@@ -439,6 +462,24 @@ def test_missing_vh_remains_available_with_reduced_quality() -> None:
     assert any("VH polarization unavailable" in warning for warning in evidence.warnings)
 
 
+def test_partial_calibration_is_accepted_but_counted_as_failure() -> None:
+    partial = replace(
+        _raster(),
+        radiometric_calibration_status="partial",
+        vv_radiometric_calibration_status="calibrated",
+        vh_radiometric_calibration_status="unavailable",
+        _radiometric_calibration_warning="missing_vh_calibration_asset",
+    )
+    provider, _ = _provider([_item("partial", 20)], reader=lambda *_: partial)
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert evidence.status is EvidenceStatus.AVAILABLE
+    assert evidence.metrics["calibration_success_count"] == 0
+    assert evidence.metrics["calibration_failure_count"] == 1
+    assert evidence.metrics["failure_counts"] == {"calibration_unavailable": 1}
+
+
 def test_nodata_nonfinite_values_and_zero_ratio_are_safe() -> None:
     inside = np.ones((2, 2), dtype=bool)
     vv = np.ma.array([[0.0, np.nan], [0.0, -9999.0]], mask=[[False, False], [False, True]])
@@ -507,6 +548,86 @@ def test_raster_failure_is_fail_soft_for_the_source() -> None:
     assert evidence.status is EvidenceStatus.UNAVAILABLE
     assert "raster failure" not in repr(evidence)
     assert "RuntimeError" in evidence.warnings[0]
+    assert evidence.metrics["failure_counts"] == {"unexpected_error": 1}
+
+
+def test_invalid_raster_has_stable_failure_category_without_detail() -> None:
+    def fail(*_):
+        raise Sentinel1RasterError("sensitive raster detail")
+
+    provider, _ = _provider([_item("broken", 20)], reader=fail)
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert evidence.status is EvidenceStatus.UNAVAILABLE
+    assert evidence.metrics["failure_counts"] == {"raster_read_failed": 1}
+    assert "sensitive raster detail" not in repr(evidence)
+
+
+@pytest.mark.parametrize(
+    "category",
+    ["insufficient_coverage", "insufficient_valid_pixels"],
+)
+def test_unsafe_raster_support_categories_are_preserved(category: str) -> None:
+    def fail(*_):
+        raise Sentinel1RasterError("unsafe support", category=category)
+
+    provider, _ = _provider([_item("unsafe", 20)], reader=fail)
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert evidence.metrics["failure_counts"] == {category: 1}
+    assert f"sentinel1_failure:{category}:unsafe" in evidence.warnings
+
+
+def test_transient_stac_error_retries_with_bound_and_succeeds() -> None:
+    calls = 0
+    delays: list[float] = []
+    client = _Client([_item("scene", 20)])
+
+    def factory(_):
+        nonlocal calls
+        calls += 1
+        if calls < 2:
+            raise TimeoutError("temporary")
+        return client
+
+    provider = Sentinel1Provider(
+        endpoint="https://example.test",
+        client_factory=factory,
+        raster_reader=lambda *_: _raster(),
+        sleep=delays.append,
+    )
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert evidence.status is EvidenceStatus.AVAILABLE
+    assert calls == 2
+    assert delays == [0.25]
+    assert evidence.metrics["stac_attempt_count"] == 2
+
+
+def test_permanent_stac_error_is_not_retried_or_exposed() -> None:
+    calls = 0
+
+    def factory(_):
+        nonlocal calls
+        calls += 1
+        raise ValueError("sensitive permanent detail")
+
+    provider = Sentinel1Provider(
+        endpoint="https://example.test",
+        client_factory=factory,
+        sleep=lambda _: pytest.fail("permanent error must not retry"),
+    )
+
+    evidence = provider.collect_evidence(GEOMETRY, PERIOD)
+
+    assert calls == 1
+    assert evidence.status is EvidenceStatus.ERROR
+    assert evidence.metrics["stac_attempt_count"] == 1
+    assert evidence.metrics["failure_counts"] == {"stac_unavailable": 1}
+    assert "sensitive permanent detail" not in repr(evidence)
 
 
 def test_stac_failure_isolated_by_orchestrator() -> None:
@@ -553,6 +674,15 @@ def test_runtime_shadow_payload_and_artifact_include_orbit_grouping(
     assert result["sources"][0]["metrics"]["relative_orbits"] == [42]
     assert result["sources"][0]["metrics"]["canonical_relative_orbit"] == 42
     assert result["sources"][0]["provenance"]["temporal_grouping"] == "sat:relative_orbit"
+    summary = result["sources"][0]["summary"]
+    assert summary["availability"] == "available"
+    assert summary["canonical_relative_orbit"] == 42
+    assert summary["observation_count"] == 1
+    assert summary["calibrated_observation_count"] == 1
+    assert summary["temporal_status"] == "disabled"
+    assert summary["vv_change_db"] is None
+    assert summary["vh_change_db"] is None
+    assert "no_operational_decision" in summary["limitations"]
 
     artifact = write_multisource_evidence(tmp_path, result)
     serialized = artifact.read_text(encoding="utf-8")

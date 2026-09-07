@@ -15,6 +15,7 @@ is created (including API executions). Programmatic callers may supply it explic
 | SENTINEL1_TEMPORAL_MIN_SPAN_DAYS | 18 |
 | SENTINEL1_TEMPORAL_MIN_TOTAL_CHANGE_DB | 1.0 |
 | SENTINEL1_TEMPORAL_RESIDUAL_MAD_MULTIPLIER | 2.0 |
+| SENTINEL1_TEMPORAL_MAX_GAP_DAYS | 24 |
 
 Only observations matching the already selected canonical relative orbit enter
 the module. Each channel requires its own `*_radiometric_calibration_status` to

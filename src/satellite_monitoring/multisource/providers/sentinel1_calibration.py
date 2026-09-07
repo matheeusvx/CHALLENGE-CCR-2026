@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import socket
+import time
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 import numpy as np
 
 MAX_CALIBRATION_XML_BYTES = 5_000_000
+CALIBRATION_REQUEST_TIMEOUT_SECONDS = 30
+CALIBRATION_MAX_ATTEMPTS = 3
+TRANSIENT_HTTP_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 
 class Sentinel1CalibrationError(RuntimeError):
@@ -167,12 +173,30 @@ def parse_calibration_lut(xml_document: bytes | str) -> Sentinel1CalibrationLut:
 @lru_cache(maxsize=128)
 def load_calibration_lut(href: str) -> Sentinel1CalibrationLut:
     """Baixa e memoriza somente o pequeno XML de calibracao referenciado no STAC."""
-    try:
-        request = Request(href, headers={"User-Agent": "CCR-Sentinel1Calibration/1.0"})
-        with urlopen(request, timeout=30) as response:  # noqa: S310 - URL vem do STAC
-            document = response.read(MAX_CALIBRATION_XML_BYTES + 1)
-    except Exception as exc:
-        raise Sentinel1CalibrationUnavailable("calibration_asset_unavailable") from exc
+    document: bytes | None = None
+    for attempt in range(CALIBRATION_MAX_ATTEMPTS):
+        try:
+            request = Request(
+                href, headers={"User-Agent": "CCR-Sentinel1Calibration/1.0"}
+            )
+            with urlopen(  # noqa: S310 - URL vem do item STAC assinado
+                request, timeout=CALIBRATION_REQUEST_TIMEOUT_SECONDS
+            ) as response:
+                document = response.read(MAX_CALIBRATION_XML_BYTES + 1)
+            break
+        except Exception as exc:
+            transient = isinstance(
+                exc,
+                (TimeoutError, ConnectionError, socket.timeout, URLError),
+            ) and not isinstance(exc, HTTPError)
+            if isinstance(exc, HTTPError):
+                transient = exc.code in TRANSIENT_HTTP_STATUS_CODES
+            if not transient or attempt + 1 >= CALIBRATION_MAX_ATTEMPTS:
+                raise Sentinel1CalibrationUnavailable(
+                    "calibration_asset_unavailable"
+                ) from exc
+            time.sleep(0.25 * (2**attempt))
+    assert document is not None
     if len(document) > MAX_CALIBRATION_XML_BYTES:
         raise Sentinel1CalibrationError("calibration_xml_too_large")
     return parse_calibration_lut(document)

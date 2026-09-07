@@ -49,6 +49,15 @@ def test_daily_median_utc_and_item_counts():
     assert result["vv"]["observation_count"] == 4
 
 
+def test_duplicate_timestamps_are_aggregated_and_audited():
+    duplicate = replace(obs(0, 6), observed_at=obs(0).observed_at)
+    result = analyze([obs(0, 2), duplicate, obs(6), obs(18), obs(24)])
+
+    assert result["series"][0]["item_count"] == 2
+    assert result["vv"]["observation_count"] == 4
+    assert "duplicate_timestamp_aggregated" in result["warnings"]
+
+
 def test_raw_other_orbits_and_invalid_calibration_ignored():
     base = [obs(day) for day in [0, 6, 18, 24]]
     result = analyze(base + [obs(30, 1000, 1000, orbit=126), obs(36, 1000, 1000,
@@ -79,6 +88,21 @@ def test_insufficient_data(days):
     assert result["vv"]["theil_sen_slope_db_per_day"] is None
 
 
+def test_excessive_gap_makes_temporal_support_insufficient():
+    result = analyze(
+        [obs(day) for day in [0, 6, 12, 40]],
+        max_gap_days=24,
+    )
+
+    assert result["vv"]["observation_count"] == 4
+    assert result["vv"]["span_days"] == 40
+    assert result["vv"]["max_gap_days"] == 28
+    assert result["vv"]["support_issues"] == ["excessive_gap"]
+    assert result["combined_status"] == "insufficient_data"
+    assert "vv:excessive_gap" in result["warnings"]
+    assert "sentinel1_failure:insufficient_temporal_support" in result["warnings"]
+
+
 def test_channel_status_independent_mixed_and_missing():
     rows = [obs(day, -10 + day / 10, -16 - day / 10) for day in [0, 6, 18, 24]]
     assert analyze(rows)["combined_status"] == "mixed"
@@ -87,6 +111,7 @@ def test_channel_status_independent_mixed_and_missing():
     assert result["vv"]["status"] == "increasing"
     assert result["vh"]["status"] == "insufficient_data"
     assert result["combined_status"] == "insufficient_data"
+    assert result["usable_observation_count"] == 3
 
 
 def test_nonfinite_and_missing_status_do_not_enter_series():
@@ -137,8 +162,13 @@ def test_runtime_shadow_serialization_and_artifact(enabled, tmp_path, monkeypatc
     assert result["official_recommendation_changed"] is False
     assert result["fusion_mode"] == "shadow"
     metrics = result["sources"][0]["metrics"]
+    summary = result["sources"][0]["summary"]
+    assert summary["schema_version"] == "1.0"
+    assert summary["temporal_usable_observation_count"] == (4 if enabled else 0)
+    assert "processing_duration_ms" in summary
     assert metrics["canonical_relative_orbit"] == 53
     assert metrics["temporal_analysis"]["enabled"] == enabled
+    assert metrics["temporal_usable_observation_count"] == (4 if enabled else 0)
     assert "temporal_analysis" not in source.metrics
     artifact = write_multisource_evidence(tmp_path, result)
     assert json.loads(artifact.read_text())["sources"][0]["metrics"] == metrics

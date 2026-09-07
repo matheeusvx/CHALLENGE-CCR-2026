@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
+from urllib.error import HTTPError, URLError
 
 import numpy as np
 import pytest
@@ -12,15 +13,20 @@ from rasterio.transform import from_origin
 
 from src.satellite_monitoring.multisource import CollectionPeriod, EvidenceStatus
 from src.satellite_monitoring.multisource.providers import sentinel1 as sentinel1_provider
+from src.satellite_monitoring.multisource.providers import (
+    sentinel1_calibration as calibration_module,
+)
 from src.satellite_monitoring.multisource.providers.sentinel1 import (
     Sentinel1Provider,
     read_sentinel1_window,
 )
 from src.satellite_monitoring.multisource.providers.sentinel1_calibration import (
     Sentinel1CalibrationError,
+    Sentinel1CalibrationUnavailable,
     calculate_sigma0_metrics,
     calibrate_sigma0,
     interpolate_sigma_nought_lut,
+    load_calibration_lut,
     parse_calibration_lut,
     sigma0_linear_to_db,
 )
@@ -327,4 +333,94 @@ def test_calibration_failure_does_not_drop_provider_observation(
     assert evidence.observations[0].metrics["radiometric_calibration_status"] == "failed"
     assert evidence.metrics["calibrated_observation_count"] == 0
     assert evidence.metrics["uncalibrated_observation_count"] == 1
+    assert evidence.metrics["calibration_failure_count"] == 1
+    assert evidence.metrics["failure_counts"] == {"calibration_failed": 1}
     assert any("raw GRD amplitude metrics were preserved" in warning for warning in evidence.warnings)
+
+
+def test_calibration_download_retries_transient_failures_only(monkeypatch) -> None:
+    calls = 0
+    delays: list[float] = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, _):
+            return _calibration_xml()
+
+    def urlopen(*_, **__):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise URLError("temporary")
+        return Response()
+
+    load_calibration_lut.cache_clear()
+    monkeypatch.setattr(calibration_module, "urlopen", urlopen)
+    monkeypatch.setattr(calibration_module.time, "sleep", delays.append)
+
+    lut = load_calibration_lut("https://example.test/transient.xml")
+
+    assert lut.polarization == "VV"
+    assert calls == 3
+    assert delays == [0.25, 0.5]
+    load_calibration_lut.cache_clear()
+
+
+def test_calibration_download_does_not_retry_permanent_http_error(monkeypatch) -> None:
+    calls = 0
+
+    def urlopen(*_, **__):
+        nonlocal calls
+        calls += 1
+        raise HTTPError("https://example.test/missing.xml", 404, "missing", {}, None)
+
+    load_calibration_lut.cache_clear()
+    monkeypatch.setattr(calibration_module, "urlopen", urlopen)
+    monkeypatch.setattr(
+        calibration_module.time,
+        "sleep",
+        lambda _: pytest.fail("HTTP 404 must not retry"),
+    )
+
+    with pytest.raises(Sentinel1CalibrationUnavailable):
+        load_calibration_lut("https://example.test/missing.xml")
+
+    assert calls == 1
+    load_calibration_lut.cache_clear()
+
+
+def test_measurement_assets_are_opened_once_per_scene(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sentinel1_provider,
+        "load_calibration_lut",
+        lambda href: _constant_lut(
+            polarization="VH" if href.endswith("cal-vh") else "VV"
+        ),
+    )
+    original_open = sentinel1_provider.rasterio.open
+    opened: list[str] = []
+
+    def counting_open(path, *args, **kwargs):
+        opened.append(str(path))
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(sentinel1_provider.rasterio, "open", counting_open)
+    with MemoryFile() as vv_memory, MemoryFile() as vh_memory:
+        with vv_memory.open(**_profile()) as target:
+            target.write(np.full((2, 2), 100.0, dtype=np.float32), 1)
+        with vh_memory.open(**_profile()) as target:
+            target.write(np.full((2, 2), 50.0, dtype=np.float32), 1)
+        item = _item(vv_memory.name, vh_memory.name)
+        item.assets["schema-calibration-vv"] = _asset("memory://cal-vv")
+        item.assets["schema-calibration-vh"] = _asset("memory://cal-vh")
+
+        metrics = read_sentinel1_window(item, GEOMETRY)
+
+    assert metrics.radiometric_calibration_status == "calibrated"
+    assert opened.count(vv_memory.name) == 1
+    assert opened.count(vh_memory.name) == 1

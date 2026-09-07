@@ -125,6 +125,31 @@ class EvidenceObservationResponse(StrictModel):
     metrics: dict[str, Any]
 
 
+class Sentinel1EvidenceSummaryResponse(StrictModel):
+    schema_version: Literal["1.0"]
+    availability: Literal[
+        "available", "no_coverage", "unavailable", "error", "disabled"
+    ]
+    quality_score: float | None = Field(None, ge=0, le=100)
+    canonical_relative_orbit: int | None = Field(None, gt=0)
+    observation_count: int = Field(ge=0)
+    calibrated_observation_count: int = Field(ge=0)
+    temporal_usable_observation_count: int = Field(ge=0)
+    temporal_status: Literal[
+        "increasing",
+        "decreasing",
+        "stable",
+        "mixed",
+        "insufficient_data",
+        "disabled",
+    ]
+    vv_change_db: float | None = None
+    vh_change_db: float | None = None
+    processing_duration_ms: float = Field(ge=0)
+    warnings: list[str]
+    limitations: list[str]
+
+
 class SourceEvidenceResponse(StrictModel):
     source: str
     status: Literal["available", "no_coverage", "unavailable", "error", "disabled"]
@@ -135,6 +160,7 @@ class SourceEvidenceResponse(StrictModel):
     metrics: dict[str, Any]
     provenance: dict[str, Any]
     warnings: list[str]
+    summary: Sentinel1EvidenceSummaryResponse | None = None
 
 
 class MultisourceResponse(StrictModel):
