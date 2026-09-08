@@ -151,8 +151,8 @@ def test_repository_initializes_empty_database_and_parent_directory(tmp_path: Pa
     assert repository.all_rows() == []
     with sqlite3.connect(database) as connection:
         assert connection.execute(
-            "SELECT version FROM validation_schema_migrations"
-        ).fetchone() == (1,)
+            "SELECT version FROM validation_schema_migrations ORDER BY version"
+        ).fetchall() == [(1,), (2,)]
 
 
 def test_create_captures_aoi_sentinel2_and_calibrated_sentinel1(validation_api) -> None:

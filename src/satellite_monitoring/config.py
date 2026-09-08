@@ -91,6 +91,7 @@ class MonitoringConfig:
     sentinel1_max_scenes: int = DEFAULT_SENTINEL1_MAX_SCENES
     sentinel1_temporal: Sentinel1TemporalConfig = field(default_factory=Sentinel1TemporalConfig.from_environment)
     multisource_fusion_mode: str = "disabled"
+    validation_holdout_benchmark_path: Path | None = None
 
     def __post_init__(self) -> None:
         circular_values = (self.latitude, self.longitude, self.radius_meters)
@@ -178,8 +179,10 @@ class MonitoringConfig:
             raise ValueError("A quantidade maxima de cenas Sentinel-1 deve ser positiva.")
         if not self.sentinel1_collection.strip():
             raise ValueError("A collection Sentinel-1 nao pode ser vazia.")
-        if self.multisource_fusion_mode not in {"disabled", "shadow"}:
-            raise ValueError("O modo multisource deve ser 'disabled' ou 'shadow'.")
+        if self.multisource_fusion_mode not in {"disabled", "shadow", "operational"}:
+            raise ValueError(
+                "O modo multisource deve ser 'disabled', 'shadow' ou 'operational'."
+            )
 
     @property
     def datetime_range(self) -> str:
@@ -235,8 +238,15 @@ class MonitoringConfig:
             values.pop("sentinel1_collection", None)
             values.pop("sentinel1_max_scenes", None)
             values.pop("multisource_fusion_mode", None)
+            values.pop("validation_holdout_benchmark_path", None)
         values["start_date"] = self.start_date.isoformat() if self.start_date else None
         values["end_date"] = self.end_date.isoformat() if self.end_date else None
         values["geometry_file"] = str(self.geometry_file) if self.geometry_file else None
         values["output_root"] = str(self.output_root)
+        if self.multisource_enabled:
+            values["validation_holdout_benchmark_path"] = (
+                str(self.validation_holdout_benchmark_path)
+                if self.validation_holdout_benchmark_path
+                else None
+            )
         return values

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -12,6 +14,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from ..dependencies import (
     AnalysisRegistry,
     get_analysis_registry,
+    get_validation_holdout_benchmark_path,
+    get_validation_multisensor_benchmark_v2_path,
     get_validation_repository,
     get_validation_temporal_benchmark_runner,
 )
@@ -24,14 +28,29 @@ from ..validation.models import (
     ValidationSampleRow,
     ValidationBenchmark,
     ValidationFusionBenchmark,
+    ValidationHoldoutBenchmarkV1,
+    ValidationMultisensorBenchmarkV2,
     ValidationTemporalBenchmark,
+    ValidationCohort,
     ValidationSource,
     ValidationSummary,
     VegetationClass,
 )
 from ..validation.benchmark import build_validation_benchmark
 from ..validation.fusion_benchmark import build_validation_fusion_benchmark
-from ..validation.repository import DuplicateAnalysisError, ValidationSampleRepository
+from ..validation.holdout_benchmark import (
+    HoldoutIntegrityError,
+    load_holdout_artifact,
+)
+from ..validation.multisensor_benchmark_v2 import (
+    BenchmarkIntegrityError,
+    load_multisensor_benchmark_v2_artifact,
+)
+from ..validation.repository import (
+    DuplicateAnalysisError,
+    DuplicateAoiError,
+    ValidationSampleRepository,
+)
 from ..validation.service import CSV_COLUMNS, build_summary, create_record
 from ..validation.temporal_benchmark import ValidationTemporalBenchmarkRunner
 
@@ -44,6 +63,12 @@ RegistryDependency = Annotated[AnalysisRegistry, Depends(get_analysis_registry)]
 TemporalBenchmarkDependency = Annotated[
     ValidationTemporalBenchmarkRunner,
     Depends(get_validation_temporal_benchmark_runner),
+]
+MultisensorBenchmarkV2PathDependency = Annotated[
+    Path, Depends(get_validation_multisensor_benchmark_v2_path)
+]
+HoldoutBenchmarkPathDependency = Annotated[
+    Path, Depends(get_validation_holdout_benchmark_path)
 ]
 
 
@@ -73,6 +98,12 @@ def create_validation_sample(
             "Esta analise ja possui uma amostra de validacao registrada.",
             status_code=409,
         ) from exc
+    except DuplicateAoiError as exc:
+        raise ApiError(
+            "VALIDATION_AOI_EXISTS",
+            "Esta geometria ja pertence a uma amostra de validacao.",
+            status_code=409,
+        ) from exc
 
 
 @router.get("/validation-samples", response_model=ValidationSampleList)
@@ -81,6 +112,7 @@ def list_validation_samples(
     vegetation_class: VegetationClass | None = None,
     maintenance_truth: MaintenanceTruth | None = None,
     validation_source: ValidationSource | None = None,
+    cohort: ValidationCohort | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
@@ -88,6 +120,7 @@ def list_validation_samples(
         vegetation_class=vegetation_class.value if vegetation_class else None,
         maintenance_truth=maintenance_truth.value if maintenance_truth else None,
         validation_source=validation_source.value if validation_source else None,
+        cohort=cohort.value if cohort else None,
         limit=limit,
         offset=offset,
     )
@@ -141,6 +174,56 @@ def validation_fusion_benchmark(
 ) -> dict:
     temporal = runner.run(repository.all_details())
     return build_validation_fusion_benchmark(temporal)
+
+
+@router.get(
+    "/validation-multisensor-benchmark-v2",
+    response_model=ValidationMultisensorBenchmarkV2,
+)
+def validation_multisensor_benchmark_v2(
+    artifact_path: MultisensorBenchmarkV2PathDependency,
+) -> dict:
+    """Serve a frozen artifact; this endpoint never performs STAC I/O."""
+
+    try:
+        return load_multisensor_benchmark_v2_artifact(artifact_path)
+    except FileNotFoundError as exc:
+        raise ApiError(
+            "VALIDATION_MULTISENSOR_BENCHMARK_V2_NOT_FOUND",
+            "O artifact experimental do benchmark multissensor V2 nao foi encontrado.",
+            status_code=404,
+        ) from exc
+    except (OSError, json.JSONDecodeError, BenchmarkIntegrityError) as exc:
+        raise ApiError(
+            "VALIDATION_MULTISENSOR_BENCHMARK_V2_INVALID",
+            "O artifact experimental do benchmark multissensor V2 e invalido.",
+            status_code=503,
+        ) from exc
+
+
+@router.get(
+    "/validation-holdout-benchmark",
+    response_model=ValidationHoldoutBenchmarkV1,
+)
+def validation_holdout_benchmark(
+    artifact_path: HoldoutBenchmarkPathDependency,
+) -> dict:
+    """Serve the latest frozen holdout artifact without STAC or S1 processing."""
+
+    try:
+        return load_holdout_artifact(artifact_path)
+    except FileNotFoundError as exc:
+        raise ApiError(
+            "VALIDATION_HOLDOUT_BENCHMARK_NOT_FOUND",
+            "O artifact experimental do holdout nao foi encontrado.",
+            status_code=404,
+        ) from exc
+    except (OSError, json.JSONDecodeError, HoldoutIntegrityError) as exc:
+        raise ApiError(
+            "VALIDATION_HOLDOUT_BENCHMARK_INVALID",
+            "O artifact experimental do holdout e invalido ou incompativel.",
+            status_code=503,
+        ) from exc
 
 
 @router.get("/validation-export")

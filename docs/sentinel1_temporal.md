@@ -57,3 +57,18 @@ is produced. Calibration is not RTC and no extra noise or orbit correction is
 applied. Sparse observations, changing conditions and differing VV/VH valid
 dates remain limitations. These exploratory settings are not scientific
 vegetation thresholds.
+
+## Shadow review rule B
+
+With `MULTISOURCE_FUSION_MODE=shadow`, valid temporal evidence is consumed by
+one predeclared review-only rule: an official Sentinel-2 `cortar` recommendation
+combined with Sentinel-1 `mixed` emits `review_recommended=true` and
+`review_rule="B"`. No other temporal status triggers a runtime rule. In
+particular, rules A, C and A+B do not exist in the runtime.
+
+The additive audit block is `multisource.review` (schema `1.0`). It reports
+evaluability, trigger state, rule/reason, Sentinel-1 temporal status and
+`official_recommendation_changed=false`. Disabled mode, unavailable evidence,
+failed/insufficient calibration, disabled temporal analysis and
+`insufficient_data` are fail-soft, non-evaluable states. Sentinel-2 remains the
+only producer of the official recommendation.

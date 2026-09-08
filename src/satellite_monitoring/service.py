@@ -29,6 +29,12 @@ from .multisource.runtime import (
     collect_multisource_evidence,
     write_multisource_evidence,
 )
+from .multisource.shadow_review import attach_shadow_review
+from .multisource.operational_fusion import (
+    attach_operational_fusion_audit,
+    authorization_error_result,
+    authorize_operational_fusion,
+)
 from .outputs import create_run_directory, to_json_compatible, write_outputs
 from .quality import (
     assess_scene_quality,
@@ -73,6 +79,9 @@ class PipelineDependencies:
     regularize_spatial: Callable[..., dict[str, Any]] = evaluate_spatial_regularization
     collect_multisource: Callable[..., dict[str, Any] | None] = (
         collect_multisource_evidence
+    )
+    authorize_operational_fusion: Callable[[MonitoringConfig], dict[str, Any]] = (
+        authorize_operational_fusion
     )
     write_multisource_artifact: Callable[..., Path] = write_multisource_evidence
     write_outputs: Callable[..., dict[str, Path]] = write_outputs
@@ -666,6 +675,8 @@ def run_monitoring_analysis(
     if config.multisource_enabled:
         try:
             multisource = deps.collect_multisource(config, aoi_geojson)
+            if not isinstance(multisource, dict):
+                raise ValueError("multisource collector returned no evidence envelope")
         except Exception as exc:
             multisource = {
                 "enabled": True,
@@ -695,6 +706,16 @@ def run_monitoring_analysis(
                     }
                 ],
             }
+        multisource = attach_shadow_review(multisource, recommendation)
+        try:
+            operational_authorization = deps.authorize_operational_fusion(config)
+        except Exception:
+            operational_authorization = authorization_error_result(config)
+        multisource = attach_operational_fusion_audit(
+            multisource,
+            recommendation,
+            operational_authorization,
+        )
         for source in multisource.get("sources", []) if multisource else []:
             if source.get("status") in {"unavailable", "error"}:
                 warnings.append(

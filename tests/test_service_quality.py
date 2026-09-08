@@ -429,7 +429,20 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
             "sources": [],
         }
 
-    def run(enabled: bool, directory: str, collector=collect):
+    def run(
+        enabled: bool,
+        directory: str,
+        collector=collect,
+        authorizer=lambda _config: {
+            "requested": False,
+            "authorized": False,
+            "authorization_status": "not_requested",
+            "authorization_reason": "operational_fusion_not_requested",
+            "holdout_schema_version": None,
+            "holdout_gate_status": None,
+            "candidate_rule": "B",
+        },
+    ):
         config = MonitoringConfig(
             geometry={
                 "type": "Polygon",
@@ -454,6 +467,7 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
                 ),
                 read_scene_bands=fake_raster,
                 collect_multisource=collector,
+                authorize_operational_fusion=authorizer,
                 write_outputs=fake_write,
             ),
         )
@@ -471,6 +485,15 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
     assert disabled.multisource is None
     assert "multisource" not in disabled.to_dict()
     assert enabled.multisource["official_recommendation_changed"] is False
+    assert enabled.multisource["review"]["review_evaluable"] is False
+    assert enabled.multisource["review"]["review_not_evaluable_reason"] == (
+        "sentinel1_evidence_missing"
+    )
+    authorization_failed = run(
+        True,
+        "authorization-failed",
+        authorizer=lambda _config: (_ for _ in ()).throw(RuntimeError("gate boom")),
+    )
     assert enabled.summary["multisource"] == enabled.multisource
     artifact = enabled.artifacts["multisource_evidence"]
     assert artifact.name == "multisource_evidence.json"
@@ -478,6 +501,21 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
     assert failed.status != "failed"
     assert failed.recommendation == disabled.recommendation
     assert failed.multisource["sources"][0]["status"] == "error"
+    assert failed.multisource["review"]["review_evaluable"] is False
+    assert failed.multisource["review"]["review_recommended"] is False
+    assert failed.multisource["review"]["review_not_evaluable_reason"] == (
+        "sentinel1_error"
+    )
+    assert failed.multisource["review"]["official_recommendation_changed"] is False
+    assert authorization_failed.status != "failed"
+    assert authorization_failed.recommendation == disabled.recommendation
+    assert authorization_failed.multisource["operational_fusion"]["authorized"] is False
+    assert authorization_failed.multisource["operational_fusion"]["authorization_reason"] == (
+        "authorization_layer_error"
+    )
+    assert authorization_failed.multisource["operational_fusion"][
+        "official_recommendation_changed"
+    ] is False
     assert any(
         warning["code"] == "MULTISOURCE_SOURCE_UNAVAILABLE"
         for warning in failed.warnings

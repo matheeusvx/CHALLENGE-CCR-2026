@@ -41,3 +41,8 @@ Fields in schema `1.0` are required in the summary object, while the explicitly
 nullable values above may be JSON `null`. Additive detailed metrics do not
 change this contract. Removing or changing the meaning/type/unit of a summary
 field requires a new schema version.
+
+The review-only signal is a separate additive contract under
+`multisource.review`; it does not change this evidence summary. See
+`docs/sentinel1_shadow_review.md` for rule B, fail-soft states and its explicit
+`official_recommendation_changed=false` guarantee.

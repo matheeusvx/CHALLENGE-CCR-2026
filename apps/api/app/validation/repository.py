@@ -8,12 +8,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .identity import geometry_fingerprint
+
 
 SCHEMA_VERSION = 1
+DATABASE_SCHEMA_VERSION = 2
 
 
 class DuplicateAnalysisError(Exception):
     """Raised when V1 already contains a sample for an analysis."""
+
+
+class DuplicateAoiError(Exception):
+    """Raised when an AOI already belongs to a validation sample."""
 
 
 class ValidationSampleRepository:
@@ -67,6 +74,10 @@ class ValidationSampleRepository:
                     ),
                     reference_date TEXT NOT NULL,
                     notes TEXT CHECK (notes IS NULL OR length(notes) <= 1000),
+                    cohort TEXT NOT NULL DEFAULT 'development' CHECK (
+                        cohort IN ('development', 'holdout')
+                    ),
+                    aoi_fingerprint TEXT,
                     selected_area_m2 REAL,
                     s2_decision TEXT,
                     s2_confidence TEXT,
@@ -93,6 +104,56 @@ class ValidationSampleRepository:
                     ON validation_samples(vegetation_class, maintenance_truth, validation_source);
                 """
             )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(validation_samples)")
+            }
+            if "cohort" not in columns:
+                connection.execute(
+                    "ALTER TABLE validation_samples ADD COLUMN cohort TEXT NOT NULL DEFAULT 'development'"
+                )
+            if "aoi_fingerprint" not in columns:
+                connection.execute(
+                    "ALTER TABLE validation_samples ADD COLUMN aoi_fingerprint TEXT"
+                )
+            self._backfill_aoi_fingerprints(connection)
+            connection.execute(
+                "DROP INDEX IF EXISTS ux_validation_samples_aoi_fingerprint"
+            )
+            connection.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS validation_holdout_aoi_unique_insert
+                BEFORE INSERT ON validation_samples
+                WHEN NEW.aoi_fingerprint IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM validation_samples existing
+                    WHERE existing.aoi_fingerprint = NEW.aoi_fingerprint
+                      AND (NEW.cohort = 'holdout' OR existing.cohort = 'holdout')
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'validation holdout aoi fingerprint already exists');
+                END
+                """
+            )
+            connection.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS validation_samples_cohort_valid_insert
+                BEFORE INSERT ON validation_samples
+                WHEN NEW.cohort NOT IN ('development', 'holdout')
+                BEGIN
+                    SELECT RAISE(ABORT, 'validation cohort is invalid');
+                END
+                """
+            )
+            connection.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS validation_samples_cohort_immutable
+                BEFORE UPDATE OF cohort ON validation_samples
+                WHEN OLD.cohort <> NEW.cohort
+                BEGIN
+                    SELECT RAISE(ABORT, 'validation cohort is immutable');
+                END
+                """
+            )
             connection.execute(
                 """
                 INSERT OR IGNORE INTO validation_schema_migrations(version, applied_at)
@@ -100,12 +161,39 @@ class ValidationSampleRepository:
                 """,
                 (SCHEMA_VERSION,),
             )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO validation_schema_migrations(version, applied_at)
+                VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                """,
+                (DATABASE_SCHEMA_VERSION,),
+            )
+
+    @staticmethod
+    def _backfill_aoi_fingerprints(connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            "SELECT sample_id, snapshot_json FROM validation_samples "
+            "WHERE aoi_fingerprint IS NULL"
+        ).fetchall()
+        for row in rows:
+            try:
+                snapshot = json.loads(row["snapshot_json"])
+                geometry = (snapshot.get("aoi") or {}).get("geometry_geojson")
+                fingerprint = geometry_fingerprint(geometry)
+            except (TypeError, ValueError):
+                fingerprint = None
+            if fingerprint is not None:
+                connection.execute(
+                    "UPDATE validation_samples SET aoi_fingerprint = ? WHERE sample_id = ?",
+                    (fingerprint, row["sample_id"]),
+                )
 
     def insert(self, record: dict[str, Any]) -> dict[str, Any]:
         columns = (
             "sample_id", "analysis_id", "schema_version", "created_at",
             "vegetation_class", "maintenance_truth", "validation_source",
-            "reference_date", "notes", "selected_area_m2", "s2_decision",
+            "reference_date", "notes", "cohort", "aoi_fingerprint",
+            "selected_area_m2", "s2_decision",
             "s2_confidence", "s2_ndvi_mean", "s2_ndvi_median",
             "s2_current_percentile", "s1_status", "s1_quality", "s1_coverage",
             "s1_canonical_relative_orbit", "s1_canonical_observation_count",
@@ -114,7 +202,10 @@ class ValidationSampleRepository:
             "s1_vh_vv_sigma0_ratio", "snapshot_json",
         )
         placeholders = ", ".join("?" for _ in columns)
-        values = tuple(record.get(column) for column in columns)
+        values = tuple(
+            record.get(column, "development") if column == "cohort" else record.get(column)
+            for column in columns
+        )
         try:
             with self._connection() as connection:
                 connection.execute(
@@ -124,6 +215,8 @@ class ValidationSampleRepository:
         except sqlite3.IntegrityError as exc:
             if "validation_samples.analysis_id" in str(exc).lower():
                 raise DuplicateAnalysisError(record["analysis_id"]) from exc
+            if "aoi_fingerprint" in str(exc).lower() or "aoi fingerprint" in str(exc).lower():
+                raise DuplicateAoiError(record.get("aoi_fingerprint")) from exc
             raise
         return self.get(record["sample_id"]) or record
 
@@ -140,6 +233,7 @@ class ValidationSampleRepository:
         vegetation_class: str | None = None,
         maintenance_truth: str | None = None,
         validation_source: str | None = None,
+        cohort: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -149,6 +243,7 @@ class ValidationSampleRepository:
             ("vegetation_class", vegetation_class),
             ("maintenance_truth", maintenance_truth),
             ("validation_source", validation_source),
+            ("cohort", cohort),
         ):
             if value is not None:
                 where.append(f"{column} = ?")

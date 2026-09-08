@@ -122,6 +122,14 @@ def test_multisource_feature_flags_read_explicit_environment(monkeypatch) -> Non
     assert configured.multisource_fusion_mode == "shadow"
 
 
+def test_operational_fusion_mode_is_an_explicit_supported_value(monkeypatch) -> None:
+    monkeypatch.setenv("MULTISOURCE_FUSION_MODE", "operational")
+
+    configured = ApiSettings()
+
+    assert configured.multisource_fusion_mode == "operational"
+
+
 def test_multisource_disabled_keeps_the_sentinel_service_unchanged(monkeypatch) -> None:
     monkeypatch.setenv("MULTISOURCE_ENABLED", "false")
 

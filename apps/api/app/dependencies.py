@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.satellite_monitoring.config import STAC_ENDPOINT
@@ -52,6 +53,18 @@ def get_validation_repository() -> ValidationSampleRepository:
     # The repository owns no persistent Connection. Each operation opens and closes
     # its own SQLite connection, which is safe for FastAPI's worker threads.
     return ValidationSampleRepository(settings.validation_db_path)
+
+
+def get_validation_multisensor_benchmark_v2_path() -> Path:
+    """Injectable location of the frozen, offline-generated V2 artifact."""
+
+    return settings.validation_multisensor_benchmark_v2_path
+
+
+def get_validation_holdout_benchmark_path() -> Path:
+    """Injectable location of the frozen, offline-generated holdout artifact."""
+
+    return settings.validation_holdout_benchmark_path
 
 
 def get_validation_temporal_benchmark_runner() -> ValidationTemporalBenchmarkRunner:

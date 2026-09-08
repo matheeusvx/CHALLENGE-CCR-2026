@@ -22,6 +22,28 @@ def _validation_db_path() -> Path:
     return configured.resolve()
 
 
+def _validation_multisensor_benchmark_v2_path() -> Path:
+    raw_value = os.getenv("VALIDATION_MULTISENSOR_BENCHMARK_V2_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "outputs/validation/validation_multisensor_benchmark_v2.json"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
+def _validation_holdout_benchmark_path() -> Path:
+    raw_value = os.getenv("VALIDATION_HOLDOUT_BENCHMARK_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "outputs/validation-holdout/validation_holdout_benchmark_v1.json"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
 def _read_bool(name: str, default: bool = False) -> bool:
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -42,6 +64,12 @@ class ApiSettings:
         os.getenv("API_OUTPUT_ROOT", "outputs/satellite_monitoring")
     )
     validation_db_path: Path = field(default_factory=_validation_db_path)
+    validation_multisensor_benchmark_v2_path: Path = field(
+        default_factory=_validation_multisensor_benchmark_v2_path
+    )
+    validation_holdout_benchmark_path: Path = field(
+        default_factory=_validation_holdout_benchmark_path
+    )
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
     )
@@ -87,9 +115,9 @@ class ApiSettings:
     version: str = "0.1.0"
 
     def __post_init__(self) -> None:
-        if self.multisource_fusion_mode not in {"disabled", "shadow"}:
+        if self.multisource_fusion_mode not in {"disabled", "shadow", "operational"}:
             raise ValueError(
-                "MULTISOURCE_FUSION_MODE must be 'disabled' or 'shadow'."
+                "MULTISOURCE_FUSION_MODE must be 'disabled', 'shadow', or 'operational'."
             )
         if self.spatial_section_length_m <= 0:
             raise ValueError("SPATIAL_SECTION_LENGTH_M must be positive.")

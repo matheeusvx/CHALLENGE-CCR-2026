@@ -219,6 +219,9 @@ def run_analysis(
             sentinel1_collection=settings.sentinel1_collection,
             sentinel1_max_scenes=settings.sentinel1_max_scenes,
             multisource_fusion_mode=settings.multisource_fusion_mode,
+            validation_holdout_benchmark_path=(
+                settings.validation_holdout_benchmark_path
+            ),
         )
         result = service(config, analysis_id=str(uuid4()))
     except InvalidAnalysisGeometryError as exc:

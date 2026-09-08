@@ -163,13 +163,70 @@ class SourceEvidenceResponse(StrictModel):
     summary: Sentinel1EvidenceSummaryResponse | None = None
 
 
+class ShadowReviewResponse(StrictModel):
+    schema_version: Literal["1.0"]
+    review_mode: Literal["disabled", "shadow", "operational"]
+    review_evaluable: bool
+    review_evaluated: bool
+    review_recommended: bool
+    review_rule: Literal["B"] | None
+    review_reason: Literal[
+        "sentinel1_temporal_mixed_with_sentinel2_cut",
+        "rule_b_conditions_not_met",
+    ] | None
+    review_source: Literal["sentinel1"]
+    sentinel1_temporal_status: Literal[
+        "increasing",
+        "decreasing",
+        "stable",
+        "mixed",
+        "insufficient_data",
+        "disabled",
+    ] | None
+    review_not_evaluable_reason: Literal[
+        "fusion_mode_not_shadow",
+        "official_recommendation_unavailable",
+        "sentinel1_evidence_missing",
+        "sentinel1_no_coverage",
+        "sentinel1_unavailable",
+        "sentinel1_error",
+        "sentinel1_disabled",
+        "sentinel1_calibration_unavailable",
+        "sentinel1_temporal_disabled",
+        "sentinel1_temporal_insufficient_data",
+    ] | None
+    official_recommendation_changed: Literal[False]
+
+
+class OperationalFusionResponse(StrictModel):
+    schema_version: Literal["1.0"]
+    requested: bool
+    authorized: bool
+    policy_available: Literal[False]
+    authorization_status: Literal["not_requested", "denied", "authorized"]
+    authorization_reason: str
+    holdout_schema_version: str | None = None
+    holdout_gate_status: str | None = None
+    candidate_rule: Literal["B"]
+    policy_version: None = None
+    original_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
+    final_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
+    official_recommendation_changed: Literal[False]
+
+
 class MultisourceResponse(StrictModel):
     enabled: bool
-    fusion_mode: Literal["disabled", "shadow"]
+    fusion_mode: Literal["disabled", "shadow", "operational"]
     official_recommendation_changed: Literal[False]
     generated_at: str
     configuration: dict[str, Any]
     sources: list[SourceEvidenceResponse]
+    review: ShadowReviewResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
+    operational_fusion: OperationalFusionResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
 
 
 class AnalysisResponse(StrictModel):

@@ -32,6 +32,11 @@ class ValidationSource(StrEnum):
     OTHER = "other"
 
 
+class ValidationCohort(StrEnum):
+    DEVELOPMENT = "development"
+    HOLDOUT = "holdout"
+
+
 class ValidationSampleCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -41,6 +46,7 @@ class ValidationSampleCreate(BaseModel):
     validation_source: ValidationSource
     reference_date: date
     notes: str | None = Field(default=None, max_length=1000)
+    cohort: ValidationCohort = ValidationCohort.DEVELOPMENT
 
     @field_validator("notes")
     @classmethod
@@ -60,6 +66,7 @@ class ValidationSampleRow(BaseModel):
     validation_source: ValidationSource
     reference_date: date
     notes: str | None = None
+    cohort: ValidationCohort = ValidationCohort.DEVELOPMENT
     selected_area_m2: float | None = None
     s2_decision: str | None = None
     s2_confidence: str | None = None
@@ -98,6 +105,7 @@ class ValidationSummary(BaseModel):
     counts_by_vegetation_class: dict[str, int]
     by_vegetation_class: dict[str, Any]
     counts_by_maintenance_truth: dict[str, int]
+    counts_by_cohort: dict[str, int]
 
 
 class ValidationBenchmark(BaseModel):
@@ -130,4 +138,45 @@ class ValidationFusionBenchmark(BaseModel):
     combinations: dict[str, Any]
     sample_matrix: list[dict[str, Any]]
     partitions: dict[str, int]
+    methodology: dict[str, Any]
+
+
+class ValidationMultisensorBenchmarkV2(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str
+    generated_at: datetime
+    experimental: bool
+    input_fingerprints: dict[str, str]
+    input_versions: dict[str, Any]
+    dataset: dict[str, Any]
+    s2_baseline: dict[str, Any]
+    sample_matrix: list[dict[str, Any]]
+    candidate_rules: dict[str, Any]
+    combinations: dict[str, Any]
+    uncertainty: dict[str, Any]
+    known_s2_errors: list[dict[str, Any]]
+    false_reviews: dict[str, Any]
+    soak_reproducibility: dict[str, Any]
+    recommendation_gate: dict[str, Any]
+    warnings: list[str]
+    methodology: dict[str, Any]
+
+
+class ValidationHoldoutBenchmarkV1(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: str
+    generated_at: datetime
+    experimental: bool
+    input_fingerprints: dict[str, Any]
+    preregistration: dict[str, Any]
+    dataset: dict[str, Any]
+    s2_baseline: dict[str, Any]
+    rule_b: dict[str, Any]
+    uncertainty: dict[str, Any]
+    robustness: dict[str, Any]
+    recommendation_gate: dict[str, Any]
+    sample_audit: list[dict[str, Any]]
+    warnings: list[str]
     methodology: dict[str, Any]

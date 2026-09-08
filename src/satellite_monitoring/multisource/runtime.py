@@ -28,7 +28,7 @@ def collect_multisource_evidence(
     if not config.multisource_enabled:
         return None
     providers = []
-    if config.multisource_fusion_mode == "shadow" and config.sentinel1_enabled:
+    if config.multisource_fusion_mode in {"shadow", "operational"} and config.sentinel1_enabled:
         providers.append(
             provider_factory(
                 endpoint=config.endpoint,

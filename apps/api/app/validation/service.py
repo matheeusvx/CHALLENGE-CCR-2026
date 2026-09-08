@@ -14,6 +14,7 @@ from src.satellite_monitoring.outputs import to_json_compatible
 from src.satellite_monitoring.service import AnalysisResult
 
 from .models import MaintenanceTruth, ValidationSampleCreate, VegetationClass
+from .identity import geometry_fingerprint
 from .repository import SCHEMA_VERSION
 
 
@@ -200,6 +201,7 @@ def build_snapshot(
         "validation_source": ground_truth.validation_source.value,
         "reference_date": ground_truth.reference_date.isoformat(),
         "notes": ground_truth.notes,
+        "cohort": ground_truth.cohort.value,
     }
     snapshot = to_json_compatible(
         {
@@ -229,6 +231,8 @@ def snapshot_to_record(snapshot: dict[str, Any]) -> dict[str, Any]:
         "schema_version": snapshot["schema_version"],
         "created_at": snapshot["created_at"],
         **ground_truth,
+        "cohort": ground_truth.get("cohort", "development"),
+        "aoi_fingerprint": geometry_fingerprint(aoi.get("geometry_geojson")),
         "selected_area_m2": aoi["selected_area_m2"],
         "s2_decision": sentinel2["recommendation_decision"],
         "s2_confidence": sentinel2["recommendation_confidence"],
@@ -337,6 +341,12 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         )
         for truth in MaintenanceTruth
     }
+    counts_by_cohort = {
+        cohort: sum(
+            1 for row in rows if row.get("cohort", "development") == cohort
+        )
+        for cohort in ("development", "holdout")
+    }
     return {
         "total_samples": len(rows),
         "target_total": TARGET_TOTAL,
@@ -348,12 +358,13 @@ def build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "by_vegetation_class": by_class,
         "counts_by_maintenance_truth": counts_by_truth,
+        "counts_by_cohort": counts_by_cohort,
     }
 
 
 CSV_COLUMNS = (
     "sample_id", "analysis_id", "vegetation_class", "maintenance_truth",
-    "validation_source", "reference_date", "created_at", "selected_area_m2",
+    "validation_source", "reference_date", "created_at", "cohort", "selected_area_m2",
     "s2_decision", "s2_confidence", "s2_ndvi_mean", "s2_ndvi_median",
     "s2_current_percentile", "s1_status", "s1_quality", "s1_coverage",
     "s1_canonical_relative_orbit", "s1_canonical_observation_count",

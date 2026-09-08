@@ -89,9 +89,16 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `SENTINEL1_ENABLED`, `SENTINEL1_COLLECTION` e `SENTINEL1_MAX_SCENES`: controlam
   a evidencia SAR Sentinel-1 por janela da AOI (padrao `sentinel-1-grd`, 8 cenas);
 - `GEDI_ENABLED` e `ICESAT2_ENABLED`: reservados e desabilitados por padrao;
-- `MULTISOURCE_FUSION_MODE`: aceita `disabled` ou `shadow`. Em `shadow`, a
-  evidencia Sentinel-1 e auditavel, mas nunca altera a decisao oficial;
+- `MULTISOURCE_FUSION_MODE`: aceita `disabled`, `shadow` ou `operational`
+  (padrao `disabled`). `shadow` pode emitir o review signal B. `operational`
+  somente autoriza a camada com um holdout independente valido; nenhuma policy
+  de override existe nesta etapa;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
+
+A infraestrutura de holdout independente da Regra B usa coortes persistentes
+`development`/`holdout`, preregistration congelada e avaliacao offline. Consulte
+`docs/validation_holdout.md`. O endpoint de consulta apenas le o artifact em
+`VALIDATION_HOLDOUT_BENCHMARK_PATH` e nao executa consultas STAC.
 
 ### Workspace geoespacial
 
@@ -120,6 +127,19 @@ corte.
 As medianas globais Sentinel-1 sao estatisticas descritivas e podem misturar
 geometrias de aquisicao. Comparacoes temporais futuras devem usar exclusivamente
 as `canonical_metrics`, calculadas dentro de uma unica `sat:relative_orbit`.
+
+Quando `MULTISOURCE_FUSION_MODE=shadow`, Sentinel-1 temporal esta habilitado e
+a evidencia possui suporte valido, o runtime avalia somente a regra B validada:
+`Sentinel-2=cortar` e `Sentinel-1 temporal=mixed` produzem um sinal complementar
+de revisao. O sinal fica em `multisource.review`; ele nao altera `cortar`,
+`nao_cortar`, `inconclusivo`, confidence ou qualquer metrica da recommendation.
+Ausencia ou falha Sentinel-1 apenas torna o review nao avaliavel, preservando a
+analise Sentinel-2.
+
+A arquitetura futura de fusao operacional e seu hard gate estao documentados em
+`docs/sentinel1_operational_fusion.md`. Engenharia pronta nao significa
+autorizacao cientifica: com `development=23` e `holdout=0`, a autorizacao segue
+bloqueada e `official_recommendation_changed=false`.
 
 ### Perfil operacional web
 
