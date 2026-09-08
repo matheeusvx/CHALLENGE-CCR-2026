@@ -68,10 +68,14 @@ export type EffectiveRecommendation = {
 export function getEffectiveRecommendation(result: AnalysisResponse): EffectiveRecommendation {
   const experimental = result.multisource?.experimental_fusion;
   const s2Decision = result.recommendation.decision;
+  const primaryDecision =
+    experimental?.final_recommendation ??
+    (result as { final_recommendation?: "cortar" | "nao_cortar" | "inconclusivo" }).final_recommendation ??
+    s2Decision;
 
-  if (experimental && experimental.multisource_recommendation) {
+  if (experimental && (experimental.multisource_recommendation || experimental.final_recommendation)) {
     return {
-      primaryDecision: experimental.multisource_recommendation,
+      primaryDecision,
       s2Decision,
       isMultisource: true,
       influenced: Boolean(experimental.sentinel1_influenced_decision),
@@ -84,7 +88,7 @@ export function getEffectiveRecommendation(result: AnalysisResponse): EffectiveR
   }
 
   return {
-    primaryDecision: s2Decision,
+    primaryDecision,
     s2Decision,
     isMultisource: false,
     influenced: false,

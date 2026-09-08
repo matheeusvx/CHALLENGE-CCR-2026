@@ -4483,7 +4483,7 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   }
 }
 
-/* Pill de validaÃ§Ã£o no mapa â€” Fundo dark sÃ³lido */
+/* Pill de validação no mapa — Fundo dark sólido */
 .manual-validated-pill {
   display: inline-flex;
   align-items: center;

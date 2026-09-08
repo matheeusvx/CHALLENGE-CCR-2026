@@ -22,7 +22,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Motiva Vegetation Intelligence API",
         version=settings.version,
-        description="API sincrona para validacao de AOI e monitoramento Sentinel-2.",
+        description=(
+            "API para validacao de AOI e monitoramento Sentinel-2, com execucao "
+            "automatica experimental por viewport."
+        ),
     )
     app.add_middleware(
         CORSMiddleware,

@@ -30,10 +30,11 @@ export function installOrUpdateAoiLayer(
   }
 
   const hasActiveZones = Boolean(options?.hasActiveZones);
+  const isFinalState = ["valid", "cut", "no_cut", "inconclusive"].includes(visualState.id);
   const fillOpacity = hasActiveZones ? 0 : visualState.fillOpacity;
-  const lineWidth = hasActiveZones ? 2.5 : 6;
-  const lineOpacity = hasActiveZones ? 0.45 : 1;
-  const haloOpacity = hasActiveZones ? 0 : 0.82;
+  const lineWidth = hasActiveZones ? 2.5 : isFinalState ? 2.5 : 6;
+  const lineOpacity = hasActiveZones ? 0.45 : isFinalState ? 0.85 : 1;
+  const haloOpacity = hasActiveZones || isFinalState ? 0 : 0.82;
 
   const data = createAoiFeatureCollection(geometry, visualState.label);
   const source = map.getSource(AOI_LAYER_IDS.source);

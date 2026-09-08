@@ -29,16 +29,28 @@ type SettingsState = {
   themePreference: ThemePreference;
   notificationsEnabled: boolean;
   sidebarCollapsed: boolean;
+  sidebarHydrated: boolean;
+  hydrateSidebarPreference: () => void;
   setThemePreference: (preference: ThemePreference) => void;
   setNotificationsEnabled: (enabled: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
 };
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   themePreference: readStoredPreference(),
   notificationsEnabled: true,
-  sidebarCollapsed: readStoredSidebarCollapsed(),
+  // SSR and the first client render must share this deterministic snapshot.
+  // The stored preference is applied explicitly after React mounts.
+  sidebarCollapsed: DEFAULT_SIDEBAR_COLLAPSED,
+  sidebarHydrated: false,
+  hydrateSidebarPreference: () => {
+    if (get().sidebarHydrated) return;
+    set({
+      sidebarCollapsed: readStoredSidebarCollapsed(),
+      sidebarHydrated: true,
+    });
+  },
   setThemePreference: (themePreference) => {
     if (typeof window !== "undefined") window.localStorage.setItem(THEME_STORAGE_KEY, themePreference);
     set({ themePreference });
@@ -52,7 +64,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         // ignore storage errors
       }
     }
-    set({ sidebarCollapsed });
+    set({ sidebarCollapsed, sidebarHydrated: true });
   },
   toggleSidebar: () => {
     const next = !useSettingsStore.getState().sidebarCollapsed;
@@ -63,7 +75,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         // ignore storage errors
       }
     }
-    set({ sidebarCollapsed: next });
+    set({ sidebarCollapsed: next, sidebarHydrated: true });
   },
 }));
 

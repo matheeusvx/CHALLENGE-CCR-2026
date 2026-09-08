@@ -16,7 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { GuiaWidget } from "@/components/guia/guia-widget";
-import { useOperatorProfileStore } from "@/stores/operator-profile-store";
+import {
+  DEFAULT_OPERATOR_PROFILE,
+  useOperatorProfileStore,
+} from "@/stores/operator-profile-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -39,15 +42,29 @@ function initialsOf(name: string) {
 }
 
 export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; onNavigate: (view: AppView) => void }) {
-  const profile = useOperatorProfileStore();
+  const persistedProfile = useOperatorProfileStore();
+  const [operatorProfileHydrated, setOperatorProfileHydrated] = useState(false);
   const tourActive = useOnboardingStore((s) => s.tourActive);
   const tourOperatorMenuOpen = useOnboardingStore((s) => s.operatorMenuOpen);
   const setTourOperatorMenuOpen = useOnboardingStore((s) => s.setOperatorMenuOpen);
   const tourSidebarExpanded = useOnboardingStore((s) => s.tourSidebarExpanded);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  const sidebarHydrated = useSettingsStore((s) => s.sidebarHydrated);
+  const hydrateSidebarPreference = useSettingsStore(
+    (s) => s.hydrateSidebarPreference,
+  );
   const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
 
-  const isExpanded = tourActive && tourSidebarExpanded ? true : !sidebarCollapsed;
+  // Collapsed is the canonical SSR/first-client snapshot. Persisted state and
+  // tour-driven expansion become visible only after mount.
+  const isExpanded = sidebarHydrated
+    ? tourActive && tourSidebarExpanded
+      ? true
+      : !sidebarCollapsed
+    : false;
+  const profile = operatorProfileHydrated
+    ? persistedProfile
+    : DEFAULT_OPERATOR_PROFILE;
 
   const [localMenuOpen, setLocalMenuOpen] = useState(false);
 
@@ -67,6 +84,23 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
 
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const footRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    hydrateSidebarPreference();
+    void Promise.resolve(useOperatorProfileStore.persist.rehydrate()).then(
+      () => {
+        if (active) setOperatorProfileHydrated(true);
+      },
+      () => {
+        // Storage failures keep the deterministic default profile.
+        if (active) setOperatorProfileHydrated(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [hydrateSidebarPreference]);
 
   // Fecha menu ao clicar fora
   useEffect(() => {

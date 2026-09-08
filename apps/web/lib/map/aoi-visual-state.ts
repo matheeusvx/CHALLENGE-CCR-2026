@@ -20,7 +20,7 @@ export type AoiVisualState = {
 const AOI_VISUAL_STATES: Record<AoiVisualStateId, AoiVisualState> = {
   editing: { id: "editing", label: "Área em edição", color: "#7c3aed", fillOpacity: 0.3, dashed: false },
   pending_validation: { id: "pending_validation", label: "Aguardando validação", color: "#c56a16", fillOpacity: 0.24, dashed: false },
-  valid: { id: "valid", label: "Área validada", color: "#27865b", fillOpacity: 0.22, dashed: false },
+  valid: { id: "valid", label: "Área validada", color: "#7c3aed", fillOpacity: 0.15, dashed: false },
   invalid: { id: "invalid", label: "Área inválida", color: "#c43d46", fillOpacity: 0.2, dashed: true },
   cut: { id: "cut", label: "Cortar", color: "#d44d2f", fillOpacity: 0.24, dashed: false },
   no_cut: { id: "no_cut", label: "Não cortar", color: "#27865b", fillOpacity: 0.22, dashed: false },

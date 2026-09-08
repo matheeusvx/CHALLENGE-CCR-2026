@@ -10,6 +10,7 @@ import { runAnalysis, validateGeometry } from "@/lib/api/analyses";
 import { ApiError } from "@/lib/api/client";
 import { getCurrentAnalysisResponse, isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { useHistoryStore } from "@/stores/history-store";
+import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
 import { WorkspaceTabs } from "./workspace-tabs";
 
 export function GeospatialWorkspace() {
@@ -28,7 +29,21 @@ export function GeospatialWorkspace() {
       const current = useAnalysisStore.getState();
       if (variables.revision !== current.geometryRevision || !isCurrentGeometryValidated(current)) return;
       current.applyAnalysisResult(data, variables.revision);
-      addHistoryEntry(data, variables.geometry, current.geometryValidation ?? undefined);
+
+      const props = data.aoi?.properties as Record<string, unknown> | undefined;
+      let manualRoad = undefined;
+      if (props && (props.road_ref || props.road_name)) {
+        manualRoad = {
+          id: props.road_id as string | undefined,
+          ref: props.road_ref as string | undefined,
+          name: props.road_name as string | undefined,
+        };
+      } else {
+        const autoRoad = useAutoAnalysisStore.getState().road;
+        if (autoRoad) manualRoad = autoRoad;
+      }
+
+      addHistoryEntry(data, variables.geometry, current.geometryValidation ?? undefined, data.road ?? manualRoad);
     },
   });
 

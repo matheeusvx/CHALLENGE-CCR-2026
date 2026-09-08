@@ -63,9 +63,12 @@ export const experimentalFusionSchema = z.object({
   schema_version: z.literal("1.0"),
   fusion_mode: z.enum(["disabled", "shadow", "experimental", "operational"]),
   fusion_policy: z.literal("experimental_v1").nullable().optional(),
-  experimental_policy_version: z.literal("1.0").nullable().optional(),
+  // 1.0 remains accepted for persisted historical results; 1.1 is the
+  // current Sentinel-2-primary policy returned by the API.
+  experimental_policy_version: z.enum(["1.0", "1.1"]).nullable().optional(),
   sentinel2_recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
   multisource_recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
+  final_recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]).nullable().optional(),
   sentinel1_influenced_decision: z.boolean(),
   fusion_rule: z.literal("B").nullable().optional(),
   fusion_reason: z.string().nullable().optional(),
@@ -124,6 +127,13 @@ export const analysisResponseSchema = z.object({
   warnings: z.array(recordSchema),
   errors: z.array(recordSchema),
   analysis_trigger: z.enum(["manual", "automatic_viewport"]).optional(),
+  road: z
+    .object({
+      id: z.string().optional(),
+      ref: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .nullish(),
 });
 
 export const viewportBoundsSchema = z.object({
@@ -155,17 +165,44 @@ export const automaticAnalysisResponseSchema = z.object({
     "analysis_started",
     "completed",
     "failed",
+    "skipped",
+    "road_context_required",
+    "road_geometry_unavailable",
+    "road_not_found",
+    "road_geometry_unreliable",
+    "road_ambiguous",
+    "road_section_resolved",
+    "roadside_too_small",
+    "roadside_geometry_invalid",
   ]),
   spatial_key: z.string().nullable().optional(),
   analysis_id: z.string().nullable().optional(),
-  analysis_started: z.boolean(),
-  cache_hit: z.boolean(),
-  automatic: z.literal(true),
+  analysis_started: z.boolean().optional(),
+  cache_hit: z.boolean().optional(),
+  automatic: z.boolean().optional(),
   reason: z.string().nullable().optional(),
   canonical_bounds: viewportBoundsSchema.nullable().optional(),
   cache_state: z.enum(["fresh", "in_progress", "failed"]).nullable().optional(),
   expires_at: z.string().nullable().optional(),
   result: analysisResponseSchema.nullable().optional(),
+  road: z
+    .object({
+      id: z.string().optional(),
+      ref: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .passthrough()
+    .nullable()
+    .optional(),
+  spatial_strategy: z.union([z.string(), z.record(z.string(), z.unknown())]).nullable().optional(),
+  canonical_segment_geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  roadway_exclusion_m: z.number().nullable().optional(),
+  lateral_width_m: z.number().nullable().optional(),
+  centerline: z.record(z.string(), z.unknown()).nullable().optional(),
+  side_a_geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  side_b_geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  analyzed_geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  roadside_metrics: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 export const healthSchema = z.object({

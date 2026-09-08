@@ -44,6 +44,28 @@ def _validation_holdout_benchmark_path() -> Path:
     return configured.resolve()
 
 
+def _automatic_analysis_db_path() -> Path:
+    raw_value = os.getenv("AUTO_ANALYSIS_DB_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "data/automatic_analysis/automatic_analysis.sqlite3"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
+def _automatic_analysis_roads_dataset_path() -> Path:
+    raw_value = os.getenv("AUTO_ANALYSIS_ROADS_DATASET_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "data/roads/processed/motiva-sp-roads-state.geojson"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
 def _read_bool(name: str, default: bool = False) -> bool:
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -69,6 +91,10 @@ class ApiSettings:
     )
     validation_holdout_benchmark_path: Path = field(
         default_factory=_validation_holdout_benchmark_path
+    )
+    automatic_analysis_db_path: Path = field(default_factory=_automatic_analysis_db_path)
+    automatic_analysis_roads_dataset_path: Path = field(
+        default_factory=_automatic_analysis_roads_dataset_path
     )
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
@@ -111,6 +137,89 @@ class ApiSettings:
         .strip()
         .lower()
     )
+    auto_analysis_enabled: bool = field(
+        default_factory=lambda: _read_bool("AUTO_ANALYSIS_ENABLED")
+    )
+    auto_analysis_min_zoom: float = field(
+        default_factory=lambda: float(os.getenv("AUTO_ANALYSIS_MIN_ZOOM", "14"))
+    )
+    auto_analysis_max_zoom: float = field(
+        default_factory=lambda: float(os.getenv("AUTO_ANALYSIS_MAX_ZOOM", "22"))
+    )
+    auto_analysis_canonical_tile_zoom: int = field(
+        default_factory=lambda: int(os.getenv("AUTO_ANALYSIS_CANONICAL_TILE_ZOOM", "17"))
+    )
+    auto_analysis_max_area_km2: float = field(
+        default_factory=lambda: float(os.getenv("AUTO_ANALYSIS_MAX_AREA_KM2", "1000.0"))
+    )
+    auto_analysis_min_dimension_meters: float = field(
+        default_factory=lambda: float(os.getenv("AUTO_ANALYSIS_MIN_DIMENSION_METERS", "20"))
+    )
+    auto_analysis_max_dimension_meters: float = field(
+        default_factory=lambda: float(os.getenv("AUTO_ANALYSIS_MAX_DIMENSION_METERS", "50000"))
+    )
+    auto_analysis_cache_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("AUTO_ANALYSIS_CACHE_TTL_SECONDS", "21600"))
+    )
+    auto_analysis_in_progress_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("AUTO_ANALYSIS_IN_PROGRESS_TTL_SECONDS", "1800"))
+    )
+    auto_analysis_failure_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("AUTO_ANALYSIS_FAILURE_TTL_SECONDS", "300"))
+    )
+    auto_analysis_force_refresh_cooldown_seconds: int = field(
+        default_factory=lambda: int(
+            os.getenv("AUTO_ANALYSIS_FORCE_REFRESH_COOLDOWN_SECONDS", "300")
+        )
+    )
+    auto_analysis_max_concurrent: int = field(
+        default_factory=lambda: int(os.getenv("AUTO_ANALYSIS_MAX_CONCURRENT", "2"))
+    )
+    auto_analysis_spatial_strategy: str = field(
+        default_factory=lambda: os.getenv(
+            "AUTO_ANALYSIS_SPATIAL_STRATEGY", "tile_v1"
+        ).strip().lower()
+    )
+    auto_analysis_roadside_min_zoom: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROADSIDE_MIN_ZOOM", "13")
+        )
+    )
+    auto_analysis_road_snap_max_distance_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROAD_SNAP_MAX_DISTANCE_M", "50")
+        )
+    )
+    auto_analysis_road_ambiguity_tolerance_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROAD_AMBIGUITY_TOLERANCE_M", "10")
+        )
+    )
+    auto_analysis_road_segment_length_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROAD_SEGMENT_LENGTH_M", "300")
+        )
+    )
+    auto_analysis_roadway_exclusion_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROADWAY_EXCLUSION_M", "25")
+        )
+    )
+    auto_analysis_lateral_width_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_LATERAL_WIDTH_M", "40")
+        )
+    )
+    auto_analysis_roadside_min_area_m2: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROADSIDE_MIN_AREA_M2", "5000")
+        )
+    )
+    auto_analysis_roadside_min_width_m: float = field(
+        default_factory=lambda: float(
+            os.getenv("AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M", "20")
+        )
+    )
     service_name: str = "motiva-vegetation-api"
     version: str = "0.1.0"
 
@@ -128,6 +237,50 @@ class ApiSettings:
             raise ValueError("SENTINEL1_COLLECTION cannot be empty.")
         if self.sentinel1_max_scenes <= 0:
             raise ValueError("SENTINEL1_MAX_SCENES must be positive.")
+        if not 0 <= self.auto_analysis_min_zoom <= self.auto_analysis_max_zoom <= 24:
+            raise ValueError("Automatic analysis zoom limits must satisfy 0 <= min <= max <= 24.")
+        if not 0 <= self.auto_analysis_canonical_tile_zoom <= 24:
+            raise ValueError("AUTO_ANALYSIS_CANONICAL_TILE_ZOOM must be between 0 and 24.")
+        if self.auto_analysis_spatial_strategy not in {"tile_v1", "roadside_v1"}:
+            raise ValueError(
+                "AUTO_ANALYSIS_SPATIAL_STRATEGY must be 'tile_v1' or 'roadside_v1'."
+            )
+        if not 0 <= self.auto_analysis_roadside_min_zoom <= self.auto_analysis_max_zoom:
+            raise ValueError(
+                "AUTO_ANALYSIS_ROADSIDE_MIN_ZOOM must be between 0 and AUTO_ANALYSIS_MAX_ZOOM."
+            )
+        if self.auto_analysis_road_snap_max_distance_m <= 0:
+            raise ValueError("AUTO_ANALYSIS_ROAD_SNAP_MAX_DISTANCE_M must be positive.")
+        if self.auto_analysis_road_ambiguity_tolerance_m < 0:
+            raise ValueError(
+                "AUTO_ANALYSIS_ROAD_AMBIGUITY_TOLERANCE_M cannot be negative."
+            )
+        if self.auto_analysis_road_segment_length_m <= 0:
+            raise ValueError("AUTO_ANALYSIS_ROAD_SEGMENT_LENGTH_M must be positive.")
+        for name, value in (
+            ("AUTO_ANALYSIS_ROADWAY_EXCLUSION_M", self.auto_analysis_roadway_exclusion_m),
+            ("AUTO_ANALYSIS_LATERAL_WIDTH_M", self.auto_analysis_lateral_width_m),
+            ("AUTO_ANALYSIS_ROADSIDE_MIN_AREA_M2", self.auto_analysis_roadside_min_area_m2),
+            ("AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M", self.auto_analysis_roadside_min_width_m),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive.")
+        if self.auto_analysis_max_area_km2 <= 0:
+            raise ValueError("AUTO_ANALYSIS_MAX_AREA_KM2 must be positive.")
+        if not 0 < self.auto_analysis_min_dimension_meters < self.auto_analysis_max_dimension_meters:
+            raise ValueError("Automatic analysis dimensions must satisfy 0 < min < max.")
+        for name, value in (
+            ("AUTO_ANALYSIS_CACHE_TTL_SECONDS", self.auto_analysis_cache_ttl_seconds),
+            ("AUTO_ANALYSIS_IN_PROGRESS_TTL_SECONDS", self.auto_analysis_in_progress_ttl_seconds),
+            ("AUTO_ANALYSIS_FAILURE_TTL_SECONDS", self.auto_analysis_failure_ttl_seconds),
+            (
+                "AUTO_ANALYSIS_FORCE_REFRESH_COOLDOWN_SECONDS",
+                self.auto_analysis_force_refresh_cooldown_seconds,
+            ),
+            ("AUTO_ANALYSIS_MAX_CONCURRENT", self.auto_analysis_max_concurrent),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive.")
 
     @property
     def cors_origins(self) -> list[str]:

@@ -22,9 +22,11 @@ from ..config import settings
 from ..dependencies import (
     AnalysisService,
     analysis_registry,
+    get_automatic_analysis_coordinator,
     get_analysis_now,
     get_analysis_service,
 )
+from ..automatic_analysis import AutomaticAnalysisCoordinator, AutomaticPipelineFailure
 from ..exceptions import ApiError
 from ..operational_profile import (
     DEFAULT_OPERATIONAL_ANALYSIS_PROFILE,
@@ -34,6 +36,8 @@ from ..operational_profile import (
 from ..schemas import (
     AnalysisResponse,
     AnalysisRunRequest,
+    AutomaticAnalysisRequest,
+    AutomaticAnalysisResponse,
     GeometryRequest,
     GeometryValidationResponse,
 )
@@ -96,7 +100,12 @@ def validate_geometry(payload: GeometryRequest) -> GeometryValidationResponse:
     )
 
 
-def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisResponse:
+def _to_api_response(
+    result: Any,
+    analysis_period: AnalysisPeriod,
+    *,
+    analysis_trigger: str = "manual",
+) -> AnalysisResponse:
     recommendation = result.recommendation
     public_summary = dict(result.summary)
     if isinstance(public_summary.get("parameters"), dict):
@@ -139,6 +148,72 @@ def _to_api_response(result: Any, analysis_period: AnalysisPeriod) -> AnalysisRe
         artifacts=artifact_urls,
         warnings=result.warnings,
         errors=result.errors,
+        analysis_trigger=analysis_trigger,
+    )
+
+
+def _build_monitoring_config(
+    payload: AnalysisRunRequest,
+    analysis_period: AnalysisPeriod,
+) -> MonitoringConfig:
+    """Build the shared scientific configuration for manual and automatic runs."""
+    profile = DEFAULT_OPERATIONAL_ANALYSIS_PROFILE
+    decision = payload.decision
+    return MonitoringConfig(
+        geometry=payload.geometry,
+        start_date=analysis_period.start_date,
+        end_date=analysis_period.end_date,
+        max_cloud_cover=_or_profile(payload.max_cloud_cover, profile.max_cloud_cover),
+        max_scenes=_or_profile(payload.max_scenes, profile.max_scenes),
+        max_candidate_scenes=profile.max_candidate_scenes,
+        scene_order=_or_profile(payload.scene_order, profile.scene_order),
+        min_valid_pixel_percentage=_or_profile(
+            payload.min_valid_pixel_percentage,
+            profile.min_valid_pixel_percentage,
+        ),
+        min_valid_pixel_count=profile.min_valid_pixel_count,
+        min_aoi_coverage_percentage=profile.min_aoi_coverage_percentage,
+        min_observations=_or_profile(payload.min_observations, profile.min_observations),
+        daily_aggregation=_or_profile(payload.daily_aggregation, profile.daily_aggregation),
+        decision_min_observations=_or_profile(
+            decision.decision_min_observations if decision else None,
+            profile.decision_min_observations,
+        ),
+        high_vegetation_percentile=_or_profile(
+            decision.high_vegetation_percentile if decision else None,
+            profile.high_vegetation_percentile,
+        ),
+        significant_drop_absolute=_or_profile(
+            decision.significant_drop_absolute if decision else None,
+            profile.significant_drop_absolute,
+        ),
+        significant_drop_relative_percentage=_or_profile(
+            decision.significant_drop_relative_percentage if decision else None,
+            profile.significant_drop_relative_percentage,
+        ),
+        trend_window=_or_profile(
+            decision.trend_window if decision else None,
+            profile.trend_window,
+        ),
+        max_gap_days=_or_profile(
+            decision.max_gap_days if decision else None,
+            profile.max_gap_days,
+        ),
+        recent_intervention_days=_or_profile(
+            decision.recent_intervention_days if decision else None,
+            profile.recent_intervention_days,
+        ),
+        output_root=settings.output_root,
+        height_estimation_enabled=settings.height_estimation_enabled,
+        spatial_segmentation_enabled=settings.spatial_segmentation_enabled,
+        spatial_section_length_m=settings.spatial_section_length_m,
+        spatial_regularization_enabled=settings.spatial_regularization_enabled,
+        multisource_enabled=settings.multisource_enabled,
+        sentinel1_enabled=settings.sentinel1_enabled,
+        sentinel1_collection=settings.sentinel1_collection,
+        sentinel1_max_scenes=settings.sentinel1_max_scenes,
+        multisource_fusion_mode=settings.multisource_fusion_mode,
+        validation_holdout_benchmark_path=settings.validation_holdout_benchmark_path,
     )
 
 
@@ -162,67 +237,8 @@ def run_analysis(
             status_code=422,
         ) from exc
     _validated_geometry_metadata(payload.geometry)
-    profile = DEFAULT_OPERATIONAL_ANALYSIS_PROFILE
-    decision = payload.decision
     try:
-        config = MonitoringConfig(
-            geometry=payload.geometry,
-            start_date=analysis_period.start_date,
-            end_date=analysis_period.end_date,
-            max_cloud_cover=_or_profile(payload.max_cloud_cover, profile.max_cloud_cover),
-            max_scenes=_or_profile(payload.max_scenes, profile.max_scenes),
-            max_candidate_scenes=profile.max_candidate_scenes,
-            scene_order=_or_profile(payload.scene_order, profile.scene_order),
-            min_valid_pixel_percentage=_or_profile(
-                payload.min_valid_pixel_percentage,
-                profile.min_valid_pixel_percentage,
-            ),
-            min_valid_pixel_count=profile.min_valid_pixel_count,
-            min_aoi_coverage_percentage=profile.min_aoi_coverage_percentage,
-            min_observations=_or_profile(payload.min_observations, profile.min_observations),
-            daily_aggregation=_or_profile(payload.daily_aggregation, profile.daily_aggregation),
-            decision_min_observations=_or_profile(
-                decision.decision_min_observations if decision else None,
-                profile.decision_min_observations,
-            ),
-            high_vegetation_percentile=_or_profile(
-                decision.high_vegetation_percentile if decision else None,
-                profile.high_vegetation_percentile,
-            ),
-            significant_drop_absolute=_or_profile(
-                decision.significant_drop_absolute if decision else None,
-                profile.significant_drop_absolute,
-            ),
-            significant_drop_relative_percentage=_or_profile(
-                decision.significant_drop_relative_percentage if decision else None,
-                profile.significant_drop_relative_percentage,
-            ),
-            trend_window=_or_profile(
-                decision.trend_window if decision else None,
-                profile.trend_window,
-            ),
-            max_gap_days=_or_profile(
-                decision.max_gap_days if decision else None,
-                profile.max_gap_days,
-            ),
-            recent_intervention_days=_or_profile(
-                decision.recent_intervention_days if decision else None,
-                profile.recent_intervention_days,
-            ),
-            output_root=settings.output_root,
-            height_estimation_enabled=settings.height_estimation_enabled,
-            spatial_segmentation_enabled=settings.spatial_segmentation_enabled,
-            spatial_section_length_m=settings.spatial_section_length_m,
-            spatial_regularization_enabled=settings.spatial_regularization_enabled,
-            multisource_enabled=settings.multisource_enabled,
-            sentinel1_enabled=settings.sentinel1_enabled,
-            sentinel1_collection=settings.sentinel1_collection,
-            sentinel1_max_scenes=settings.sentinel1_max_scenes,
-            multisource_fusion_mode=settings.multisource_fusion_mode,
-            validation_holdout_benchmark_path=(
-                settings.validation_holdout_benchmark_path
-            ),
-        )
+        config = _build_monitoring_config(payload, analysis_period)
         result = service(config, analysis_id=str(uuid4()))
     except InvalidAnalysisGeometryError as exc:
         raise ApiError(
@@ -251,6 +267,67 @@ def run_analysis(
         raise ApiError(code, "O pipeline nao conseguiu concluir a analise.", status_code=status_code)
     analysis_registry.add(result)
     return _to_api_response(result, analysis_period)
+
+
+@router.post("/automatic", response_model=AutomaticAnalysisResponse)
+def run_automatic_analysis(
+    payload: AutomaticAnalysisRequest,
+    service: AnalysisService = Depends(get_analysis_service),
+    now: datetime = Depends(get_analysis_now),
+    coordinator: AutomaticAnalysisCoordinator = Depends(
+        get_automatic_analysis_coordinator
+    ),
+) -> dict[str, Any]:
+    """Resolve, deduplicate, and asynchronously execute a canonical viewport AOI."""
+    try:
+        analysis_period = resolve_analysis_period(
+            None,
+            None,
+            now=now,
+            timezone_name=settings.analysis_timezone,
+        )
+    except ValueError as exc:
+        raise ApiError("INVALID_DATE_RANGE", str(exc), status_code=422) from exc
+
+    def execute(geometry: dict[str, Any], analysis_id: str) -> dict[str, Any]:
+        _validated_geometry_metadata(geometry)
+        automatic_payload = AnalysisRunRequest(geometry=geometry)
+        config = _build_monitoring_config(automatic_payload, analysis_period)
+        result = service(config, analysis_id=analysis_id)
+        if result.status == "failed":
+            source_error_code = (
+                str(result.errors[0].get("code") or "PROCESSING_ERROR")
+                if result.errors
+                else "PROCESSING_ERROR"
+            )
+            category = (
+                "remote_stac_failure"
+                if source_error_code == "SATELLITE_PROVIDER_ERROR"
+                else "sentinel2_pipeline_failure"
+            )
+            raise AutomaticPipelineFailure(category, source_error_code)
+        analysis_registry.add(result)
+        response = _to_api_response(
+            result,
+            analysis_period,
+            analysis_trigger="automatic_viewport",
+        ).model_dump(mode="json")
+        # Artifact URLs are backed by the process-local registry and must not be
+        # advertised from a persistent cache after a process restart.
+        response["artifacts"] = {}
+        return response
+
+    return coordinator.request(
+        bounds=payload.bounds.model_dump(),
+        center=payload.center.model_dump(),
+        zoom=payload.zoom,
+        force_refresh=payload.force_refresh,
+        analysis_period=(
+            f"{analysis_period.start_date.isoformat()}/"
+            f"{analysis_period.end_date.isoformat()}"
+        ),
+        execute=execute,
+    )
 
 
 @router.get("/{analysis_id}/artifacts/{artifact_name}", response_class=FileResponse)

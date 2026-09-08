@@ -141,11 +141,16 @@ A arquitetura futura de fusao operacional e seu hard gate estao documentados em
 autorizacao cientifica: com `development=23` e `holdout=0`, a autorizacao segue
 bloqueada e `official_recommendation_changed=false`.
 
-No modo `experimental`, somente a Regra B pode influenciar o resultado aditivo:
-`S2=cortar + S1=mixed` produz
-`multisource.experimental_fusion.multisource_recommendation=inconclusivo`. O
-campo historico `recommendation` permanece Sentinel-2. Consulte
+No modo `experimental`, Sentinel-2 permanece a fonte primaria. A Regra B
+`S2=cortar + S1=mixed` produz apenas `multisource_disagreement=true` e
+`review_recommended=true`; tanto `final_recommendation` quanto o alias
+compativel `multisource_recommendation` permanecem `cortar`. Consulte
 `docs/sentinel1_experimental_fusion.md` antes de consumir esse resultado.
+
+O backend experimental de analise automatica por viewport fica desabilitado por
+padrao e expoe `POST /api/analyses/automatic`. Ele valida o viewport, resolve
+uma AOI Web Mercator canonica, deduplica por chave espacial e periodo e reutiliza
+o mesmo pipeline da analise manual. Consulte `docs/automatic_viewport_analysis.md`.
 
 ### Perfil operacional web
 

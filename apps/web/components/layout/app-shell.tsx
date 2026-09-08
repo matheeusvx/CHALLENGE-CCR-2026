@@ -23,7 +23,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const tourActive = useOnboardingStore((s) => s.tourActive);
   const tourSidebarExpanded = useOnboardingStore((s) => s.tourSidebarExpanded);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
-  const isSidebarExpanded = tourActive && tourSidebarExpanded ? true : !sidebarCollapsed;
+  const sidebarHydrated = useSettingsStore((s) => s.sidebarHydrated);
+  const isSidebarExpanded = sidebarHydrated
+    ? tourActive && tourSidebarExpanded
+      ? true
+      : !sidebarCollapsed
+    : false;
   const isGuiaOpen = useGuiaStore((s) => s.isOpen);
   const guiaDisplayMode = useGuiaStore((s) => s.displayMode);
   const isGuiaDocked = isGuiaOpen && guiaDisplayMode === "docked";

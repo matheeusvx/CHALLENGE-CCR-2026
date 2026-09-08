@@ -18,8 +18,8 @@ describe("estado visual da AOI", () => {
     expect(getAoiVisualState({ editing: true, dirty: true, validation: "valid", recommendation: "cortar" }).id).toBe("editing");
   });
 
-  it("usa roxo na edição e verde para área validada", () => {
+  it("usa roxo na edição e roxo suave para área validada", () => {
     expect(getAoiVisualState({ editing: true, dirty: true, validation: null })).toMatchObject({ color: "#7c3aed", label: "Área em edição", fillOpacity: 0.3 });
-    expect(getAoiVisualState({ editing: false, dirty: false, validation: "valid" })).toMatchObject({ color: "#27865b", label: "Área validada", fillOpacity: 0.22 });
+    expect(getAoiVisualState({ editing: false, dirty: false, validation: "valid" })).toMatchObject({ color: "#7c3aed", label: "Área validada", fillOpacity: 0.15 });
   });
 });

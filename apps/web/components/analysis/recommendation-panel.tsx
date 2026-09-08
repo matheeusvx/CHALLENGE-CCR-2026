@@ -15,6 +15,7 @@ import {
 export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
   const effective = getEffectiveRecommendation(result);
   const quality = analysisQualityStatus(result);
+  const road = result.road;
   const Icon = effective.primaryDecision === "cortar"
     ? Scissors
     : effective.primaryDecision === "nao_cortar"
@@ -35,23 +36,21 @@ export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
       data-quality={quality ?? "unknown"}
       aria-labelledby="recommendation-title"
     >
-      <div className="recommendation-main">
-        <div className="recommendation-icon" aria-hidden="true"><Icon size={32} /></div>
-        <div className="recommendation-decision">
-          <span>{effective.isMultisource ? "Resultado multissensor" : hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
-          <h2 id="recommendation-title">{formatRecommendation(effective.primaryDecision)}</h2>
-          {effective.isMultisource ? (
-            <div className="multisource-audit-row">
-              <span className="s2-audit-tag">Sentinel-2: {formatRecommendation(effective.s2Decision)}</span>
-              {effective.influenced ? (
-                <span className="s1-influenced-tag">Sentinel-1 influenciou esta análise</span>
-              ) : null}
-              {effective.fusionRule ? (
-                <span className="fusion-rule-tag">Regra {effective.fusionRule}</span>
-              ) : null}
-            </div>
-          ) : null}
+      <div className="recommendation-header-flex">
+        <div className="recommendation-main">
+          <div className="recommendation-icon" aria-hidden="true"><Icon size={32} /></div>
+          <div className="recommendation-decision">
+            <span>{hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
+            <h2 id="recommendation-title">{formatRecommendation(effective.primaryDecision)}</h2>
+          </div>
         </div>
+        {road ? (
+          <div className="recommendation-road-context" data-testid="recommendation-road-context">
+            {road.ref ? <span className="road-title">{road.ref}</span> : null}
+            {road.name ? <span className="road-name">{road.name}</span> : null}
+            <span className="road-subtitle">Trecho analisado</span>
+          </div>
+        ) : null}
       </div>
       <div className="result-statuses" aria-label="Confiança e qualidade da análise">
         <div><span>Confiança da recomendação</span><strong>{formatConfidence(effective.confidence)}</strong></div>

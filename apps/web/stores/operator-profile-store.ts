@@ -35,6 +35,9 @@ export const useOperatorProfileStore = create<OperatorProfileState>()(
     {
       name: "motiva.operator-profile",
       storage: createJSONStorage(() => localStorage),
+      // Keep SSR and the first client render on DEFAULT_OPERATOR_PROFILE.
+      // AppSidebar explicitly rehydrates this store after mount.
+      skipHydration: true,
       partialize: (state) => ({
         name: state.name,
         email: state.email,

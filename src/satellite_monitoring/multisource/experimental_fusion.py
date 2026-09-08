@@ -1,7 +1,7 @@
-"""Versioned experimental fusion policy over Sentinel-2 and Sentinel-1.
+"""Sentinel-2-primary multisource validation policy.
 
-The policy changes only the additive multisource recommendation. It has no
-operational authority and never mutates the official Sentinel-2 recommendation.
+Sentinel-1 can add an auditable disagreement/review signal, but it cannot
+replace an objective Sentinel-2 decision or make it inconclusive.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 EXPERIMENTAL_FUSION_SCHEMA_VERSION = "1.0"
 EXPERIMENTAL_FUSION_POLICY = "experimental_v1"
-EXPERIMENTAL_FUSION_POLICY_VERSION = "1.0"
+EXPERIMENTAL_FUSION_POLICY_VERSION = "1.1"
 EXPERIMENTAL_FUSION_RULE = "B"
 VALID_RECOMMENDATIONS = {"cortar", "nao_cortar", "inconclusivo"}
 VALID_TEMPORAL_STATUSES = {"increasing", "decreasing", "stable", "mixed"}
@@ -35,7 +35,7 @@ def _sentinel1_source(sources: Any) -> dict[str, Any] | None:
 
 
 class ExperimentalFusionPolicyV1:
-    """Conservative rule-B policy for research and demonstration only."""
+    """S2-primary policy with rule B retained only as an internal review signal."""
 
     name = EXPERIMENTAL_FUSION_POLICY
     version = EXPERIMENTAL_FUSION_POLICY_VERSION
@@ -59,8 +59,14 @@ class ExperimentalFusionPolicyV1:
                 self.version if fusion_mode == "experimental" else None
             ),
             "sentinel2_recommendation": s2_decision,
+            "final_recommendation": s2_decision,
             "multisource_recommendation": s2_decision,
             "sentinel1_influenced_decision": False,
+            "sentinel1_validation_status": "not_evaluated",
+            "multisource_disagreement": False,
+            "review_recommended": False,
+            "review_rule": None,
+            "review_reason": None,
             "fusion_rule": None,
             "fusion_reason": None,
             "sentinel1_temporal_status": None,
@@ -84,6 +90,7 @@ class ExperimentalFusionPolicyV1:
 
         sentinel1 = _sentinel1_source(sources)
         if sentinel1 is None:
+            base["sentinel1_validation_status"] = "missing"
             return self._finish(
                 base,
                 evaluated=True,
@@ -92,6 +99,11 @@ class ExperimentalFusionPolicyV1:
             )
         availability = str(sentinel1.get("status") or "unavailable")
         if availability != "available":
+            base["sentinel1_validation_status"] = (
+                availability
+                if availability in {"no_coverage", "unavailable", "error", "disabled"}
+                else "unavailable"
+            )
             return self._finish(
                 base,
                 evaluated=True,
@@ -102,6 +114,7 @@ class ExperimentalFusionPolicyV1:
         metrics = _mapping(sentinel1.get("metrics"))
         calibrated_count = metrics.get("calibrated_observation_count")
         if isinstance(calibrated_count, (int, float)) and calibrated_count <= 0:
+            base["sentinel1_validation_status"] = "calibration_unavailable"
             return self._finish(
                 base,
                 evaluated=True,
@@ -112,6 +125,7 @@ class ExperimentalFusionPolicyV1:
         temporal_status = temporal.get("combined_status")
         base["sentinel1_temporal_status"] = temporal_status
         if temporal.get("enabled") is False or temporal_status == "disabled":
+            base["sentinel1_validation_status"] = "temporal_disabled"
             return self._finish(
                 base,
                 evaluated=True,
@@ -122,6 +136,7 @@ class ExperimentalFusionPolicyV1:
             temporal.get("status") != "completed"
             or temporal_status not in VALID_TEMPORAL_STATUSES
         ):
+            base["sentinel1_validation_status"] = "temporal_insufficient_data"
             return self._finish(
                 base,
                 evaluated=True,
@@ -129,12 +144,17 @@ class ExperimentalFusionPolicyV1:
                 not_evaluable_reason="sentinel1_temporal_insufficient_data",
             )
 
-        triggered = s2_decision == "cortar" and temporal_status == "mixed"
-        if triggered:
+        base["sentinel1_validation_status"] = "valid"
+        review_triggered = s2_decision == "cortar" and temporal_status == "mixed"
+        if review_triggered:
             base.update(
                 {
-                    "multisource_recommendation": "inconclusivo",
-                    "sentinel1_influenced_decision": True,
+                    "multisource_disagreement": True,
+                    "review_recommended": True,
+                    "review_rule": EXPERIMENTAL_FUSION_RULE,
+                    "review_reason": (
+                        "sentinel1_temporal_mixed_with_sentinel2_cut"
+                    ),
                     "fusion_rule": EXPERIMENTAL_FUSION_RULE,
                     "fusion_reason": (
                         "sentinel1_temporal_mixed_with_sentinel2_cut"
@@ -156,6 +176,12 @@ class ExperimentalFusionPolicyV1:
         evaluable: bool,
         not_evaluable_reason: str | None,
     ) -> dict[str, Any]:
+        # Product invariant: Sentinel-2 is the primary and final decision source.
+        # S1 may enrich validation/review audit only.
+        sentinel2_recommendation = result.get("sentinel2_recommendation")
+        result["final_recommendation"] = sentinel2_recommendation
+        result["multisource_recommendation"] = sentinel2_recommendation
+        result["sentinel1_influenced_decision"] = False
         result.update(
             {
                 "experimental_fusion_evaluated": evaluated,
@@ -168,7 +194,7 @@ class ExperimentalFusionPolicyV1:
             extra={
                 "experimental_fusion_evaluated": evaluated,
                 "experimental_fusion_triggered": result[
-                    "sentinel1_influenced_decision"
+                    "review_recommended"
                 ],
                 "experimental_fusion_rule": result["fusion_rule"],
                 "sentinel2_recommendation": result["sentinel2_recommendation"],
@@ -178,6 +204,13 @@ class ExperimentalFusionPolicyV1:
                 "sentinel1_influenced_decision": result[
                     "sentinel1_influenced_decision"
                 ],
+                "sentinel1_validation_status": result[
+                    "sentinel1_validation_status"
+                ],
+                "multisource_disagreement": result[
+                    "multisource_disagreement"
+                ],
+                "review_recommended": result["review_recommended"],
             },
         )
         return result
@@ -189,7 +222,7 @@ def attach_experimental_fusion(
     *,
     policy: ExperimentalFusionPolicyV1 | None = None,
 ) -> dict[str, Any]:
-    """Attach an experimental decision without changing Sentinel-2 output."""
+    """Attach S1 validation audit while preserving Sentinel-2 as final decision."""
     result = dict(multisource)
     evaluator = policy or ExperimentalFusionPolicyV1()
     result["experimental_fusion"] = evaluator.evaluate(
@@ -199,4 +232,3 @@ def attach_experimental_fusion(
     )
     result["official_recommendation_changed"] = False
     return result
-
