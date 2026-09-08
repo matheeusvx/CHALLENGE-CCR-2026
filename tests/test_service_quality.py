@@ -417,7 +417,7 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
         assert geometry["type"] == "Polygon"
         return {
             "enabled": True,
-            "fusion_mode": "shadow",
+            "fusion_mode": config.multisource_fusion_mode,
             "official_recommendation_changed": False,
             "generated_at": "2026-08-01T00:00:00+00:00",
             "configuration": {
@@ -433,6 +433,7 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
         enabled: bool,
         directory: str,
         collector=collect,
+        fusion_mode: str | None = None,
         authorizer=lambda _config: {
             "requested": False,
             "authorized": False,
@@ -457,7 +458,9 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
             output_root=tmp_path / directory,
             multisource_enabled=enabled,
             sentinel1_enabled=enabled,
-            multisource_fusion_mode="shadow" if enabled else "disabled",
+            multisource_fusion_mode=(
+                fusion_mode or ("shadow" if enabled else "disabled")
+            ),
         )
         return run_monitoring_analysis(
             config,
@@ -494,6 +497,12 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
         "authorization-failed",
         authorizer=lambda _config: (_ for _ in ()).throw(RuntimeError("gate boom")),
     )
+    experimental_failed = run(
+        True,
+        "experimental-failed",
+        collector=lambda *_: (_ for _ in ()).throw(RuntimeError("provider boom")),
+        fusion_mode="experimental",
+    )
     assert enabled.summary["multisource"] == enabled.multisource
     artifact = enabled.artifacts["multisource_evidence"]
     assert artifact.name == "multisource_evidence.json"
@@ -516,6 +525,15 @@ def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -
     assert authorization_failed.multisource["operational_fusion"][
         "official_recommendation_changed"
     ] is False
+    assert experimental_failed.status != "failed"
+    assert experimental_failed.recommendation == disabled.recommendation
+    experimental_audit = experimental_failed.multisource["experimental_fusion"]
+    assert experimental_audit["multisource_recommendation"] == (
+        disabled.recommendation["recommendation"]
+    )
+    assert experimental_audit["sentinel1_influenced_decision"] is False
+    assert experimental_audit["fusion_not_evaluable_reason"] == "sentinel1_error"
+    assert experimental_audit["operationally_authorized"] is False
     assert any(
         warning["code"] == "MULTISOURCE_SOURCE_UNAVAILABLE"
         for warning in failed.warnings

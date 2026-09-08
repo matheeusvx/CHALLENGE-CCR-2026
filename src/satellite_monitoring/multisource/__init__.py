@@ -21,6 +21,10 @@ from .operational_fusion import (
     attach_operational_fusion_audit,
     authorize_operational_fusion,
 )
+from .experimental_fusion import (
+    ExperimentalFusionPolicyV1,
+    attach_experimental_fusion,
+)
 
 __all__ = [
     "CollectionPeriod",
@@ -39,5 +43,7 @@ __all__ = [
     "OperationalFusionPolicy",
     "attach_operational_fusion_audit",
     "authorize_operational_fusion",
+    "ExperimentalFusionPolicyV1",
+    "attach_experimental_fusion",
     "write_multisource_evidence",
 ]

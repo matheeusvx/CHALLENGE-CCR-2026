@@ -1,10 +1,12 @@
 # Sentinel-1 operational fusion engineering
 
 Engineering readiness is not scientific authorization. The runtime supports
-three explicit `MULTISOURCE_FUSION_MODE` values, with `disabled` as the default:
+four explicit `MULTISOURCE_FUSION_MODE` values, with `disabled` as the default:
 
 - `disabled`: no Sentinel-1 collection and no review or fusion effect;
 - `shadow`: rule B can emit a review-only signal and never changes Sentinel-2;
+- `experimental`: a separate, explicitly non-operational V1 policy may publish
+  an additive multisource recommendation; it never supplies operational authority;
 - `operational`: collects the same evidence, but an independent holdout artifact
   must pass the hard authorization gate before any future policy may be evaluated.
 
@@ -49,7 +51,10 @@ even a synthetic test artifact that authorizes the layer reports
 `policy_available=false` and cannot change the recommendation. Rule B remains a
 shadow review signal, not an override rule.
 
+`ExperimentalFusionPolicyV1` is a separate type and is never selected by the
+operational path. Its contract is documented in
+`docs/sentinel1_experimental_fusion.md`.
+
 Current scientific state: the development dataset has 23 samples and the
 independent holdout has zero. Therefore operational fusion is blocked even
 though the engineering path is ready.
-

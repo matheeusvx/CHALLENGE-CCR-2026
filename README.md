@@ -89,10 +89,10 @@ segredos nas imagens; os arquivos `.env` reais permanecem ignorados.
 - `SENTINEL1_ENABLED`, `SENTINEL1_COLLECTION` e `SENTINEL1_MAX_SCENES`: controlam
   a evidencia SAR Sentinel-1 por janela da AOI (padrao `sentinel-1-grd`, 8 cenas);
 - `GEDI_ENABLED` e `ICESAT2_ENABLED`: reservados e desabilitados por padrao;
-- `MULTISOURCE_FUSION_MODE`: aceita `disabled`, `shadow` ou `operational`
-  (padrao `disabled`). `shadow` pode emitir o review signal B. `operational`
-  somente autoriza a camada com um holdout independente valido; nenhuma policy
-  de override existe nesta etapa;
+- `MULTISOURCE_FUSION_MODE`: aceita `disabled`, `shadow`, `experimental` ou
+  `operational` (padrao `disabled`). `shadow` pode emitir o review signal B;
+  `experimental` publica uma recommendation multissensor separada;
+  `operational` continua dependente do holdout independente;
 - `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
 
 A infraestrutura de holdout independente da Regra B usa coortes persistentes
@@ -140,6 +140,12 @@ A arquitetura futura de fusao operacional e seu hard gate estao documentados em
 `docs/sentinel1_operational_fusion.md`. Engenharia pronta nao significa
 autorizacao cientifica: com `development=23` e `holdout=0`, a autorizacao segue
 bloqueada e `official_recommendation_changed=false`.
+
+No modo `experimental`, somente a Regra B pode influenciar o resultado aditivo:
+`S2=cortar + S1=mixed` produz
+`multisource.experimental_fusion.multisource_recommendation=inconclusivo`. O
+campo historico `recommendation` permanece Sentinel-2. Consulte
+`docs/sentinel1_experimental_fusion.md` antes de consumir esse resultado.
 
 ### Perfil operacional web
 

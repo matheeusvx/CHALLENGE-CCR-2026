@@ -179,9 +179,12 @@ class MonitoringConfig:
             raise ValueError("A quantidade maxima de cenas Sentinel-1 deve ser positiva.")
         if not self.sentinel1_collection.strip():
             raise ValueError("A collection Sentinel-1 nao pode ser vazia.")
-        if self.multisource_fusion_mode not in {"disabled", "shadow", "operational"}:
+        if self.multisource_fusion_mode not in {
+            "disabled", "shadow", "experimental", "operational"
+        }:
             raise ValueError(
-                "O modo multisource deve ser 'disabled', 'shadow' ou 'operational'."
+                "O modo multisource deve ser 'disabled', 'shadow', "
+                "'experimental' ou 'operational'."
             )
 
     @property

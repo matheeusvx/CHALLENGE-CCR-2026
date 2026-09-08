@@ -35,6 +35,7 @@ from .multisource.operational_fusion import (
     authorization_error_result,
     authorize_operational_fusion,
 )
+from .multisource.experimental_fusion import attach_experimental_fusion
 from .outputs import create_run_directory, to_json_compatible, write_outputs
 from .quality import (
     assess_scene_quality,
@@ -707,6 +708,7 @@ def run_monitoring_analysis(
                 ],
             }
         multisource = attach_shadow_review(multisource, recommendation)
+        multisource = attach_experimental_fusion(multisource, recommendation)
         try:
             operational_authorization = deps.authorize_operational_fusion(config)
         except Exception:

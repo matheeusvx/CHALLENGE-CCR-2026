@@ -165,7 +165,7 @@ class SourceEvidenceResponse(StrictModel):
 
 class ShadowReviewResponse(StrictModel):
     schema_version: Literal["1.0"]
-    review_mode: Literal["disabled", "shadow", "operational"]
+    review_mode: Literal["disabled", "shadow", "experimental", "operational"]
     review_evaluable: bool
     review_evaluated: bool
     review_recommended: bool
@@ -214,9 +214,43 @@ class OperationalFusionResponse(StrictModel):
     official_recommendation_changed: Literal[False]
 
 
+class ExperimentalFusionResponse(StrictModel):
+    schema_version: Literal["1.0"]
+    fusion_mode: Literal["disabled", "shadow", "experimental", "operational"]
+    fusion_policy: Literal["experimental_v1"] | None
+    experimental_policy_version: Literal["1.0"] | None
+    sentinel2_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
+    multisource_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
+    sentinel1_influenced_decision: bool
+    fusion_rule: Literal["B"] | None
+    fusion_reason: Literal[
+        "sentinel1_temporal_mixed_with_sentinel2_cut"
+    ] | None
+    sentinel1_temporal_status: Literal[
+        "increasing", "decreasing", "stable", "mixed",
+        "insufficient_data", "disabled",
+    ] | None
+    experimental: bool
+    operationally_authorized: Literal[False]
+    experimental_fusion_evaluated: bool
+    experimental_fusion_evaluable: bool
+    fusion_not_evaluable_reason: Literal[
+        "fusion_mode_not_experimental",
+        "sentinel2_recommendation_unavailable",
+        "sentinel1_evidence_missing",
+        "sentinel1_no_coverage",
+        "sentinel1_unavailable",
+        "sentinel1_error",
+        "sentinel1_disabled",
+        "sentinel1_calibration_unavailable",
+        "sentinel1_temporal_disabled",
+        "sentinel1_temporal_insufficient_data",
+    ] | None
+
+
 class MultisourceResponse(StrictModel):
     enabled: bool
-    fusion_mode: Literal["disabled", "shadow", "operational"]
+    fusion_mode: Literal["disabled", "shadow", "experimental", "operational"]
     official_recommendation_changed: Literal[False]
     generated_at: str
     configuration: dict[str, Any]
@@ -225,6 +259,9 @@ class MultisourceResponse(StrictModel):
         None, exclude_if=lambda value: value is None
     )
     operational_fusion: OperationalFusionResponse | None = Field(
+        None, exclude_if=lambda value: value is None
+    )
+    experimental_fusion: ExperimentalFusionResponse | None = Field(
         None, exclude_if=lambda value: value is None
     )
 

@@ -10,6 +10,9 @@ from src.satellite_monitoring.multisource.shadow_review import attach_shadow_rev
 from src.satellite_monitoring.multisource.operational_fusion import (
     attach_operational_fusion_audit,
 )
+from src.satellite_monitoring.multisource.experimental_fusion import (
+    attach_experimental_fusion,
+)
 from src.satellite_monitoring.sentinel1_temporal import Sentinel1TemporalConfig
 
 
@@ -140,3 +143,55 @@ def test_operational_fusion_audit_is_additive_and_api_compatible(client, valid_p
     assert audit["original_recommendation"] == body["recommendation"]["decision"]
     assert audit["final_recommendation"] == body["recommendation"]["decision"]
     assert audit["official_recommendation_changed"] is False
+
+
+def test_experimental_multisource_recommendation_is_additive_in_api(
+    client, valid_payload
+):
+    def service(config, *, analysis_id, **kwargs):
+        result = make_result(analysis_id)
+        result.recommendation["recommendation"] = "cortar"
+        result.multisource = attach_experimental_fusion(
+            {
+                "enabled": True,
+                "fusion_mode": "experimental",
+                "official_recommendation_changed": False,
+                "generated_at": "2026-09-08T00:00:00+00:00",
+                "configuration": {},
+                "sources": [
+                    {
+                        "source": "sentinel-1",
+                        "status": "available",
+                        "quality": 100.0,
+                        "coverage": 100.0,
+                        "observed_at": "2026-09-08T00:00:00+00:00",
+                        "observations": [],
+                        "metrics": {
+                            "calibrated_observation_count": 4,
+                            "temporal_analysis": {
+                                "enabled": True,
+                                "status": "completed",
+                                "combined_status": "mixed",
+                            },
+                        },
+                        "provenance": {"provider": "sentinel-1"},
+                        "warnings": [],
+                    }
+                ],
+            },
+            result.recommendation,
+        )
+        return result
+
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    response = client.post("/api/analyses/run", json=valid_payload)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendation"]["decision"] == "cortar"
+    fusion = body["multisource"]["experimental_fusion"]
+    assert fusion["sentinel2_recommendation"] == "cortar"
+    assert fusion["multisource_recommendation"] == "inconclusivo"
+    assert fusion["sentinel1_influenced_decision"] is True
+    assert fusion["fusion_rule"] == "B"
+    assert fusion["operationally_authorized"] is False

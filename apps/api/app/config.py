@@ -115,9 +115,12 @@ class ApiSettings:
     version: str = "0.1.0"
 
     def __post_init__(self) -> None:
-        if self.multisource_fusion_mode not in {"disabled", "shadow", "operational"}:
+        if self.multisource_fusion_mode not in {
+            "disabled", "shadow", "experimental", "operational"
+        }:
             raise ValueError(
-                "MULTISOURCE_FUSION_MODE must be 'disabled', 'shadow', or 'operational'."
+                "MULTISOURCE_FUSION_MODE must be 'disabled', 'shadow', "
+                "'experimental', or 'operational'."
             )
         if self.spatial_section_length_m <= 0:
             raise ValueError("SPATIAL_SECTION_LENGTH_M must be positive.")
