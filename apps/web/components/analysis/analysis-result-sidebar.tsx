@@ -25,6 +25,7 @@ import {
   formatPercentage,
   formatRecommendation,
   formatRecommendationSummary,
+  getEffectiveRecommendation,
   recommendationReasonLabel,
   selectedAreaSquareMeters,
 } from "@/lib/utils/recommendation";
@@ -119,12 +120,25 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
     ? calculateZoneAreaStats(result.spatial_segmentation!.zones, result.spatial_segmentation!.effective_coverage_pct)
     : null;
 
+  const effective = getEffectiveRecommendation(result);
+
   return (
     <div className="workspace-panel-content result-sidebar">
-      <div className={`decision-block ${result.recommendation.decision}`} data-decision={result.recommendation.decision}>
-        <span>{hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
-        <strong>{formatRecommendation(result.recommendation.decision)}</strong>
-        <p>{formatRecommendationSummary(result.recommendation.summary)}</p>
+      <div className={`decision-block ${effective.primaryDecision}`} data-decision={effective.primaryDecision}>
+        <span>{effective.isMultisource ? "Resultado multissensor" : hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
+        <strong>{formatRecommendation(effective.primaryDecision)}</strong>
+        {effective.isMultisource ? (
+          <div className="sidebar-multisource-audit">
+            <span className="s2-audit-tag">Sentinel-2: {formatRecommendation(effective.s2Decision)}</span>
+            {effective.influenced ? (
+              <span className="s1-influenced-tag">Sentinel-1 influenciou esta análise</span>
+            ) : null}
+            {effective.fusionRule ? (
+              <span className="fusion-rule-tag">Regra {effective.fusionRule}</span>
+            ) : null}
+          </div>
+        ) : null}
+        <p>{formatRecommendationSummary(effective.summary)}</p>
 
         {zoneStats && zoneStats.cutCount > 0 ? (
           <div className="localized-intervention-callout" role="status">

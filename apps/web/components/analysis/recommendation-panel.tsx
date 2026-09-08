@@ -9,14 +9,15 @@ import {
   formatPercentage,
   formatRecommendation,
   formatRecommendationSummary,
+  getEffectiveRecommendation,
 } from "@/lib/utils/recommendation";
 
 export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
-  const recommendation = result.recommendation;
+  const effective = getEffectiveRecommendation(result);
   const quality = analysisQualityStatus(result);
-  const Icon = recommendation.decision === "cortar"
+  const Icon = effective.primaryDecision === "cortar"
     ? Scissors
-    : recommendation.decision === "nao_cortar"
+    : effective.primaryDecision === "nao_cortar"
       ? CheckCircle2
       : ShieldQuestion;
 
@@ -29,26 +30,37 @@ export function RecommendationPanel({ result }: { result: AnalysisResponse }) {
 
   return (
     <section
-      className={`recommendation ${recommendation.decision}`}
-      data-decision={recommendation.decision}
+      className={`recommendation ${effective.primaryDecision}`}
+      data-decision={effective.primaryDecision}
       data-quality={quality ?? "unknown"}
       aria-labelledby="recommendation-title"
     >
       <div className="recommendation-main">
         <div className="recommendation-icon" aria-hidden="true"><Icon size={32} /></div>
         <div className="recommendation-decision">
-          <span>{hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
-          <h2 id="recommendation-title">{formatRecommendation(recommendation.decision)}</h2>
+          <span>{effective.isMultisource ? "Resultado multissensor" : hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
+          <h2 id="recommendation-title">{formatRecommendation(effective.primaryDecision)}</h2>
+          {effective.isMultisource ? (
+            <div className="multisource-audit-row">
+              <span className="s2-audit-tag">Sentinel-2: {formatRecommendation(effective.s2Decision)}</span>
+              {effective.influenced ? (
+                <span className="s1-influenced-tag">Sentinel-1 influenciou esta análise</span>
+              ) : null}
+              {effective.fusionRule ? (
+                <span className="fusion-rule-tag">Regra {effective.fusionRule}</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="result-statuses" aria-label="Confiança e qualidade da análise">
-        <div><span>Confiança da recomendação</span><strong>{formatConfidence(recommendation.confidence)}</strong></div>
+        <div><span>Confiança da recomendação</span><strong>{formatConfidence(effective.confidence)}</strong></div>
         <div title="Indica a confiabilidade dos dados de satélite utilizados nesta análise.">
           <span>Qualidade da análise</span>
           <strong>{formatAnalysisQuality(quality)}</strong>
         </div>
       </div>
-      <p>{formatRecommendationSummary(recommendation.summary)}</p>
+      <p>{formatRecommendationSummary(effective.summary)}</p>
 
       {zoneStats && zoneStats.cutCount > 0 ? (
         <div className="localized-intervention-callout" role="status">

@@ -31,6 +31,7 @@ type AnalysisState = {
   clearGeometry: () => void;
   resetAnalysisSession: () => void;
   applyAnalysisResult: (response: AnalysisResponse, revision: number) => void;
+  applyAutomaticResult: (response: AnalysisResponse) => void;
   restoreHistoricalAnalysis: (geometry: PolygonGeometry, response: AnalysisResponse, validation?: GeometryValidation) => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
   setSelectedTool: (tool: MapTool) => void;
@@ -112,6 +113,15 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
           }
         : {},
     ),
+  applyAutomaticResult: (response) =>
+    set((state) => {
+      const geometryRevision = state.geometryRevision + 1;
+      return {
+        geometryRevision,
+        activeTab: "result",
+        currentResult: { response, geometryRevision },
+      };
+    }),
   restoreHistoricalAnalysis: (geometry, response, validation) =>
     set((state) => {
       const geometryRevision = state.geometryRevision + 1;

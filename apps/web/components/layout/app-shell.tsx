@@ -9,6 +9,7 @@ import { SourcesView } from "@/components/views/sources-view";
 import { ValidationView } from "@/components/views/validation-view";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useGuiaStore } from "@/stores/guia-store";
 import { AppHeader } from "./app-header";
 import { OnboardingTour } from "./onboarding-tour";
@@ -19,6 +20,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const resetAnalysisSession = useAnalysisStore((state) => state.resetAnalysisSession);
   const onboardingCompleted = useOnboardingStore((s) => s.onboardingCompleted);
   const startTour = useOnboardingStore((s) => s.startTour);
+  const tourActive = useOnboardingStore((s) => s.tourActive);
+  const tourSidebarExpanded = useOnboardingStore((s) => s.tourSidebarExpanded);
+  const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  const isSidebarExpanded = tourActive && tourSidebarExpanded ? true : !sidebarCollapsed;
   const isGuiaOpen = useGuiaStore((s) => s.isOpen);
   const guiaDisplayMode = useGuiaStore((s) => s.displayMode);
   const isGuiaDocked = isGuiaOpen && guiaDisplayMode === "docked";
@@ -48,7 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className={`app-shell ${isGuiaDocked ? "has-docked-guia" : ""}`}>
+    <div className={`app-shell ${isSidebarExpanded ? "sidebar--expanded" : "sidebar--collapsed"} ${isGuiaDocked ? "has-docked-guia" : ""}`}>
       <AppSidebar activeView={activeView} onNavigate={handleNavigation} />
       <div className="main-column">
         <AppHeader />

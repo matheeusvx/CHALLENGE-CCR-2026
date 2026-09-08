@@ -119,15 +119,17 @@ export function GuiaWidget() {
         aria-label={aberto ? "Fechar assistente gu.ia" : "Abrir assistente gu.ia"}
         aria-expanded={aberto}
         aria-haspopup="dialog"
+        data-tour="guia-widget"
         onClick={() => toggleAberto()}
       >
         <span className="guia-sidebar-icon" aria-hidden="true">
-          <Sparkles size={17} />
+          <Sparkles size={16} />
         </span>
         <span className="guia-sidebar-copy">
           <strong>gu.ia</strong>
           <small>Assistente virtual</small>
         </span>
+        <span className="sidebar-tooltip" role="tooltip">gu.ia — Assistente virtual</span>
         {aberto ? (
           <span className="guia-sidebar-indicator" aria-hidden="true" />
         ) : null}

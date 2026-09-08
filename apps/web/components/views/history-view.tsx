@@ -10,12 +10,13 @@ import {
   formatDateBR,
   formatRecommendation,
   formatRecommendationSummary,
+  getEffectiveRecommendation,
   selectedAreaSquareMeters,
 } from "@/lib/utils/recommendation";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useHistoryStore, type HistoryEntry } from "@/stores/history-store";
 
-const decisionIcons: Record<HistoryEntry["response"]["recommendation"]["decision"], ComponentType<{ size?: number }>> = {
+const decisionIcons: Record<"cortar" | "nao_cortar" | "inconclusivo", ComponentType<{ size?: number }>> = {
   cortar: Scissors,
   nao_cortar: CheckCircle2,
   inconclusivo: ShieldQuestion,
@@ -71,26 +72,32 @@ export function HistoryView({ onStartNewAnalysis, onOpenWorkspace }: { onStartNe
 
           <ul className="history-list">
             {entries.map((entry) => {
-              const recommendation = entry.response.recommendation;
+              const effective = getEffectiveRecommendation(entry.response);
               const quality = analysisQualityStatus(entry.response);
               const period = entry.response.analysis_period;
-              const Icon = decisionIcons[recommendation.decision];
+              const Icon = decisionIcons[effective.primaryDecision];
+              const isAutomatic = entry.response.analysis_trigger === "automatic_viewport";
               return (
-                <li key={`${entry.id}-${entry.savedAt}`} className={`history-card ${recommendation.decision}`}>
+                <li key={`${entry.id}-${entry.savedAt}`} className={`history-card ${effective.primaryDecision}`}>
                   <div className="history-card-head">
-                    <span className="decision-tag" data-decision={recommendation.decision}>
-                      <Icon size={15} />{formatRecommendation(recommendation.decision)}
+                    <span className="decision-tag" data-decision={effective.primaryDecision}>
+                      <Icon size={15} />{formatRecommendation(effective.primaryDecision)}
                     </span>
+                    {isAutomatic ? (
+                      <span className="history-trigger-badge" title="Origem: análise automática do viewport">
+                        Automática
+                      </span>
+                    ) : null}
                     <time dateTime={entry.savedAt}>{formatSavedAt(entry.savedAt)}</time>
                     <button type="button" className="icon-action" onClick={() => removeEntry(entry.id)} aria-label="Remover do histórico">
                       <Trash2 size={15} aria-hidden="true" />
                     </button>
                   </div>
 
-                  <p className="history-card-summary">{formatRecommendationSummary(recommendation.summary)}</p>
+                  <p className="history-card-summary">{formatRecommendationSummary(effective.summary)}</p>
 
                   <dl className="history-card-metrics">
-                    <div><Gauge size={15} /><dt>Confiança</dt><dd>{formatConfidence(recommendation.confidence)}</dd></div>
+                    <div><Gauge size={15} /><dt>Confiança</dt><dd>{formatConfidence(effective.confidence)}</dd></div>
                     <div><Leaf size={15} /><dt>Qualidade</dt><dd>{formatAnalysisQuality(quality)}</dd></div>
                     <div><MapPinned size={15} /><dt>Área selecionada</dt><dd>{formatArea(selectedAreaSquareMeters(entry.response))}</dd></div>
                     <div><CalendarRange size={15} /><dt>Período</dt><dd>{formatDateBR(period.start_date)} a {formatDateBR(period.end_date)}</dd></div>

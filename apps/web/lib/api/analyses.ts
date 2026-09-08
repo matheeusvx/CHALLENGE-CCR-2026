@@ -1,4 +1,12 @@
-import { analysisResponseSchema, geometryValidationSchema, healthSchema, type GeometryDocument } from "@/lib/schemas/analyses";
+import {
+  analysisResponseSchema,
+  automaticAnalysisResponseSchema,
+  geometryValidationSchema,
+  healthSchema,
+  type AutomaticAnalysisRequest,
+  type AutomaticAnalysisResponse,
+  type GeometryDocument,
+} from "@/lib/schemas/analyses";
 import { apiRequest } from "./client";
 import type { components } from "./generated";
 
@@ -20,4 +28,14 @@ export const runAnalysis = (values: AnalysisRunValues) =>
   apiRequest("/api/analyses/run", analysisResponseSchema, {
     method: "POST",
     body: JSON.stringify(values),
+  });
+
+export const runAutomaticAnalysis = (
+  payload: AutomaticAnalysisRequest,
+  signal?: AbortSignal,
+): Promise<AutomaticAnalysisResponse> =>
+  apiRequest("/api/analyses/automatic", automaticAnalysisResponseSchema, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal,
   });

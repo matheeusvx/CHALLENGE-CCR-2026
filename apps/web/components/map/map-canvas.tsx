@@ -14,19 +14,30 @@ import {
 } from "terra-draw";
 import { TerraDrawMapLibreGLAdapter } from "terra-draw-maplibre-gl-adapter";
 import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
-import { MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
+import { AUTO_ANALYSIS_CONFIG, computeTileKey, MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
+import { runAutomaticAnalysis } from "@/lib/api/analyses";
 import { fitMapToGeometry } from "@/lib/map/fit-map-to-geometry";
 import { calculateGeometryPreview, type PolygonGeometry } from "@/lib/map/geometry";
 import { getResultPopupPresentation } from "@/lib/map/result-popup";
-import type { AnalysisResponse } from "@/lib/schemas/analyses";
+import type { AnalysisResponse, AutomaticAnalysisRequest, AutomaticAnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
+import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
+import { getEffectiveRecommendation } from "@/lib/utils/recommendation";
 import { DrawingControls } from "./drawing-controls";
+import { AutoAnalysisPanel } from "./auto-analysis-panel";
 import { installAoiHoverInteractions, installOrUpdateAoiLayer, bringAoiLayersToFront } from "./layers/aoi-layer";
+import {
+  boundsToPolygonCoordinates,
+  installOrUpdateCanonicalAoiLayer,
+  removeCanonicalAoiLayer,
+} from "./layers/canonical-aoi-layer";
 import { installOrUpdateManagedRoadsLayer } from "./layers/managed-roads-layer";
 import { installOrUpdateZonesLayer, removeZonesLayer, bringZonesLayersToFront, installZoneClickInteraction } from "./layers/spatial-zones-layer";
 import { MapStatus, type MapLoadStatus } from "./map-status";
 import { MapStyleSelector } from "./map-style-selector";
 import { useRoadColorStore } from "@/stores/road-color-store";
+
 
 type Props = { result?: AnalysisResponse; validationFailed?: boolean };
 
@@ -65,6 +76,205 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     validation: validationFailed ? "invalid" : validated ? "valid" : null,
     recommendation: geometry && !isGeometryDirty ? result?.recommendation.decision : undefined,
   }), [geometry, isGeometryDirty, result?.recommendation.decision, selectedTool, validated, validationFailed]);
+
+  const autoEnabled = useAutoAnalysisStore((state) => state.enabled);
+  const autoStatus = useAutoAnalysisStore((state) => state.uiStatus);
+  const autoResult = useAutoAnalysisStore((state) => state.result);
+  const canonicalBounds = useAutoAnalysisStore((state) => state.canonicalBounds);
+  const currentSpatialKey = useAutoAnalysisStore((state) => state.currentSpatialKey);
+  const setAutoStatus = useAutoAnalysisStore((state) => state.setUiStatus);
+  const setAutoStarted = useAutoAnalysisStore((state) => state.setAnalysisStarted);
+  const setAutoResult = useAutoAnalysisStore((state) => state.setAnalysisResult);
+  const setAutoFailed = useAutoAnalysisStore((state) => state.setFailed);
+  const addHistoryEntry = useHistoryStore((state) => state.addEntry);
+
+  const autoEnabledRef = useRef(autoEnabled);
+  const selectedToolRef = useRef(selectedTool);
+  const autoStatusRef = useRef(autoStatus);
+  const autoResultRef = useRef(autoResult);
+  const currentSpatialKeyRef = useRef(currentSpatialKey);
+
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef<number>(0);
+  const pollingIterationsRef = useRef<number>(0);
+
+  useEffect(() => {
+    autoEnabledRef.current = autoEnabled;
+    selectedToolRef.current = selectedTool;
+    autoStatusRef.current = autoStatus;
+    autoResultRef.current = autoResult;
+    currentSpatialKeyRef.current = currentSpatialKey;
+  }, [autoEnabled, selectedTool, autoStatus, autoResult, currentSpatialKey]);
+
+  const cancelAutoAnalysis = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    if (pollingTimerRef.current) {
+      clearTimeout(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    requestIdRef.current += 1;
+    pollingIterationsRef.current = 0;
+  };
+
+  const schedulePolling = (payload: AutomaticAnalysisRequest, currentRequestId: number) => {
+    if (pollingTimerRef.current) {
+      clearTimeout(pollingTimerRef.current);
+    }
+    pollingTimerRef.current = setTimeout(async () => {
+      if (currentRequestId !== requestIdRef.current || !autoEnabledRef.current) return;
+      if (pollingIterationsRef.current >= AUTO_ANALYSIS_CONFIG.maxPollingIterations) {
+        setAutoFailed("timeout");
+        return;
+      }
+      pollingIterationsRef.current += 1;
+      try {
+        const response = await runAutomaticAnalysis(payload);
+        if (currentRequestId !== requestIdRef.current) return;
+        handleAutoResponse(response, payload, currentRequestId);
+      } catch (err: unknown) {
+        if (currentRequestId !== requestIdRef.current) return;
+        setAutoFailed(err instanceof Error ? err.message : "polling_error");
+      }
+    }, AUTO_ANALYSIS_CONFIG.pollingIntervalMs);
+  };
+
+  const handleAutoResponse = (
+    response: AutomaticAnalysisResponse,
+    payload: AutomaticAnalysisRequest,
+    currentRequestId: number,
+  ) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (response.status === "disabled") {
+      setAutoStatus("disabled", response.reason);
+      removeCanonicalAoiLayer(map);
+      return;
+    }
+
+    if (response.status === "zoom_required") {
+      setAutoStatus("zoom_required", response.reason);
+      removeCanonicalAoiLayer(map);
+      return;
+    }
+
+    if (response.status === "invalid_viewport") {
+      setAutoStatus("invalid_viewport", response.reason);
+      removeCanonicalAoiLayer(map);
+      return;
+    }
+
+    if (response.status === "failed") {
+      setAutoFailed(response.reason, response.canonical_bounds ?? null);
+      if (response.canonical_bounds) {
+        installOrUpdateCanonicalAoiLayer(map, response.canonical_bounds, "failed");
+      }
+      return;
+    }
+
+    if (response.status === "cache_hit" || response.status === "completed") {
+      setAutoResult(response);
+      removeCanonicalAoiLayer(map);
+      if (response.result) {
+        const tileGeometry: PolygonGeometry = response.canonical_bounds
+          ? {
+              type: "Polygon",
+              coordinates: boundsToPolygonCoordinates(response.canonical_bounds),
+            }
+          : {
+              type: "Polygon",
+              coordinates: [],
+            };
+        addHistoryEntry(response.result, tileGeometry);
+        useAnalysisStore.getState().applyAutomaticResult(response.result);
+      }
+      return;
+    }
+
+    if (response.status === "analysis_started" || response.status === "in_progress") {
+      setAutoStarted(response.spatial_key ?? null, response.canonical_bounds ?? null);
+      if (response.canonical_bounds) {
+        installOrUpdateCanonicalAoiLayer(map, response.canonical_bounds, "analyzing");
+      }
+      schedulePolling(payload, currentRequestId);
+    }
+  };
+
+  const executeAutoAnalysis = async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!autoEnabledRef.current) return;
+    if (selectedToolRef.current === "draw" || selectedToolRef.current === "edit") return;
+
+    const zoom = map.getZoom();
+    const bounds = map.getBounds();
+    const center = map.getCenter();
+
+    if (zoom < AUTO_ANALYSIS_CONFIG.minZoom) {
+      cancelAutoAnalysis();
+      setAutoStatus("zoom_required", "zoom_below_minimum");
+      removeCanonicalAoiLayer(map);
+      return;
+    }
+
+    const tileKey = computeTileKey(center.lng, center.lat, 17);
+    if (
+      tileKey === currentSpatialKeyRef.current &&
+      (autoStatusRef.current === "cache_hit" || autoStatusRef.current === "completed") &&
+      autoResultRef.current
+    ) {
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (pollingTimerRef.current) {
+      clearTimeout(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const currentRequestId = ++requestIdRef.current;
+    pollingIterationsRef.current = 0;
+
+    setAutoStatus("analyzing");
+
+    const payload: AutomaticAnalysisRequest = {
+      bounds: {
+        west: bounds.getWest(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        north: bounds.getNorth(),
+      },
+      zoom,
+      center: { lng: center.lng, lat: center.lat },
+      force_refresh: false,
+    };
+
+    try {
+      const response = await runAutomaticAnalysis(payload, controller.signal);
+      if (currentRequestId !== requestIdRef.current || controller.signal.aborted) {
+        return;
+      }
+      handleAutoResponse(response, payload, currentRequestId);
+    } catch (err: unknown) {
+      if (currentRequestId !== requestIdRef.current || controller.signal.aborted) {
+        return;
+      }
+      setAutoFailed(err instanceof Error ? err.message : "network_error");
+    }
+  };
 
   const geometryRef = useRef(geometry);
   const visualStateRef = useRef(aoiVisualState);
@@ -176,17 +386,56 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       baseLoadFailedRef.current = true;
       setLoadStatus("error");
     };
+    const handleMoveStart = () => {
+      if (autoEnabledRef.current) {
+        if (debounceTimerRef.current) {
+          clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = null;
+        }
+        setAutoStatus("stabilizing");
+      }
+    };
+
     const handleMoveEnd = () => {
       const center = map.getCenter();
       setMapViewport({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
+
+      if (!autoEnabledRef.current) return;
+      if (selectedToolRef.current === "draw" || selectedToolRef.current === "edit") return;
+
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        executeAutoAnalysis();
+      }, AUTO_ANALYSIS_CONFIG.debounceMs);
     };
 
     map.on("load", handleLoad);
     map.on("style.load", handleStyleLoad);
     map.on("error", handleError);
+    map.on("movestart", handleMoveStart);
+    map.on("zoomstart", handleMoveStart);
     map.on("moveend", handleMoveEnd);
 
+    // Observa redimensionamento do container para recalibrar o canvas MapLibre sem corte ou área preta
+    let resizeFrameId: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (resizeFrameId !== null) cancelAnimationFrame(resizeFrameId);
+        resizeFrameId = requestAnimationFrame(() => {
+          mapRef.current?.resize();
+        });
+      });
+      resizeObserver.observe(containerRef.current);
+    }
+
     return () => {
+      if (resizeFrameId !== null) cancelAnimationFrame(resizeFrameId);
+      resizeObserver?.disconnect();
+      cancelAutoAnalysis();
       disposeHoverRef.current();
       disposeZoneClickRef.current();
       disposeEditor();
@@ -194,6 +443,8 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       map.off("load", handleLoad);
       map.off("style.load", handleStyleLoad);
       map.off("error", handleError);
+      map.off("movestart", handleMoveStart);
+      map.off("zoomstart", handleMoveStart);
       map.off("moveend", handleMoveEnd);
       mapRef.current = null;
       map.remove();
@@ -201,6 +452,40 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   // The map is deliberately created once; mutable refs carry current AOI state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!autoEnabled) {
+      cancelAutoAnalysis();
+      if (mapRef.current) {
+        removeCanonicalAoiLayer(mapRef.current);
+      }
+    } else {
+      if (mapRef.current && styleEditorReadyRef.current && selectedTool === "navigate") {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          executeAutoAnalysis();
+        }, AUTO_ANALYSIS_CONFIG.debounceMs);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoEnabled]);
+
+  useEffect(() => {
+    if (selectedTool === "draw" || selectedTool === "edit") {
+      cancelAutoAnalysis();
+    }
+  }, [selectedTool]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleEditorReadyRef.current) return;
+    if (!autoEnabled) {
+      removeCanonicalAoiLayer(map);
+      return;
+    }
+    const decision = autoResult ? getEffectiveRecommendation(autoResult).primaryDecision : undefined;
+    installOrUpdateCanonicalAoiLayer(map, canonicalBounds, autoStatus, decision);
+  }, [autoEnabled, autoStatus, autoResult, canonicalBounds]);
 
   useEffect(() => {
     const draw = drawRef.current;
@@ -272,7 +557,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     popupRef.current?.remove();
     popupRef.current = null;
     const map = mapRef.current;
+    // Card grande só para análise manual — automática usa o badge no painel
     if (!map || !result || !geometry || isGeometryDirty) return;
+    if (result.analysis_trigger === "automatic_viewport") return;
     const presentation = getResultPopupPresentation(result);
     const popupNode = document.createElement("div");
     const title = document.createElement("strong");
@@ -342,8 +629,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
         onUndo={() => replayHistory("undo")}
         onRedo={() => replayHistory("redo")}
       />
+      <AutoAnalysisPanel />
       <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
-      {geometry ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
+      {geometry && result?.analysis_trigger !== "automatic_viewport" ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
       <MapStyleSelector active="operational" />
     </div>
   );

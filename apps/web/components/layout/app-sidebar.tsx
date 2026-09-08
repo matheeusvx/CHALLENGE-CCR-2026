@@ -1,9 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Activity, ChevronsUpDown, Database, FileClock, FlaskConical, Leaf, LogOut, Settings, User, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  ChevronsUpDown,
+  Database,
+  FileClock,
+  FlaskConical,
+  Leaf,
+  LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  User,
+  X,
+} from "lucide-react";
 import { GuiaWidget } from "@/components/guia/guia-widget";
 import { useOperatorProfileStore } from "@/stores/operator-profile-store";
+import { useOnboardingStore } from "@/stores/onboarding-store";
+import { useSettingsStore } from "@/stores/settings-store";
 
 export type AppView = "analysis" | "history" | "sources" | "validation" | "settings" | "account";
 
@@ -25,7 +40,31 @@ function initialsOf(name: string) {
 
 export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; onNavigate: (view: AppView) => void }) {
   const profile = useOperatorProfileStore();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const tourActive = useOnboardingStore((s) => s.tourActive);
+  const tourOperatorMenuOpen = useOnboardingStore((s) => s.operatorMenuOpen);
+  const setTourOperatorMenuOpen = useOnboardingStore((s) => s.setOperatorMenuOpen);
+  const tourSidebarExpanded = useOnboardingStore((s) => s.tourSidebarExpanded);
+  const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useSettingsStore((s) => s.toggleSidebar);
+
+  const isExpanded = tourActive && tourSidebarExpanded ? true : !sidebarCollapsed;
+
+  const [localMenuOpen, setLocalMenuOpen] = useState(false);
+
+  const menuOpen = tourActive ? tourOperatorMenuOpen : localMenuOpen;
+  const setMenuOpen = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      if (tourActive) {
+        setTourOperatorMenuOpen(
+          typeof value === "function" ? value(useOnboardingStore.getState().operatorMenuOpen) : value,
+        );
+      } else {
+        setLocalMenuOpen(value);
+      }
+    },
+    [tourActive, setTourOperatorMenuOpen],
+  );
+
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const footRef = useRef<HTMLDivElement | null>(null);
 
@@ -39,7 +78,7 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen]);
+  }, [menuOpen, setMenuOpen]);
 
   // Fecha menu ou modal no Escape
   useEffect(() => {
@@ -51,30 +90,60 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [menuOpen, logoutModalOpen]);
+  }, [menuOpen, logoutModalOpen, setMenuOpen]);
 
   return (
     <>
-      <aside className="sidebar" aria-label="Navegação principal">
-        <div className="brand-mark">
-          <span className="brand-icon"><Leaf size={20} aria-hidden="true" /></span>
-          <span className="brand-copy"><strong>Motiva</strong><small>Faixa Verde</small></span>
+      <aside
+        className={`sidebar ${isExpanded ? "is-expanded" : "is-collapsed"}`}
+        aria-label="Navegação principal"
+      >
+        {/* Topo / Header da Sidebar */}
+        <div className="sidebar-header">
+          <div className="brand-mark" title="Motiva Faixa Verde">
+            <span className="brand-icon"><Leaf size={19} aria-hidden="true" /></span>
+            <span className="brand-copy"><strong>Motiva</strong><small>Faixa Verde</small></span>
+          </div>
+          <button
+            type="button"
+            className="sidebar-toggle-btn"
+            aria-label={isExpanded ? "Recolher barra lateral" : "Expandir barra lateral"}
+            aria-expanded={isExpanded}
+            data-testid="sidebar-toggle-btn"
+            onClick={toggleSidebar}
+          >
+            {isExpanded ? (
+              <PanelLeftClose size={16} aria-hidden="true" />
+            ) : (
+              <PanelLeftOpen size={16} aria-hidden="true" />
+            )}
+            <span className="sidebar-tooltip" role="tooltip">
+              {isExpanded ? "Recolher barra lateral" : "Expandir barra lateral"}
+            </span>
+          </button>
         </div>
+
+        {/* Zona Central / Navegação */}
         <nav data-tour="navigation">
           {navigation.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               className={activeView === id ? "nav-item active" : "nav-item"}
               type="button"
+              aria-label={label}
               aria-current={activeView === id ? "page" : undefined}
               onClick={() => onNavigate(id)}
-              data-tour={id === "analysis" ? "new-analysis" : undefined}
+              data-tour={id === "analysis" ? "new-analysis" : id === "history" ? "nav-history" : undefined}
             >
-              <Icon size={18} aria-hidden="true" />
-              <span>{label}</span>
+              <span className="nav-item-indicator" aria-hidden="true" />
+              <Icon size={17} aria-hidden="true" className="nav-item-icon" />
+              <span className="nav-item-label">{label}</span>
+              <span className="sidebar-tooltip" role="tooltip">{label}</span>
             </button>
           ))}
         </nav>
+
+        {/* Zona Inferior / Assistente e Usuário */}
         <GuiaWidget />
 
         {/* Rodapé interativo com perfil do operador */}
@@ -97,6 +166,7 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
                 type="button"
                 role="menuitem"
                 className="operator-menu-item"
+                data-tour="operator-menu-settings"
                 onClick={() => {
                   setMenuOpen(false);
                   onNavigate("settings");
@@ -128,6 +198,7 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             data-testid="operator-profile-trigger"
+            data-tour="operator-profile"
             onClick={() => setMenuOpen((v) => !v)}
           >
             <span className="operator-avatar" aria-hidden="true">
@@ -143,6 +214,7 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
               <span title={profile.email}>{profile.email}</span>
             </div>
             <ChevronsUpDown size={14} className="operator-chevron" aria-hidden="true" />
+            <span className="sidebar-tooltip" role="tooltip">{`${profile.name} • ${profile.email}`}</span>
           </button>
         </div>
       </aside>
