@@ -18,6 +18,7 @@ from src.satellite_monitoring.database import (
     count_analyses,
     get_analysis,
     list_analyses,
+    nearest_km,
     save_analysis,
     session_scope,
 )
@@ -266,28 +267,49 @@ def run_analysis(
         raise ApiError(code, "O pipeline nao conseguiu concluir a analise.", status_code=status_code)
     analysis_registry.add(result)
     response = _to_api_response(result, analysis_period)
-    support = _persist_analysis(result, response, payload.geometry, analysis_period)
+    # O apoio precisa ser anexado ANTES de gravar, para que o payload guardado
+    # contenha a mesma resposta que o operador viu.
+    support = _build_support(response, analysis_period)
     if support is not None:
         response.decision_support = DecisionSupportResponse.model_validate(support)
+    _persist_analysis(result, response, payload.geometry)
     return response
 
 
-def _persist_analysis(
-    result: Any,
-    response: AnalysisResponse,
-    geometry: dict[str, Any],
-    analysis_period: AnalysisPeriod,
+def _build_support(
+    response: AnalysisResponse, analysis_period: AnalysisPeriod
 ) -> dict[str, Any] | None:
-    """Grava a analise no historico e monta a evidencia de apoio.
+    """Monta a evidencia de apoio para a area analisada.
 
-    Persistencia e apoio sao deliberadamente tolerantes a falhas: a decisao do
-    satelite ja foi produzida e nao pode ser perdida nem alterada por um
-    problema de banco ou de modelo.
+    Tolerante a falhas: um problema de banco ou de modelo nunca pode invalidar
+    uma decisao que o motor de satelite ja produziu.
     """
 
     try:
+        centroid = response.aoi.get("centroid") or {}
+        longitude = centroid.get("longitude", response.aoi.get("centroid_longitude"))
+        latitude = centroid.get("latitude", response.aoi.get("centroid_latitude"))
         with session_scope() as session:
-            record = save_analysis(
+            support = build_decision_support(
+                session,
+                km=nearest_km(session, longitude, latitude),
+                reference_date=analysis_period.end_date,
+                decision=response.recommendation.decision,
+            )
+            return support.to_dict()
+    except Exception:  # pragma: no cover - nunca invalida a resposta
+        logger.exception("Falha ao montar o apoio do historico.")
+        return None
+
+
+def _persist_analysis(
+    result: Any, response: AnalysisResponse, geometry: dict[str, Any]
+) -> None:
+    """Grava a analise no historico, ja com o apoio anexado a resposta."""
+
+    try:
+        with session_scope() as session:
+            save_analysis(
                 session,
                 response.model_dump(mode="json"),
                 geometry=geometry,
@@ -299,16 +321,8 @@ def _persist_analysis(
                     for name, value in (result.artifacts or {}).items()
                 },
             )
-            support = build_decision_support(
-                session,
-                km=record.nearest_km,
-                reference_date=analysis_period.end_date,
-                decision=response.recommendation.decision,
-            )
-            return support.to_dict()
     except Exception:  # pragma: no cover - nunca invalida a resposta
         logger.exception("Falha ao gravar a analise no historico.")
-        return None
 
 
 def _to_history_item(record: Any) -> AnalysisHistoryItem:

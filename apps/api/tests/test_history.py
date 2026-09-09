@@ -144,3 +144,22 @@ def test_resposta_traz_apoio_do_historico_sem_alterar_a_decisao(
     assert apoio["status"] == "insufficient_history"
     assert apoio["suggestion"] is None
     assert apoio["score"] is None
+
+
+def test_apoio_fica_gravado_no_payload_do_historico(
+    client: TestClient, valid_payload: dict
+) -> None:
+    """O payload guardado deve conter a mesma resposta que o operador viu."""
+
+    _clear_history()
+    analysis_id = _run(client, valid_payload)
+
+    ao_vivo = client.post("/api/analyses/run", json=valid_payload).json()
+    assert "decision_support" in ao_vivo
+
+    detalhe = client.get(f"/api/analyses/{analysis_id}").json()
+    # Regressao: o apoio era anexado depois de gravar e sumia ao reabrir.
+    assert "decision_support" in detalhe["result"]
+    assert detalhe["result"]["decision_support"]["status"] == (
+        ao_vivo["decision_support"]["status"]
+    )
