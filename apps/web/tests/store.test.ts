@@ -1,0 +1,51 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { getCurrentAnalysisResponse, isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
+import type { PolygonGeometry } from "@/lib/map/geometry";
+import type { AnalysisResponse } from "@/lib/schemas/analyses";
+
+const polygon: PolygonGeometry = { type: "Polygon", coordinates: [[[-46.962, -23.109], [-46.96, -23.109], [-46.96, -23.107], [-46.962, -23.107], [-46.962, -23.109]]] };
+const validation = { valid: true as const, geometry_type: "Polygon", area_square_meters: 4500, centroid: { longitude: -46.961, latitude: -23.108 }, bounding_box: [-46.962, -23.109, -46.96, -23.107], estimated_sentinel_pixels: 45, warnings: [] };
+const result = { analysis_id: "analysis-a" } as AnalysisResponse;
+
+beforeEach(() => {
+  useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", activeTab: "area", currentResult: null });
+  useHistoryStore.setState({ entries: [] });
+});
+
+describe("estado da geometria", () => {
+  it("marca uma geometria nova como alterada", () => { useAnalysisStore.getState().setGeometry(polygon, "drawn"); expect(useAnalysisStore.getState().isGeometryDirty).toBe(true); });
+  it("a validacao da revisao atual habilita a analise", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); const revision = useAnalysisStore.getState().geometryRevision; store.applyGeometryValidation(validation, revision); expect(isCurrentGeometryValidated(useAnalysisStore.getState())).toBe(true); });
+  it("uma edicao invalida a validacao anterior", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); store.applyGeometryValidation(validation, useAnalysisStore.getState().geometryRevision); const edited: PolygonGeometry = { ...polygon, coordinates: [[[-46.963, -23.109], ...polygon.coordinates[0].slice(1)]] }; store.setGeometry(edited, "drawn"); expect(isCurrentGeometryValidated(useAnalysisStore.getState())).toBe(false); expect(useAnalysisStore.getState().geometryValidation).toBeNull(); });
+  it("ignora uma resposta de validacao atrasada", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); const oldRevision = useAnalysisStore.getState().geometryRevision; store.setGeometry(polygon, "pasted"); store.applyGeometryValidation(validation, oldRevision); expect(useAnalysisStore.getState().geometryValidation).toBeNull(); });
+  it("limpa geometria e metadados de validacao", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "uploaded"); store.clearGeometry(); expect(useAnalysisStore.getState().geometry).toBeNull(); expect(useAnalysisStore.getState().geometrySource).toBeNull(); });
+  it("associa o resultado somente à revisão validada atual", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); const revision = useAnalysisStore.getState().geometryRevision; store.applyGeometryValidation(validation, revision); store.applyAnalysisResult(result, revision); expect(getCurrentAnalysisResponse(useAnalysisStore.getState())).toBe(result); expect(useAnalysisStore.getState().activeTab).toBe("result"); });
+  it("uma nova geometria invalida o resultado e volta para Area", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); const revision = useAnalysisStore.getState().geometryRevision; store.applyGeometryValidation(validation, revision); store.applyAnalysisResult(result, revision); store.setGeometry({ ...polygon, coordinates: [[[-46.963, -23.109], ...polygon.coordinates[0].slice(1)]] }, "drawn"); expect(getCurrentAnalysisResponse(useAnalysisStore.getState())).toBeUndefined(); expect(useAnalysisStore.getState().activeTab).toBe("area"); expect(useAnalysisStore.getState().geometryValidation).toBeNull(); });
+  it("ignora um resultado atrasado de outra revisao", () => { const store = useAnalysisStore.getState(); store.setGeometry(polygon, "drawn"); const oldRevision = useAnalysisStore.getState().geometryRevision; store.applyGeometryValidation(validation, oldRevision); store.setGeometry({ ...polygon, coordinates: [[[-46.963, -23.109], ...polygon.coordinates[0].slice(1)]] }, "drawn"); store.applyAnalysisResult(result, oldRevision); expect(getCurrentAnalysisResponse(useAnalysisStore.getState())).toBeUndefined(); expect(useAnalysisStore.getState().activeTab).toBe("area"); });
+  it("resetAnalysisSession limpa apenas a sessão analítica", () => { const store = useAnalysisStore.getState(); const mapViewport = store.mapViewport; const activeMapStyle = store.activeMapStyle; store.setGeometry(polygon, "drawn"); const revision = useAnalysisStore.getState().geometryRevision; store.applyGeometryValidation(validation, revision); store.applyAnalysisResult(result, revision); store.resetAnalysisSession(); const reset = useAnalysisStore.getState(); expect(reset.geometry).toBeNull(); expect(reset.currentResult).toBeNull(); expect(reset.geometryValidation).toBeNull(); expect(reset.activeTab).toBe("area"); expect(reset.selectedTool).toBe("navigate"); expect(reset.mapViewport).toBe(mapViewport); expect(reset.activeMapStyle).toBe(activeMapStyle); });
+  it("restaura geometria e resultado históricos na mesma revisão", () => { useAnalysisStore.getState().restoreHistoricalAnalysis(polygon, result, validation); const restored = useAnalysisStore.getState(); expect(restored.geometry).toEqual(polygon); expect(getCurrentAnalysisResponse(restored)).toBe(result); expect(restored.currentResult?.geometryRevision).toBe(restored.geometryRevision); expect(restored.activeTab).toBe("result"); });
+  it("preserva a estimativa histórica sem recalcular", () => {
+    const historical = {
+      ...result,
+      height_estimation: {
+        status: "experimental",
+        estimated_class: "gt_30_cm",
+        probability_gt_30_cm: 0.71,
+        confidence: "low",
+        reference_threshold_cm: 30,
+        model_version: "height-estimator-v0",
+      },
+    } as AnalysisResponse;
+    useHistoryStore.getState().addEntry(historical, polygon, validation);
+    const saved = useHistoryStore.getState().entries[0];
+    expect(saved.response.height_estimation).toEqual(historical.height_estimation);
+    useAnalysisStore.getState().restoreHistoricalAnalysis(
+      saved.geometry,
+      saved.response,
+      saved.geometryValidation,
+    );
+    expect(getCurrentAnalysisResponse(useAnalysisStore.getState())?.height_estimation).toEqual(
+      historical.height_estimation,
+    );
+  });
+});

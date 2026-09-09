@@ -1,0 +1,75 @@
+{
+  "coefficients": [
+    -0.0050468691936838275,
+    -0.3490024704081802,
+    -0.11383869325207067
+  ],
+  "experimental_validation_metrics": {
+    "balanced_accuracy": 0.5665441176470588,
+    "confusion_matrix": [
+      [
+        97,
+        73
+      ],
+      [
+        7,
+        9
+      ]
+    ],
+    "f1_gt_30": 0.1836734693877551,
+    "precision_gt_30": 0.10975609756097561,
+    "recall_gt_30": 0.5625,
+    "roc_auc": 0.5851102941176471
+  },
+  "features": [
+    "red_reflectance",
+    "nir_reflectance",
+    "ndvi"
+  ],
+  "fold_count": 5,
+  "geometry_group_count": 20,
+  "group_count": 22,
+  "intercept": -0.09009117390125221,
+  "limitations": [
+    "Experimental decision support; not a physical field measurement.",
+    "Candidate polygons are ambiguous and are not ground truth.",
+    "Offline training allows nearest valid scenes within +/-5 days and is not causal inference.",
+    "Spatially dependent samples are validated by KM/local groups."
+  ],
+  "model_version": "height-estimator-v0",
+  "negative_sample_count": 170,
+  "positive_sample_count": 16,
+  "scaler_mean": [
+    0.07623938172043011,
+    0.25079193548387096,
+    0.31912930620687135
+  ],
+  "scaler_scale": [
+    0.026780982801344364,
+    0.036313839256166776,
+    0.10260324612184034
+  ],
+  "training_alignment_days": 5,
+  "training_dataset_sha256": "f635138d37bcc9277a704c0ad78863386ba2b4610d6507aa400223a0b81e58d0",
+  "training_sample_count": 186,
+  "training_temporal_alignment": "nearest_valid_scene_within_5_days",
+  "training_timestamp": "2026-08-18T14:08:56.058846+00:00",
+  "validation_metrics": {
+    "balanced_accuracy": 0.5665441176470588,
+    "confusion_matrix": [
+      [
+        97,
+        73
+      ],
+      [
+        7,
+        9
+      ]
+    ],
+    "f1_gt_30": 0.1836734693877551,
+    "precision_gt_30": 0.10975609756097561,
+    "recall_gt_30": 0.5625,
+    "roc_auc": 0.5851102941176471
+  },
+  "validation_strategy": "StratifiedGroupKFold_by_KM_local"
+}
