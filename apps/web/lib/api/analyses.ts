@@ -2,8 +2,11 @@ import {
   analysisHistoryDetailSchema,
   analysisHistoryPageSchema,
   analysisResponseSchema,
+  automaticAnalysisResponseSchema,
   geometryValidationSchema,
   healthSchema,
+  type AutomaticAnalysisRequest,
+  type AutomaticAnalysisResponse,
   type GeometryDocument,
 } from "@/lib/schemas/analyses";
 import { apiRequest } from "./client";
@@ -42,3 +45,12 @@ export const listAnalyses = (options: { limit?: number; offset?: number; decisio
 /** Analise completa gravada, incluindo a geometria da AOI. */
 export const getAnalysisDetail = (analysisId: string) =>
   apiRequest(`/api/analyses/${analysisId}`, analysisHistoryDetailSchema);
+export const runAutomaticAnalysis = (
+  payload: AutomaticAnalysisRequest,
+  signal?: AbortSignal,
+): Promise<AutomaticAnalysisResponse> =>
+  apiRequest("/api/analyses/automatic", automaticAnalysisResponseSchema, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal,
+  });

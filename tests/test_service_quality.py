@@ -370,7 +370,174 @@ def test_spatial_accounting_does_not_change_recommendation(tmp_path) -> None:
     assert after.effective_analysis_pct == (
         after.effective_analysis_area_m2 / after.selected_area_m2 * 100.0
     )
+    assert not any(
+        warning["code"] == "EFFECTIVE_AREA_UNAVAILABLE"
+        for warning in after.warnings
+    )
     assert after.summary["spatial_accounting"]["metric_weighting_changed"] is False
+
+
+def test_multisource_shadow_is_additive_and_preserves_recommendation(tmp_path) -> None:
+    scenes = [_scene(day) for day in (1, 8, 15, 22)]
+    collection_calls = 0
+
+    def fake_raster(item, geometry):
+        return RasterSceneData(
+            red=np.full((10, 10), 0.2, dtype=np.float32),
+            nir=np.full((10, 10), 0.5, dtype=np.float32),
+            valid_mask=np.ones((10, 10), dtype=bool),
+            total_pixel_count=100,
+            aoi_coverage_percentage=100.0,
+            partial_raster_coverage=False,
+            red_asset="B04",
+            nir_asset="B08",
+            scl_asset="SCL",
+            scl_class_percentages={"vegetation": 100.0},
+            quality_messages=[],
+        )
+
+    def fake_write(run_directory, *args, **kwargs):
+        names = {
+            "scenes": "scenes.csv",
+            "timeseries": "ndvi_timeseries.csv",
+            "raw_timeseries": "raw_daily_timeseries.csv",
+            "summary": "summary.json",
+            "quality_report": "quality_report.json",
+            "plot": "ndvi_timeseries.png",
+            "aoi": "aoi.geojson",
+            "recommendation_json": "cut_recommendation.json",
+            "recommendation_csv": "cut_recommendation.csv",
+        }
+        return {key: Path(run_directory) / value for key, value in names.items()}
+
+    def collect(config, geometry):
+        nonlocal collection_calls
+        collection_calls += 1
+        assert config.datetime_range == "2026-07-01/2026-07-31"
+        assert geometry["type"] == "Polygon"
+        return {
+            "enabled": True,
+            "fusion_mode": config.multisource_fusion_mode,
+            "official_recommendation_changed": False,
+            "generated_at": "2026-08-01T00:00:00+00:00",
+            "configuration": {
+                "sentinel1_enabled": True,
+                "sentinel1_collection": "sentinel-1-grd",
+                "sentinel1_max_scenes": 8,
+                "analysis_period": config.datetime_range,
+            },
+            "sources": [],
+        }
+
+    def run(
+        enabled: bool,
+        directory: str,
+        collector=collect,
+        fusion_mode: str | None = None,
+        authorizer=lambda _config: {
+            "requested": False,
+            "authorized": False,
+            "authorization_status": "not_requested",
+            "authorization_reason": "operational_fusion_not_requested",
+            "holdout_schema_version": None,
+            "holdout_gate_status": None,
+            "candidate_rule": "B",
+        },
+    ):
+        config = MonitoringConfig(
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[-47, -23], [-46.99, -23], [-46.99, -22.99], [-47, -23]]
+                ],
+            },
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 7, 31),
+            min_valid_pixel_count=30,
+            min_observations=4,
+            output_root=tmp_path / directory,
+            multisource_enabled=enabled,
+            sentinel1_enabled=enabled,
+            multisource_fusion_mode=(
+                fusion_mode or ("shadow" if enabled else "disabled")
+            ),
+        )
+        return run_monitoring_analysis(
+            config,
+            dependencies=PipelineDependencies(
+                search_scenes=lambda *_: SceneSearchResult(
+                    scenes=scenes, discarded_scenes=[], total_matches=4
+                ),
+                read_scene_bands=fake_raster,
+                collect_multisource=collector,
+                authorize_operational_fusion=authorizer,
+                write_outputs=fake_write,
+            ),
+        )
+
+    disabled = run(False, "disabled")
+    enabled = run(True, "enabled")
+    failed = run(
+        True,
+        "failed",
+        collector=lambda *_: (_ for _ in ()).throw(RuntimeError("provider boom")),
+    )
+
+    assert collection_calls == 1
+    assert disabled.recommendation == enabled.recommendation
+    assert disabled.multisource is None
+    assert "multisource" not in disabled.to_dict()
+    assert enabled.multisource["official_recommendation_changed"] is False
+    assert enabled.multisource["review"]["review_evaluable"] is False
+    assert enabled.multisource["review"]["review_not_evaluable_reason"] == (
+        "sentinel1_evidence_missing"
+    )
+    authorization_failed = run(
+        True,
+        "authorization-failed",
+        authorizer=lambda _config: (_ for _ in ()).throw(RuntimeError("gate boom")),
+    )
+    experimental_failed = run(
+        True,
+        "experimental-failed",
+        collector=lambda *_: (_ for _ in ()).throw(RuntimeError("provider boom")),
+        fusion_mode="experimental",
+    )
+    assert enabled.summary["multisource"] == enabled.multisource
+    artifact = enabled.artifacts["multisource_evidence"]
+    assert artifact.name == "multisource_evidence.json"
+    assert artifact.is_file()
+    assert failed.status != "failed"
+    assert failed.recommendation == disabled.recommendation
+    assert failed.multisource["sources"][0]["status"] == "error"
+    assert failed.multisource["review"]["review_evaluable"] is False
+    assert failed.multisource["review"]["review_recommended"] is False
+    assert failed.multisource["review"]["review_not_evaluable_reason"] == (
+        "sentinel1_error"
+    )
+    assert failed.multisource["review"]["official_recommendation_changed"] is False
+    assert authorization_failed.status != "failed"
+    assert authorization_failed.recommendation == disabled.recommendation
+    assert authorization_failed.multisource["operational_fusion"]["authorized"] is False
+    assert authorization_failed.multisource["operational_fusion"]["authorization_reason"] == (
+        "authorization_layer_error"
+    )
+    assert authorization_failed.multisource["operational_fusion"][
+        "official_recommendation_changed"
+    ] is False
+    assert experimental_failed.status != "failed"
+    assert experimental_failed.recommendation == disabled.recommendation
+    experimental_audit = experimental_failed.multisource["experimental_fusion"]
+    assert experimental_audit["multisource_recommendation"] == (
+        disabled.recommendation["recommendation"]
+    )
+    assert experimental_audit["sentinel1_influenced_decision"] is False
+    assert experimental_audit["fusion_not_evaluable_reason"] == "sentinel1_error"
+    assert experimental_audit["operationally_authorized"] is False
+    assert any(
+        warning["code"] == "MULTISOURCE_SOURCE_UNAVAILABLE"
+        for warning in failed.warnings
+    )
 
 
 def test_height_estimator_exception_is_fail_soft(tmp_path) -> None:

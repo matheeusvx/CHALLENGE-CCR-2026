@@ -25,6 +25,17 @@ from .height_estimation import (
 )
 from .features.vegetation_mask import extract_height_features
 from .indices import InsufficientValidPixelsError, analyze_ndvi
+from .multisource.runtime import (
+    collect_multisource_evidence,
+    write_multisource_evidence,
+)
+from .multisource.shadow_review import attach_shadow_review
+from .multisource.operational_fusion import (
+    attach_operational_fusion_audit,
+    authorization_error_result,
+    authorize_operational_fusion,
+)
+from .multisource.experimental_fusion import attach_experimental_fusion
 from .outputs import create_run_directory, to_json_compatible, write_outputs
 from .quality import (
     assess_scene_quality,
@@ -67,6 +78,13 @@ class PipelineDependencies:
     estimate_height: Callable[..., dict[str, Any]] = estimate_height_class
     segment_spatial: Callable[..., dict[str, Any]] = run_segment_first_shadow_segmentation
     regularize_spatial: Callable[..., dict[str, Any]] = evaluate_spatial_regularization
+    collect_multisource: Callable[..., dict[str, Any] | None] = (
+        collect_multisource_evidence
+    )
+    authorize_operational_fusion: Callable[[MonitoringConfig], dict[str, Any]] = (
+        authorize_operational_fusion
+    )
+    write_multisource_artifact: Callable[..., Path] = write_multisource_evidence
     write_outputs: Callable[..., dict[str, Path]] = write_outputs
 
 
@@ -84,6 +102,7 @@ class AnalysisResult:
     effective_analysis_area_m2: float | None = None
     effective_analysis_pct: float | None = None
     spatial_segmentation: dict[str, Any] | None = None
+    multisource: dict[str, Any] | None = None
     height_estimation: dict[str, Any] = field(default_factory=disabled_height_estimation)
     artifacts: dict[str, Path] = field(default_factory=dict)
     warnings: list[dict[str, Any]] = field(default_factory=list)
@@ -120,6 +139,8 @@ class AnalysisResult:
         }
         if self.spatial_segmentation is not None:
             payload["spatial_segmentation"] = self.spatial_segmentation
+        if self.multisource is not None:
+            payload["multisource"] = self.multisource
         if include_internal_paths:
             payload["artifacts"] = {key: str(path) for key, path in self.artifacts.items()}
         else:
@@ -651,6 +672,61 @@ def run_monitoring_analysis(
         )
     )
     recommendation = recommendation_result.to_dict()
+    multisource = None
+    if config.multisource_enabled:
+        try:
+            multisource = deps.collect_multisource(config, aoi_geojson)
+            if not isinstance(multisource, dict):
+                raise ValueError("multisource collector returned no evidence envelope")
+        except Exception as exc:
+            multisource = {
+                "enabled": True,
+                "fusion_mode": config.multisource_fusion_mode,
+                "official_recommendation_changed": False,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "configuration": {
+                    "sentinel1_enabled": config.sentinel1_enabled,
+                    "sentinel1_collection": config.sentinel1_collection,
+                    "sentinel1_max_scenes": config.sentinel1_max_scenes,
+                    "analysis_period": config.datetime_range,
+                },
+                "sources": [
+                    {
+                        "source": "sentinel-1",
+                        "status": "error",
+                        "quality": None,
+                        "coverage": None,
+                        "observed_at": None,
+                        "observations": [],
+                        "metrics": {},
+                        "provenance": {
+                            "provider": "sentinel-1",
+                            "error_type": type(exc).__name__,
+                        },
+                        "warnings": ["Auxiliary provider failed while collecting evidence."],
+                    }
+                ],
+            }
+        multisource = attach_shadow_review(multisource, recommendation)
+        multisource = attach_experimental_fusion(multisource, recommendation)
+        try:
+            operational_authorization = deps.authorize_operational_fusion(config)
+        except Exception:
+            operational_authorization = authorization_error_result(config)
+        multisource = attach_operational_fusion_audit(
+            multisource,
+            recommendation,
+            operational_authorization,
+        )
+        for source in multisource.get("sources", []) if multisource else []:
+            if source.get("status") in {"unavailable", "error"}:
+                warnings.append(
+                    {
+                        "code": "MULTISOURCE_SOURCE_UNAVAILABLE",
+                        "source": source.get("source"),
+                        "message": "Fonte auxiliar indisponivel; a analise Sentinel-2 continuou.",
+                    }
+                )
     spatial_segmentation = None
     if config.spatial_segmentation_enabled:
         try:
@@ -878,6 +954,8 @@ def run_monitoring_analysis(
     }
     if spatial_segmentation is not None:
         summary["spatial_segmentation"] = spatial_segmentation
+    if multisource is not None:
+        summary["multisource"] = multisource
 
     try:
         artifact_paths = deps.write_outputs(
@@ -905,6 +983,7 @@ def run_monitoring_analysis(
             effective_analysis_area_m2=effective_analysis_area_m2,
             effective_analysis_pct=effective_analysis_pct,
             spatial_segmentation=spatial_segmentation,
+            multisource=multisource,
             height_estimation=height_estimation,
             warnings=warnings,
             errors=errors,
@@ -922,6 +1001,21 @@ def run_monitoring_analysis(
         "quality_report": artifact_paths["quality_report"],
         "raw_timeseries_csv": artifact_paths["raw_timeseries"],
     }
+    if multisource is not None:
+        try:
+            public_artifacts["multisource_evidence"] = (
+                deps.write_multisource_artifact(run_directory, multisource)
+            )
+        except Exception as exc:
+            warnings.append(
+                {
+                    "code": "MULTISOURCE_ARTIFACT_UNAVAILABLE",
+                    "message": (
+                        "Evidencia multissensor coletada, mas o artefato nao pode ser salvo: "
+                        f"{type(exc).__name__}."
+                    ),
+                }
+            )
     status = {
         "success": "completed",
         "insufficient_observations": "insufficient_observations",
@@ -940,6 +1034,7 @@ def run_monitoring_analysis(
         effective_analysis_area_m2=effective_analysis_area_m2,
         effective_analysis_pct=effective_analysis_pct,
         spatial_segmentation=spatial_segmentation,
+        multisource=multisource,
         height_estimation=height_estimation,
         artifacts=public_artifacts,
         warnings=warnings,

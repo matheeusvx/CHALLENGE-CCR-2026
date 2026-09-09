@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, Leaf, X } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Leaf, Sparkles, X } from "lucide-react";
 import { ONBOARDING_TOTAL_STEPS, useOnboardingStore } from "@/stores/onboarding-store";
 import type { AppView } from "./app-sidebar";
 
@@ -18,62 +18,79 @@ export type TourStep = {
   placement: "center" | "right" | "left" | "bottom" | "top";
   /** If the tour requires navigating to a specific AppView for this step. */
   requiredView?: AppView;
+  /** If this step requires automatically opening a popover menu (e.g., operator menu). */
+  autoOpenMenu?: "operator" | null;
+  /** If this step requires temporarily expanding the sidebar. */
+  expandSidebar?: boolean;
 };
 
 export const TOUR_STEPS: TourStep[] = [
   {
     target: null,
     title: "Bem-vindo ao Motiva Faixa Verde",
-    text: "Conheça em poucos passos como monitorar a vegetação e identificar áreas que podem precisar de intervenção.",
+    text: "Monitoramento inteligente da vegetação lateral rodoviária com análise geoespacial e dados orbitais Sentinel para apoio à tomada de decisão operacional.",
     placement: "center",
-  },
-  {
-    target: "new-analysis",
-    title: "Nova análise",
-    text: "Inicie aqui uma nova avaliação de vegetação em um trecho rodoviário.",
-    placement: "right",
-    requiredView: "analysis",
   },
   {
     target: "map",
     title: "Mapa operacional",
-    text: "Use o mapa para localizar a rodovia e visualizar a área que será monitorada.",
-    placement: "right",
+    text: "Navegue pelo traçado rodoviário com pan e zoom. O mapa apresenta o contexto operacional da rodovia, faixas de domínio e áreas com potencial intervenção.",
+    placement: "center",
     requiredView: "analysis",
   },
   {
-    target: "drawing-tools",
-    title: "Delimite a área",
-    text: "Use as ferramentas de desenho para selecionar a faixa lateral da rodovia que deseja analisar.",
+    target: "auto-analysis",
+    title: "Análise automática",
+    text: "Ao navegar e aproximar a visualização da rodovia, o sistema inicia análises automaticamente. O resultado surge na aba Resultado sem você precisar desenhar uma área.",
     placement: "bottom",
     requiredView: "analysis",
   },
   {
-    target: "area-panel",
-    title: "Validação da área",
-    text: "Confira a geometria, metragem e cobertura da região antes de executar a análise.",
-    placement: "left",
-    requiredView: "analysis",
-  },
-  {
-    target: "run-analysis",
-    title: "Execute a análise",
-    text: "O sistema consulta o histórico de imagens e avalia a evolução recente da vegetação da área selecionada.",
-    placement: "left",
+    target: "drawing-tools",
+    title: "Análise manual",
+    text: "Utilize as ferramentas de desenho no mapa sempre que desejar delimitar um polígono customizado para avaliação ou reanálise pontual de um trecho específico.",
+    placement: "bottom",
     requiredView: "analysis",
   },
   {
     target: "result-panel",
-    title: "Entenda o resultado",
-    text: "Após a análise, consulte a recomendação, confiança, qualidade dos dados, cobertura efetiva e os motivos que sustentam o resultado.",
+    title: "Painel de resultados",
+    text: "Consulte a recomendação operacional (Cortar, Não cortar ou Inconclusivo), qualidade dos dados reais disponíveis, período e parecer multissensor Sentinel-1 e Sentinel-2.",
     placement: "left",
     requiredView: "analysis",
   },
   {
-    target: "navigation",
-    title: "Continue acompanhando",
-    text: "Consulte análises anteriores, acompanhe as fontes de dados e ajuste as preferências do sistema quando necessário.",
+    target: "nav-history",
+    title: "Histórico de análises",
+    text: "Todas as avaliações geradas — automáticas ou manuais — ficam salvas no Histórico para consulta posterior, comparação temporal e auditoria operacional.",
     placement: "right",
+    requiredView: "analysis",
+  },
+  {
+    target: "guia-widget",
+    title: "gu.ia — Assistente virtual",
+    text: "Assistente virtual da plataforma para apoiar o operador na interpretação da interface, resultados e uso das ferramentas disponíveis no sistema.",
+    placement: "right",
+  },
+  {
+    target: "operator-profile",
+    title: "Conta e perfil",
+    text: "Acesse seu perfil de operador para personalizar nome, e-mail, avatar, cargo e organização, além de acompanhar suas estatísticas de uso.",
+    placement: "right",
+  },
+  {
+    target: "operator-menu-settings",
+    title: "Configurações da plataforma",
+    text: "No menu da sua conta, acesse Configurações para ajustar preferências visuais, cores das rodovias, modo do assistente e reiniciar este tutorial.",
+    placement: "right",
+    autoOpenMenu: "operator",
+    expandSidebar: true,
+  },
+  {
+    target: null,
+    title: "Pronto para começar!",
+    text: "Você concluiu o tour pelas funcionalidades essenciais. Navegue livremente pelo mapa ou selecione uma área para iniciar os trabalhos.",
+    placement: "center",
   },
 ];
 
@@ -83,11 +100,12 @@ export const TOUR_STEPS: TourStep[] = [
 
 type Rect = { top: number; left: number; width: number; height: number };
 
-const SPOT_PAD = 8;
-const SPOT_RADIUS = 8;
-const CARD_GAP = 16;
-const CARD_WIDTH = 360;
-const CARD_MIN_MARGIN = 12;
+const SPOT_PAD = 6;
+const SPOT_RADIUS = 10;
+const CARD_GAP = 14;
+const CARD_WIDTH = 380;
+const CARD_HEIGHT = 270;
+const CARD_MIN_MARGIN = 16;
 
 function getTargetRect(target: string): Rect | null {
   const el = document.querySelector<HTMLElement>(`[data-tour="${target}"]`);
@@ -132,33 +150,35 @@ function computeCardPosition(
   vw: number,
   vh: number,
 ): CardPosition {
+  const effectiveWidth = Math.min(CARD_WIDTH, vw - CARD_MIN_MARGIN * 2);
+  const effectiveHeight = Math.min(CARD_HEIGHT, vh - CARD_MIN_MARGIN * 2);
+
   if (!rect || placement === "center") {
     return {
-      top: Math.max(CARD_MIN_MARGIN, (vh - 260) / 2),
-      left: Math.max(CARD_MIN_MARGIN, (vw - CARD_WIDTH) / 2),
+      top: Math.max(CARD_MIN_MARGIN, Math.round((vh - effectiveHeight) / 2)),
+      left: Math.max(CARD_MIN_MARGIN, Math.round((vw - effectiveWidth) / 2)),
     };
   }
 
-  const effectiveWidth = Math.min(CARD_WIDTH, vw - CARD_MIN_MARGIN * 2);
   let top: number;
   let left: number;
 
   switch (placement) {
     case "right":
-      top = rect.top;
-      left = rect.left + rect.width + CARD_GAP;
+      top = Math.round(rect.top + (rect.height - effectiveHeight) / 2);
+      left = Math.round(rect.left + rect.width + CARD_GAP);
       break;
     case "left":
-      top = rect.top;
-      left = rect.left - effectiveWidth - CARD_GAP;
+      top = Math.round(rect.top + (rect.height - effectiveHeight) / 2);
+      left = Math.round(rect.left - effectiveWidth - CARD_GAP);
       break;
     case "bottom":
-      top = rect.top + rect.height + CARD_GAP;
-      left = rect.left;
+      top = Math.round(rect.top + rect.height + CARD_GAP);
+      left = Math.round(rect.left + (rect.width - effectiveWidth) / 2);
       break;
     case "top":
-      top = rect.top - 260 - CARD_GAP;
-      left = rect.left;
+      top = Math.round(rect.top - effectiveHeight - CARD_GAP);
+      left = Math.round(rect.left + (rect.width - effectiveWidth) / 2);
       break;
   }
 
@@ -167,10 +187,8 @@ function computeCardPosition(
     left = vw - effectiveWidth - CARD_MIN_MARGIN;
   }
   if (left < CARD_MIN_MARGIN) left = CARD_MIN_MARGIN;
-  if (top < CARD_MIN_MARGIN) top = CARD_MIN_MARGIN;
-  // If card would go off bottom, shift up
-  if (top + 260 > vh - CARD_MIN_MARGIN) {
-    top = vh - 260 - CARD_MIN_MARGIN;
+  if (top + effectiveHeight > vh - CARD_MIN_MARGIN) {
+    top = vh - effectiveHeight - CARD_MIN_MARGIN;
   }
   if (top < CARD_MIN_MARGIN) top = CARD_MIN_MARGIN;
 
@@ -216,15 +234,40 @@ export function OnboardingTour({ onNavigate }: OnboardingTourProps) {
     setCardPos(computeCardPosition(rect, step.placement, vw, vh));
   }, [tourActive]);
 
+  // Control popover menu open/close and sidebar expansion based on step definition
+  useEffect(() => {
+    if (!tourActive) {
+      useOnboardingStore.getState().setOperatorMenuOpen(false);
+      useOnboardingStore.getState().setTourSidebarExpanded(false);
+      return;
+    }
+    const shouldOpen = step?.autoOpenMenu === "operator";
+    useOnboardingStore.getState().setOperatorMenuOpen(shouldOpen);
+    const shouldExpand = Boolean(step?.expandSidebar);
+    useOnboardingStore.getState().setTourSidebarExpanded(shouldExpand);
+  }, [tourActive, currentStep, step?.autoOpenMenu, step?.expandSidebar]);
+
+  // Clean up any open tour popovers or sidebar expansions on unmount
+  useEffect(() => {
+    return () => {
+      useOnboardingStore.getState().setOperatorMenuOpen(false);
+      useOnboardingStore.getState().setTourSidebarExpanded(false);
+    };
+  }, []);
+
   // Navigate to required view before measuring
   useEffect(() => {
     if (!tourActive) return;
     if (step.requiredView) {
       onNavigate(step.requiredView === "analysis" ? "analysis" : step.requiredView);
     }
-    // Delay measurement to allow DOM to settle after view transition
+    // Delay measurement to allow DOM to settle after view transition or menu open
     const timer = setTimeout(recalculate, 80);
-    return () => clearTimeout(timer);
+    const backupTimer = setTimeout(recalculate, 220);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(backupTimer);
+    };
   }, [tourActive, currentStep, step.requiredView, onNavigate, recalculate]);
 
   // Resize / scroll listeners
@@ -285,7 +328,7 @@ export function OnboardingTour({ onNavigate }: OnboardingTourProps) {
   if (!tourActive) return null;
 
   return (
-    <div className="onboarding-overlay" aria-hidden="true" onClick={skipTour}>
+    <div className="onboarding-overlay" onClick={skipTour}>
       {/* SVG spotlight overlay */}
       <svg
         className="onboarding-spotlight-svg"
@@ -316,12 +359,12 @@ export function OnboardingTour({ onNavigate }: OnboardingTourProps) {
         {/* Header */}
         <div className="onboarding-card-header">
           <div className="onboarding-card-icon">
-            {isFirst ? <Leaf size={20} /> : <BookOpen size={18} />}
+            {isFirst ? <Leaf size={20} /> : isLast ? <Sparkles size={18} /> : <BookOpen size={18} />}
           </div>
           <button
             type="button"
             className="onboarding-close"
-            aria-label="Pular tutorial"
+            aria-label="Fechar tutorial"
             onClick={skipTour}
           >
             <X size={16} />
@@ -329,8 +372,10 @@ export function OnboardingTour({ onNavigate }: OnboardingTourProps) {
         </div>
 
         {/* Body */}
-        <h2 className="onboarding-card-title">{step.title}</h2>
-        <p className="onboarding-card-text">{step.text}</p>
+        <div className="onboarding-card-body">
+          <h2 className="onboarding-card-title">{step.title}</h2>
+          <p className="onboarding-card-text">{step.text}</p>
+        </div>
 
         {/* Footer */}
         <div className="onboarding-card-footer">
@@ -354,7 +399,7 @@ export function OnboardingTour({ onNavigate }: OnboardingTourProps) {
                 className="onboarding-btn onboarding-btn-primary"
                 onClick={completeTour}
               >
-                Concluir
+                Começar agora
               </button>
             ) : (
               <button

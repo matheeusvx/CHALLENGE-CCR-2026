@@ -8,6 +8,8 @@ from typing import Any
 
 import planetary_computer
 import pystac_client
+from pystac_client.stac_api_io import StacApiIO
+from urllib3.util.retry import Retry
 
 from .config import MonitoringConfig
 
@@ -63,6 +65,26 @@ def open_stac_client(endpoint: str) -> pystac_client.Client:
     return pystac_client.Client.open(
         endpoint,
         modifier=planetary_computer.sign_inplace,
+    )
+
+
+def open_sentinel1_stac_client(endpoint: str) -> pystac_client.Client:
+    """Open S1 STAC with bounded retries only for transient HTTP failures."""
+
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        status=2,
+        backoff_factor=0.5,
+        allowed_methods=frozenset({"GET", "POST"}),
+        status_forcelist=(408, 425, 429, 500, 502, 503, 504),
+        raise_on_status=False,
+    )
+    return pystac_client.Client.open(
+        endpoint,
+        modifier=planetary_computer.sign_inplace,
+        stac_io=StacApiIO(timeout=(10.0, 60.0), max_retries=retry),
     )
 
 

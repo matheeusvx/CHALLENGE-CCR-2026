@@ -76,6 +76,38 @@ export const decisionSupportSchema = z.object({
   context: recordSchema.default({}),
 });
 
+export const experimentalFusionSchema = z.object({
+  schema_version: z.literal("1.0"),
+  fusion_mode: z.enum(["disabled", "shadow", "experimental", "operational"]),
+  fusion_policy: z.literal("experimental_v1").nullable().optional(),
+  experimental_policy_version: z.literal("1.0").nullable().optional(),
+  sentinel2_recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
+  multisource_recommendation: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
+  sentinel1_influenced_decision: z.boolean(),
+  fusion_rule: z.literal("B").nullable().optional(),
+  fusion_reason: z.string().nullable().optional(),
+  sentinel1_temporal_status: z.enum([
+    "increasing", "decreasing", "stable", "mixed", "insufficient_data", "disabled"
+  ]).nullable().optional(),
+  experimental: z.boolean(),
+  operationally_authorized: z.literal(false).optional(),
+  experimental_fusion_evaluated: z.boolean().optional(),
+  experimental_fusion_evaluable: z.boolean().optional(),
+  fusion_not_evaluable_reason: z.string().nullable().optional(),
+});
+
+export const multisourceResponseSchema = z.object({
+  enabled: z.boolean(),
+  fusion_mode: z.enum(["disabled", "shadow", "experimental", "operational"]),
+  official_recommendation_changed: z.literal(false).optional(),
+  generated_at: z.string(),
+  configuration: recordSchema.optional(),
+  sources: z.array(recordSchema).optional(),
+  review: recordSchema.nullable().optional(),
+  operational_fusion: recordSchema.nullable().optional(),
+  experimental_fusion: experimentalFusionSchema.nullable().optional(),
+});
+
 export const analysisResponseSchema = z.object({
   analysis_id: z.string().uuid(),
   status: z.string(),
@@ -101,6 +133,7 @@ export const analysisResponseSchema = z.object({
   effective_analysis_pct: z.number().nonnegative().nullish(),
   spatial_segmentation: spatialSegmentationSchema.optional(),
   decision_support: decisionSupportSchema.optional(),
+  multisource: multisourceResponseSchema.nullable().optional(),
   aoi: recordSchema,
   summary: recordSchema,
   timeseries: z.array(recordSchema),
@@ -108,6 +141,49 @@ export const analysisResponseSchema = z.object({
   artifacts: z.record(z.string(), z.string()),
   warnings: z.array(recordSchema),
   errors: z.array(recordSchema),
+  analysis_trigger: z.enum(["manual", "automatic_viewport"]).optional(),
+});
+
+export const viewportBoundsSchema = z.object({
+  west: z.number(),
+  south: z.number(),
+  east: z.number(),
+  north: z.number(),
+});
+
+export const viewportCenterSchema = z.object({
+  lng: z.number(),
+  lat: z.number(),
+});
+
+export const automaticAnalysisRequestSchema = z.object({
+  bounds: viewportBoundsSchema,
+  zoom: z.number(),
+  center: viewportCenterSchema,
+  force_refresh: z.boolean().default(false),
+});
+
+export const automaticAnalysisResponseSchema = z.object({
+  status: z.enum([
+    "disabled",
+    "zoom_required",
+    "invalid_viewport",
+    "cache_hit",
+    "in_progress",
+    "analysis_started",
+    "completed",
+    "failed",
+  ]),
+  spatial_key: z.string().nullable().optional(),
+  analysis_id: z.string().nullable().optional(),
+  analysis_started: z.boolean(),
+  cache_hit: z.boolean(),
+  automatic: z.literal(true),
+  reason: z.string().nullable().optional(),
+  canonical_bounds: viewportBoundsSchema.nullable().optional(),
+  cache_state: z.enum(["fresh", "in_progress", "failed"]).nullable().optional(),
+  expires_at: z.string().nullable().optional(),
+  result: analysisResponseSchema.nullable().optional(),
 });
 
 export const analysisHistoryItemSchema = z.object({
@@ -155,6 +231,12 @@ export type AnalysisHistoryDetail = z.infer<typeof analysisHistoryDetailSchema>;
 export type SpatialZone = z.infer<typeof spatialZoneSchema>;
 export type SpatialSegmentation = z.infer<typeof spatialSegmentationSchema>;
 export type DecisionSupport = z.infer<typeof decisionSupportSchema>;
+export type ExperimentalFusion = z.infer<typeof experimentalFusionSchema>;
+export type MultisourceResponse = z.infer<typeof multisourceResponseSchema>;
+export type ViewportBounds = z.infer<typeof viewportBoundsSchema>;
+export type ViewportCenter = z.infer<typeof viewportCenterSchema>;
+export type AutomaticAnalysisRequest = z.infer<typeof automaticAnalysisRequestSchema>;
+export type AutomaticAnalysisResponse = z.infer<typeof automaticAnalysisResponseSchema>;
 
 export function parseGeometryText(value: string): GeometryDocument {
   let parsed: unknown;

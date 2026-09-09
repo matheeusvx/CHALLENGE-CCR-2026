@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getCurrentAnalysisResponse, isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 
@@ -9,6 +10,7 @@ const result = { analysis_id: "analysis-a" } as AnalysisResponse;
 
 beforeEach(() => {
   useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", activeTab: "area", currentResult: null });
+  useHistoryStore.setState({ entries: [] });
 });
 
 describe("estado da geometria", () => {
@@ -34,7 +36,14 @@ describe("estado da geometria", () => {
         model_version: "height-estimator-v0",
       },
     } as AnalysisResponse;
-    useAnalysisStore.getState().restoreHistoricalAnalysis(polygon, historical, validation);
+    useHistoryStore.getState().addEntry(historical, polygon, validation);
+    const saved = useHistoryStore.getState().entries[0];
+    expect(saved.response.height_estimation).toEqual(historical.height_estimation);
+    useAnalysisStore.getState().restoreHistoricalAnalysis(
+      saved.geometry,
+      saved.response,
+      saved.geometryValidation,
+    );
     expect(getCurrentAnalysisResponse(useAnalysisStore.getState())?.height_estimation).toEqual(
       historical.height_estimation,
     );

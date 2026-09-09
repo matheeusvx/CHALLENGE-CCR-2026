@@ -3,6 +3,7 @@ import {
   CalendarRange,
   CheckCircle2,
   Crosshair,
+  FlaskConical,
   Gauge,
   Grid3x3,
   HelpCircle,
@@ -10,6 +11,8 @@ import {
   MapPinned,
   RotateCcw,
 } from "lucide-react";
+import { useState } from "react";
+import { SaveValidationSampleModal } from "@/components/validation/save-validation-sample-modal";
 import type { AnalysisResponse, SpatialZone } from "@/lib/schemas/analyses";
 import {
   analysisQualityStatus,
@@ -22,6 +25,7 @@ import {
   formatPercentage,
   formatRecommendation,
   formatRecommendationSummary,
+  getEffectiveRecommendation,
   recommendationReasonLabel,
   selectedAreaSquareMeters,
 } from "@/lib/utils/recommendation";
@@ -92,9 +96,15 @@ function SegmentationSummary({ zones, coveragePct }: { zones: SpatialZone[]; cov
 
 export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisResponse; onRetry: () => void }) {
   const requestFit = useAnalysisStore((state) => state.requestGeometryFit);
+  const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
+  const [savedSamples, setSavedSamples] = useState<Set<string>>(new Set());
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
   if (!result) {
     return <div className="result-panel-empty"><Leaf size={30} /><strong>Nenhum resultado disponível</strong><p>Valide a área e execute a análise para preencher esta etapa.</p></div>;
   }
+
+  const isSampleSaved = Boolean(result.analysis_id && savedSamples.has(result.analysis_id));
   const range = result.analysis_period;
   const quality = analysisQualityStatus(result);
   const effectivePercentage = effectiveAnalysisPercentage(result);
@@ -110,12 +120,25 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
     ? calculateZoneAreaStats(result.spatial_segmentation!.zones, result.spatial_segmentation!.effective_coverage_pct)
     : null;
 
+  const effective = getEffectiveRecommendation(result);
+
   return (
     <div className="workspace-panel-content result-sidebar">
-      <div className={`decision-block ${result.recommendation.decision}`} data-decision={result.recommendation.decision}>
-        <span>{hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
-        <strong>{formatRecommendation(result.recommendation.decision)}</strong>
-        <p>{formatRecommendationSummary(result.recommendation.summary)}</p>
+      <div className={`decision-block ${effective.primaryDecision}`} data-decision={effective.primaryDecision}>
+        <span>{effective.isMultisource ? "Resultado multissensor" : hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
+        <strong>{formatRecommendation(effective.primaryDecision)}</strong>
+        {effective.isMultisource ? (
+          <div className="sidebar-multisource-audit">
+            <span className="s2-audit-tag">Sentinel-2: {formatRecommendation(effective.s2Decision)}</span>
+            {effective.influenced ? (
+              <span className="s1-influenced-tag">Sentinel-1 influenciou esta análise</span>
+            ) : null}
+            {effective.fusionRule ? (
+              <span className="fusion-rule-tag">Regra {effective.fusionRule}</span>
+            ) : null}
+          </div>
+        ) : null}
+        <p>{formatRecommendationSummary(effective.summary)}</p>
 
         {zoneStats && zoneStats.cutCount > 0 ? (
           <div className="localized-intervention-callout" role="status">
@@ -149,7 +172,52 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
         <SegmentationSummary zones={result.spatial_segmentation.zones} coveragePct={result.spatial_segmentation.effective_coverage_pct} />
       ) : null}
 
-      <div className="panel-actions result-actions"><button type="button" className="secondary-button" onClick={requestFit}><Crosshair size={16} />Enquadrar área selecionada</button><button type="button" className="quiet-action" onClick={onRetry}><RotateCcw size={15} />Executar novamente</button></div>
+      {feedbackMessage ? (
+        <div className="validation-feedback-pill" role="status">
+          <CheckCircle2 size={15} aria-hidden="true" />
+          <span>{feedbackMessage}</span>
+        </div>
+      ) : null}
+
+      <div className="panel-actions result-actions">
+        {result.analysis_id ? (
+          <button
+            type="button"
+            className="secondary-button action-save-validation"
+            onClick={() => setIsValidationModalOpen(true)}
+            disabled={isSampleSaved}
+          >
+            {isSampleSaved ? (
+              <>
+                <CheckCircle2 size={16} aria-hidden="true" />
+                Amostra registrada
+              </>
+            ) : (
+              <>
+                <FlaskConical size={16} aria-hidden="true" />
+                Salvar para validação
+              </>
+            )}
+          </button>
+        ) : null}
+        <button type="button" className="secondary-button" onClick={requestFit}><Crosshair size={16} />Enquadrar área selecionada</button>
+        <button type="button" className="quiet-action" onClick={onRetry}><RotateCcw size={15} />Executar novamente</button>
+      </div>
+
+      {result.analysis_id ? (
+        <SaveValidationSampleModal
+          analysisId={result.analysis_id}
+          isOpen={isValidationModalOpen}
+          onClose={() => setIsValidationModalOpen(false)}
+          onSaved={() => {
+            if (result.analysis_id) {
+              setSavedSamples((prev) => new Set(prev).add(result.analysis_id));
+            }
+            setFeedbackMessage("Amostra salva na base de validação.");
+            setTimeout(() => setFeedbackMessage(null), 5000);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

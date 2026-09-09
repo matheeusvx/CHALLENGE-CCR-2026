@@ -7,9 +7,10 @@ import { AnalysisResult } from "@/components/analysis/analysis-result";
 import * as api from "@/lib/api/analyses";
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
 import { useAnalysisStore } from "@/stores/analysis-store";
+import { useHistoryStore } from "@/stores/history-store";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 
-vi.mock("@/lib/api/analyses", () => ({ getHealth: vi.fn(), validateGeometry: vi.fn(), runAnalysis: vi.fn(), listAnalyses: vi.fn(), getAnalysisDetail: vi.fn() }));
+vi.mock("@/lib/api/analyses", () => ({ getHealth: vi.fn(), validateGeometry: vi.fn(), runAnalysis: vi.fn() }));
 vi.mock("@/components/map/analysis-map", () => ({
   AnalysisMap: ({ result: mapResult }: { result?: AnalysisResponse }) => <div data-testid="analysis-map" data-decision={mapResult?.recommendation.decision ?? "editing"} />,
 }));
@@ -64,8 +65,8 @@ beforeEach(() => {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", service: "motiva-vegetation-api", version: "0.1.0" });
   vi.mocked(api.validateGeometry).mockResolvedValue(validation);
   vi.mocked(api.runAnalysis).mockResolvedValue(result);
-  vi.mocked(api.listAnalyses).mockResolvedValue({ total: 0, limit: 100, offset: 0, items: [] });
   useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", fitRequestId: 0, activeTab: "area", currentResult: null });
+  useHistoryStore.setState({ entries: [] });
 });
 
 async function completeCurrentAnalysis() {
@@ -100,7 +101,8 @@ describe("workspace geoespacial", () => {
     expect(screen.getByRole("heading", { name: "Fontes de dados" })).toBeInTheDocument();
     expect(screen.getByText(/Sentinel-2 L2A/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Configurações" }));
+    fireEvent.click(screen.getByTestId("operator-profile-trigger"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Configurações" }));
     expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Cobertura máxima de nuvens")).not.toBeInTheDocument();
 
@@ -245,6 +247,7 @@ describe("workspace geoespacial", () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
     await completeCurrentAnalysis();
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("tab", { name: "Área" }));
     fireEvent.click(screen.getByRole("button", { name: "Limpar área" }));
@@ -253,6 +256,7 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().geometryValidation).toBeNull();
     expect(useAnalysisStore.getState().currentResult).toBeNull();
     expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "editing");
   });
 
@@ -287,6 +291,7 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().geometry).toEqual(polygonB);
     expect(useAnalysisStore.getState().currentResult).toBeNull();
     expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(0);
     expect(screen.queryByText("Vegetação abaixo do nível alto local.")).not.toBeInTheDocument();
   });
 
@@ -305,51 +310,21 @@ describe("workspace geoespacial", () => {
     expect(useAnalysisStore.getState().geometry).toBeNull();
     expect(useAnalysisStore.getState().currentResult).toBeNull();
     expect(useAnalysisStore.getState().activeTab).toBe("area");
+    expect(useHistoryStore.getState().entries).toHaveLength(0);
     expect(screen.getByText("Nenhuma área delimitada")).toBeInTheDocument();
   });
 
-  it("restaura geometria e resultado a partir do histórico do servidor", async () => {
-    vi.mocked(api.listAnalyses).mockResolvedValue({
-      total: 1,
-      limit: 100,
-      offset: 0,
-      items: [
-        {
-          analysis_id: result.analysis_id,
-          created_at: "2026-08-10T12:00:00",
-          status: "completed",
-          decision: "nao_cortar",
-          confidence: "high",
-          summary: "Vegetação abaixo do nível alto local.",
-          period_start: "2026-07-10",
-          period_end: "2026-08-10",
-          selected_area_m2: 12450,
-          analysis_quality_status: "high",
-          observation_count: 4,
-          nearest_km: 0,
-          centroid: { longitude: -46.961, latitude: -23.108 },
-        },
-      ],
-    });
-    vi.mocked(api.getAnalysisDetail).mockResolvedValue({
-      analysis_id: result.analysis_id,
-      created_at: "2026-08-10T12:00:00",
-      geometry: polygon,
-      result,
-    });
-
+  it("preserva o histórico e restaura geometria e resultado explicitamente", async () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
     await completeCurrentAnalysis();
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    expect(useHistoryStore.getState().entries).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abrir análise" }));
 
-    const abrir = await screen.findByRole("button", { name: "Abrir análise" });
-    fireEvent.click(abrir);
-    await waitFor(() => expect(useAnalysisStore.getState().geometry).not.toBeNull());
-
-    expect(api.getAnalysisDetail).toHaveBeenCalledWith(result.analysis_id);
     expect(useAnalysisStore.getState().geometry).toEqual(polygon);
     expect(useAnalysisStore.getState().currentResult?.response.analysis_id).toBe(result.analysis_id);
     expect(useAnalysisStore.getState().currentResult?.geometryRevision).toBe(useAnalysisStore.getState().geometryRevision);

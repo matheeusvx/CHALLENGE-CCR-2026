@@ -9,6 +9,41 @@ from pathlib import Path
 from .operational_profile import DEFAULT_ANALYSIS_TIMEZONE
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _validation_db_path() -> Path:
+    raw_value = os.getenv("VALIDATION_DB_PATH")
+    if not raw_value:
+        return PROJECT_ROOT / "data" / "validation" / "validation.sqlite3"
+    configured = Path(raw_value).expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
+def _validation_multisensor_benchmark_v2_path() -> Path:
+    raw_value = os.getenv("VALIDATION_MULTISENSOR_BENCHMARK_V2_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "outputs/validation/validation_multisensor_benchmark_v2.json"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
+def _validation_holdout_benchmark_path() -> Path:
+    raw_value = os.getenv("VALIDATION_HOLDOUT_BENCHMARK_PATH")
+    configured = Path(raw_value) if raw_value else Path(
+        "outputs/validation-holdout/validation_holdout_benchmark_v1.json"
+    )
+    configured = configured.expanduser()
+    if not configured.is_absolute():
+        configured = PROJECT_ROOT / configured
+    return configured.resolve()
+
+
 def _read_bool(name: str, default: bool = False) -> bool:
     raw_value = os.getenv(name)
     if raw_value is None:
@@ -28,6 +63,13 @@ class ApiSettings:
     output_root: Path = Path(
         os.getenv("API_OUTPUT_ROOT", "outputs/satellite_monitoring")
     )
+    validation_db_path: Path = field(default_factory=_validation_db_path)
+    validation_multisensor_benchmark_v2_path: Path = field(
+        default_factory=_validation_multisensor_benchmark_v2_path
+    )
+    validation_holdout_benchmark_path: Path = field(
+        default_factory=_validation_holdout_benchmark_path
+    )
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
     )
@@ -40,6 +82,17 @@ class ApiSettings:
     gedi_enabled: bool = field(default_factory=lambda: _read_bool("GEDI_ENABLED"))
     icesat2_enabled: bool = field(
         default_factory=lambda: _read_bool("ICESAT2_ENABLED")
+    )
+    sentinel1_enabled: bool = field(
+        default_factory=lambda: _read_bool("SENTINEL1_ENABLED")
+    )
+    sentinel1_collection: str = field(
+        default_factory=lambda: os.getenv(
+            "SENTINEL1_COLLECTION", "sentinel-1-grd"
+        ).strip()
+    )
+    sentinel1_max_scenes: int = field(
+        default_factory=lambda: int(os.getenv("SENTINEL1_MAX_SCENES", "8"))
     )
     height_estimation_enabled: bool = field(
         default_factory=lambda: _read_bool("HEIGHT_ESTIMATION_ENABLED")
@@ -62,12 +115,19 @@ class ApiSettings:
     version: str = "0.1.0"
 
     def __post_init__(self) -> None:
-        if self.multisource_fusion_mode not in {"disabled", "shadow"}:
+        if self.multisource_fusion_mode not in {
+            "disabled", "shadow", "experimental", "operational"
+        }:
             raise ValueError(
-                "MULTISOURCE_FUSION_MODE must be 'disabled' or 'shadow'."
+                "MULTISOURCE_FUSION_MODE must be 'disabled', 'shadow', "
+                "'experimental', or 'operational'."
             )
         if self.spatial_section_length_m <= 0:
             raise ValueError("SPATIAL_SECTION_LENGTH_M must be positive.")
+        if not self.sentinel1_collection:
+            raise ValueError("SENTINEL1_COLLECTION cannot be empty.")
+        if self.sentinel1_max_scenes <= 0:
+            raise ValueError("SENTINEL1_MAX_SCENES must be positive.")
 
     @property
     def cors_origins(self) -> list[str]:

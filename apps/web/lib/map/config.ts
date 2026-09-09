@@ -57,6 +57,15 @@ export const MAP_CONFIG = {
   uploadMaxBytes: 2 * 1024 * 1024,
 } as const;
 
+export const AUTO_ANALYSIS_CONFIG = {
+  debounceMs: 1000,
+  pollingIntervalMs: 2500,
+  maxPollingIterations: 30,
+  minZoom: 14,
+  maxZoom: 22,
+  storageKey: "motiva.auto_analysis_enabled",
+} as const;
+
 export type MapViewport = {
   longitude: number;
   latitude: number;
@@ -64,3 +73,12 @@ export type MapViewport = {
   bearing: number;
   pitch: number;
 };
+
+export function computeTileKey(lng: number, lat: number, z = 17): string {
+  const x = Math.floor(((lng + 180) / 360) * Math.pow(2, z));
+  const latRad = (lat * Math.PI) / 180;
+  const y = Math.floor(
+    ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, z)
+  );
+  return `tile:${z}/${x}/${y}`;
+}

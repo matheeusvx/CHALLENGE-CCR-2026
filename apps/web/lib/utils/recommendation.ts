@@ -53,6 +53,46 @@ export function formatConfidence(level: AnalysisResponse["recommendation"]["conf
   return levelLabels[level];
 }
 
+export type EffectiveRecommendation = {
+  primaryDecision: "cortar" | "nao_cortar" | "inconclusivo";
+  s2Decision: "cortar" | "nao_cortar" | "inconclusivo";
+  isMultisource: boolean;
+  influenced: boolean;
+  fusionRule?: "B" | null;
+  fusionReason?: string | null;
+  s1Status?: string | null;
+  confidence: "high" | "medium" | "low";
+  summary: string;
+};
+
+export function getEffectiveRecommendation(result: AnalysisResponse): EffectiveRecommendation {
+  const experimental = result.multisource?.experimental_fusion;
+  const s2Decision = result.recommendation.decision;
+
+  if (experimental && experimental.multisource_recommendation) {
+    return {
+      primaryDecision: experimental.multisource_recommendation,
+      s2Decision,
+      isMultisource: true,
+      influenced: Boolean(experimental.sentinel1_influenced_decision),
+      fusionRule: experimental.fusion_rule ?? null,
+      fusionReason: experimental.fusion_reason ?? null,
+      s1Status: experimental.sentinel1_temporal_status ?? null,
+      confidence: result.recommendation.confidence,
+      summary: result.recommendation.summary,
+    };
+  }
+
+  return {
+    primaryDecision: s2Decision,
+    s2Decision,
+    isMultisource: false,
+    influenced: false,
+    confidence: result.recommendation.confidence,
+    summary: result.recommendation.summary,
+  };
+}
+
 export function formatAnalysisQuality(level: "high" | "medium" | "low" | null) {
   return level ? levelLabels[level] : "Não informada";
 }

@@ -40,3 +40,9 @@ data/*.sqlite3
 
 # dados originais da CCR Motiva (confidenciais, nao versionar)
 data/motiva_raw/
+*.sqlite3
+*.sqlite
+*.db
+*-journal
+*-wal
+*-shm

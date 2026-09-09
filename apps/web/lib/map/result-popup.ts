@@ -1,5 +1,5 @@
 import type { AnalysisResponse } from "@/lib/schemas/analyses";
-import { formatConfidence, formatDateBR, formatRecommendation } from "@/lib/utils/recommendation";
+import { formatConfidence, formatDateBR, formatRecommendation, getEffectiveRecommendation } from "@/lib/utils/recommendation";
 
 export type ResultPopupPresentation = {
   decision: string;
@@ -9,10 +9,11 @@ export type ResultPopupPresentation = {
 };
 
 export function getResultPopupPresentation(result: AnalysisResponse): ResultPopupPresentation {
+  const effective = getEffectiveRecommendation(result);
   return {
-    decision: formatRecommendation(result.recommendation.decision),
-    confidence: formatConfidence(result.recommendation.confidence),
+    decision: formatRecommendation(effective.primaryDecision),
+    confidence: formatConfidence(effective.confidence),
     period: `${formatDateBR(result.analysis_period.start_date)} a ${formatDateBR(result.analysis_period.end_date)}`,
-    state: result.recommendation.decision,
+    state: effective.primaryDecision,
   };
 }
