@@ -12,10 +12,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
+from .migrations import run_migrations
 
 DEFAULT_DATABASE_PATH = Path("data") / "motiva.db"
 DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}"
@@ -68,9 +69,15 @@ def get_session_factory() -> sessionmaker[Session]:
 
 
 def init_database() -> None:
-    """Cria as tabelas ausentes. Idempotente."""
+    """Create new tables and apply versioned upgrades to existing databases."""
 
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    if "analysis" in inspect(engine).get_table_names():
+        run_migrations(engine)
+        Base.metadata.create_all(engine)
+    else:
+        Base.metadata.create_all(engine)
+        run_migrations(engine)
 
 
 @contextmanager

@@ -15,11 +15,13 @@ camada apenas registra o resultado; nao existe logica de decisao neste modulo.
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -215,7 +217,12 @@ class Analysis(Base):
     """Execucao de analise de satelite e a decisao registrada."""
 
     __tablename__ = "analysis"
-    __table_args__ = (Index("ix_analysis_created", "created_at"),)
+    __table_args__ = (
+        Index("ix_analysis_created", "created_at"),
+        Index("ix_analysis_subject_created", "subject_key", "created_at"),
+        Index("ix_analysis_spatial_key", "spatial_key"),
+        Index("ix_analysis_road_section", "road_ref", "section_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
@@ -249,6 +256,19 @@ class Analysis(Base):
     centroid_latitude: Mapped[float | None] = mapped_column(Float)
     nearest_km: Mapped[int | None] = mapped_column(Integer, index=True)
 
+    # Stable operational identity. Road-aware runs use the full roadside_v1
+    # spatial key; manual runs use a canonical geometry fingerprint.
+    subject_kind: Mapped[str | None] = mapped_column(String(24))
+    subject_key: Mapped[str | None] = mapped_column(String(512))
+    spatial_key: Mapped[str | None] = mapped_column(String(512))
+    road_id: Mapped[str | None] = mapped_column(String(128))
+    road_ref: Mapped[str | None] = mapped_column(String(64))
+    road_name: Mapped[str | None] = mapped_column(String(200))
+    axis_id: Mapped[str | None] = mapped_column(String(256))
+    section_id: Mapped[str | None] = mapped_column(String(64))
+    section_index: Mapped[int | None] = mapped_column(Integer)
+    latest_valid_observation_on: Mapped[date | None] = mapped_column(Date)
+
     run_directory: Mapped[str | None] = mapped_column(String(512))
     # Caminhos de arquivo dos artefatos gerados, para que continuem acessiveis
     # depois de um reinicio da API.
@@ -281,6 +301,130 @@ class AnalysisObservation(Base):
     valid_pixel_percentage: Mapped[float | None] = mapped_column(Float)
 
     analysis: Mapped[Analysis] = relationship(back_populates="observations")
+
+
+class AlertType(StrEnum):
+    RECOMMENDATION_CHANGED = "RECOMMENDATION_CHANGED"
+    CUT_PENDING = "CUT_PENDING"
+    REOBSERVATION_REQUIRED = "REOBSERVATION_REQUIRED"
+    STALE_MONITORING = "STALE_MONITORING"
+    SUPPORT_DIVERGENCE = "SUPPORT_DIVERGENCE"
+
+
+class AlertSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AlertStatus(StrEnum):
+    NEW = "new"
+    SEEN = "seen"
+    MONITORING = "monitoring"
+    RESOLVED = "resolved"
+
+
+class Alert(Base):
+    """Current alert projection. ALERT-01 only provides persistence."""
+
+    __tablename__ = "alert"
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('RECOMMENDATION_CHANGED','CUT_PENDING',"
+            "'REOBSERVATION_REQUIRED','STALE_MONITORING','SUPPORT_DIVERGENCE')",
+            name="ck_alert_type",
+        ),
+        CheckConstraint(
+            "severity IN ('low','medium','high','critical')",
+            name="ck_alert_severity",
+        ),
+        CheckConstraint(
+            "status IN ('new','seen','monitoring','resolved')",
+            name="ck_alert_status",
+        ),
+        Index("ix_alert_status_seen", "status", "last_seen_at"),
+        Index("ix_alert_type_status", "type", "status"),
+        Index("ix_alert_severity_status", "severity", "status"),
+        Index("ix_alert_road_status", "road_ref", "section_id", "status"),
+        Index("ix_alert_subject_history", "subject_key", "first_detected_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    type: Mapped[str] = mapped_column(String(40))
+    severity: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(24))
+    subject_kind: Mapped[str] = mapped_column(String(24))
+    subject_key: Mapped[str] = mapped_column(String(512))
+    spatial_key: Mapped[str | None] = mapped_column(String(512))
+    road_id: Mapped[str | None] = mapped_column(String(128))
+    road_ref: Mapped[str | None] = mapped_column(String(64))
+    road_name: Mapped[str | None] = mapped_column(String(200))
+    axis_id: Mapped[str | None] = mapped_column(String(256))
+    section_id: Mapped[str | None] = mapped_column(String(64))
+    section_index: Mapped[int | None] = mapped_column(Integer)
+    analysis_id: Mapped[str] = mapped_column(ForeignKey("analysis.id"))
+    previous_analysis_id: Mapped[str | None] = mapped_column(ForeignKey("analysis.id"))
+    last_analysis_id: Mapped[str | None] = mapped_column(ForeignKey("analysis.id"))
+    current_recommendation: Mapped[str | None] = mapped_column(String(16))
+    previous_recommendation: Mapped[str | None] = mapped_column(String(16))
+    first_detected_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    open_key: Mapped[str | None] = mapped_column(String(640), unique=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+
+    events: Mapped[list["AlertEvent"]] = relationship(
+        back_populates="alert", cascade="all, delete-orphan"
+    )
+
+
+class AlertEvent(Base):
+    """Append-only audit event for a future alert lifecycle."""
+
+    __tablename__ = "alert_event"
+    __table_args__ = (Index("ix_alert_event_alert_time", "alert_id", "occurred_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alert_id: Mapped[str] = mapped_column(ForeignKey("alert.id", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(String(32))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime)
+    analysis_id: Mapped[str | None] = mapped_column(ForeignKey("analysis.id"))
+    previous_status: Mapped[str | None] = mapped_column(String(24))
+    new_status: Mapped[str | None] = mapped_column(String(24))
+    severity: Mapped[str | None] = mapped_column(String(16))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+
+    alert: Mapped[Alert] = relationship(back_populates="events")
+
+
+class MonitoredSection(Base):
+    """Persisted scheduler-ready subject state; no scheduling logic lives here."""
+
+    __tablename__ = "monitored_section"
+
+    subject_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    subject_kind: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    spatial_key: Mapped[str | None] = mapped_column(String(512))
+    road_id: Mapped[str | None] = mapped_column(String(128))
+    road_ref: Mapped[str | None] = mapped_column(String(64))
+    road_name: Mapped[str | None] = mapped_column(String(200))
+    axis_id: Mapped[str | None] = mapped_column(String(256))
+    section_id: Mapped[str | None] = mapped_column(String(64))
+    section_index: Mapped[int | None] = mapped_column(Integer)
+    geometry: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(24))
+    cadence_days: Mapped[int] = mapped_column(Integer, default=30)
+    last_analysis_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_valid_observation_on: Mapped[date | None] = mapped_column(Date)
+    next_due_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
 
 class NdviFieldSample(Base):
     """Amostra de treino alinhando NDVI de satelite e condicao observada em campo.

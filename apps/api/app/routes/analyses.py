@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.decision_support import build_decision_support
 from src.satellite_monitoring.database import (
+    AnalysisIdentity,
     count_analyses,
     get_analysis,
     list_analyses,
@@ -22,6 +23,7 @@ from src.satellite_monitoring.database import (
     save_analysis,
     session_scope,
 )
+from src.satellite_monitoring.database.identity import road_section_identity
 from src.satellite_monitoring.geometry import (
     calculate_geometry_metadata,
     extract_polygon_geometry,
@@ -319,7 +321,11 @@ def _build_support(
 
 
 def _persist_analysis(
-    result: Any, response: AnalysisResponse, geometry: dict[str, Any]
+    result: Any,
+    response: AnalysisResponse,
+    geometry: dict[str, Any],
+    *,
+    identity: AnalysisIdentity | None = None,
 ) -> None:
     """Grava a analise no historico, ja com o apoio anexado a resposta."""
 
@@ -336,6 +342,7 @@ def _persist_analysis(
                     name: str(value)
                     for name, value in (result.artifacts or {}).items()
                 },
+                identity=identity,
             )
     except Exception:  # pragma: no cover - nunca invalida a resposta
         logger.exception("Falha ao gravar a analise no historico.")
@@ -421,7 +428,12 @@ def run_automatic_analysis(
     except ValueError as exc:
         raise ApiError("INVALID_DATE_RANGE", str(exc), status_code=422) from exc
 
-    def execute(geometry: dict[str, Any], analysis_id: str) -> dict[str, Any]:
+    def execute(
+        geometry: dict[str, Any],
+        analysis_id: str,
+        *,
+        analysis_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         _validated_geometry_metadata(geometry)
         automatic_payload = AnalysisRunRequest(geometry=geometry)
         config = _build_monitoring_config(automatic_payload, analysis_period)
@@ -451,7 +463,12 @@ def run_automatic_analysis(
             )
         # This callback runs only for a real pipeline execution. Polling and cache
         # hits are served by the coordinator repository and never persist again.
-        _persist_analysis(result, response_model, geometry)
+        identity = None
+        if analysis_context and analysis_context.get("road"):
+            identity = road_section_identity(
+                str(analysis_context["spatial_key"]), analysis_context["road"]
+            )
+        _persist_analysis(result, response_model, geometry, identity=identity)
         response = response_model.model_dump(mode="json")
         return response
 

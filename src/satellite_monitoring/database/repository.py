@@ -13,6 +13,8 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .alert_repository import MonitoredSectionRepository
+from .identity import AnalysisIdentity, geometry_identity
 from .models import Analysis, AnalysisObservation, KmMarker
 
 
@@ -84,8 +86,10 @@ def save_analysis(
     run_directory: str | None = None,
     artifacts: Mapping[str, str] | None = None,
     created_at: datetime | None = None,
+    identity: AnalysisIdentity | None = None,
+    monitored_section_cadence_days: int = 30,
 ) -> Analysis:
-    """Grava (ou substitui) uma analise a partir da resposta da API."""
+    """Insert or update an analysis without replacing its database row."""
 
     analysis_id = str(payload.get("analysis_id") or "").strip()
     if not analysis_id:
@@ -104,59 +108,99 @@ def save_analysis(
     longitude = _as_float(centroid.get("longitude") or aoi.get("centroid_longitude"))
     latitude = _as_float(centroid.get("latitude") or aoi.get("centroid_latitude"))
 
-    session.execute(delete(Analysis).where(Analysis.id == analysis_id))
+    if identity is None and geometry is not None:
+        identity = geometry_identity(geometry)
+    closest_km = nearest_km(session, longitude, latitude)
+    effective_created_at = created_at or datetime.now()
+    analysis = session.get(Analysis, analysis_id)
+    if analysis is None:
+        analysis = Analysis(id=analysis_id, created_at=effective_created_at)
+        session.add(analysis)
 
-    analysis = Analysis(
-        id=analysis_id,
-        created_at=created_at or datetime.now(),
-        status=str(payload.get("status") or "unknown"),
-        decision=recommendation.get("decision"),
-        confidence=recommendation.get("confidence"),
-        summary=recommendation.get("summary"),
-        experimental=bool(recommendation.get("experimental", True)),
-        period_start=_as_date(period.get("start_date")),
-        period_end=_as_date(period.get("end_date")),
-        period_timezone=period.get("timezone"),
-        period_strategy=period.get("strategy"),
-        selected_area_m2=_as_float(payload.get("selected_area_m2")),
-        effective_area_m2=_as_float(payload.get("effective_analysis_area_m2")),
-        effective_area_pct=_as_float(payload.get("effective_analysis_pct")),
-        analysis_quality_status=quality.get("status"),
-        analysis_quality_score=_as_float(quality.get("score")),
-        observation_count=_as_int(metrics.get("observation_count")),
-        current_ndvi_mean=_as_float(metrics.get("current_ndvi_mean")),
-        current_percentile=_as_float(metrics.get("current_percentile")),
-        recent_trend=_as_float(metrics.get("recent_trend")),
-        recent_trend_status=metrics.get("recent_trend_status"),
-        geometry=dict(geometry) if geometry else None,
-        centroid_longitude=longitude,
-        centroid_latitude=latitude,
-        nearest_km=nearest_km(session, longitude, latitude),
-        run_directory=run_directory,
-        artifacts=dict(artifacts) if artifacts else None,
-        payload=dict(payload),
-    )
+    values = {
+        "status": str(payload.get("status") or "unknown"),
+        "decision": recommendation.get("decision"),
+        "confidence": recommendation.get("confidence"),
+        "summary": recommendation.get("summary"),
+        "experimental": bool(recommendation.get("experimental", True)),
+        "period_start": _as_date(period.get("start_date")),
+        "period_end": _as_date(period.get("end_date")),
+        "period_timezone": period.get("timezone"),
+        "period_strategy": period.get("strategy"),
+        "selected_area_m2": _as_float(payload.get("selected_area_m2")),
+        "effective_area_m2": _as_float(payload.get("effective_analysis_area_m2")),
+        "effective_area_pct": _as_float(payload.get("effective_analysis_pct")),
+        "analysis_quality_status": quality.get("status"),
+        "analysis_quality_score": _as_float(quality.get("score")),
+        "observation_count": _as_int(metrics.get("observation_count")),
+        "current_ndvi_mean": _as_float(metrics.get("current_ndvi_mean")),
+        "current_percentile": _as_float(metrics.get("current_percentile")),
+        "recent_trend": _as_float(metrics.get("recent_trend")),
+        "recent_trend_status": metrics.get("recent_trend_status"),
+        "geometry": dict(geometry) if geometry else None,
+        "centroid_longitude": longitude,
+        "centroid_latitude": latitude,
+        "nearest_km": closest_km,
+        "run_directory": run_directory,
+        "artifacts": dict(artifacts) if artifacts else None,
+        "payload": dict(payload),
+    }
+    if identity is not None:
+        values.update(
+            subject_kind=identity.subject_kind,
+            subject_key=identity.subject_key,
+            spatial_key=identity.spatial_key,
+            road_id=identity.road_id,
+            road_ref=identity.road_ref,
+            road_name=identity.road_name,
+            axis_id=identity.axis_id,
+            section_id=identity.section_id,
+            section_index=identity.section_index,
+        )
+    for field, value in values.items():
+        setattr(analysis, field, value)
 
-    seen: set[date] = set()
+    observations_by_date: dict[date, Mapping[str, Any]] = {}
     for record in payload.get("timeseries") or []:
         if not isinstance(record, Mapping):
             continue
         observed_on = _as_date(record.get("datetime") or record.get("date"))
-        if observed_on is None or observed_on in seen:
+        if observed_on is None or observed_on in observations_by_date:
             continue
-        seen.add(observed_on)
-        analysis.observations.append(
-            AnalysisObservation(
-                observed_on=observed_on,
-                ndvi_mean=_as_float(record.get("ndvi_mean")),
-                ndvi_median=_as_float(record.get("ndvi_median")),
-                scene_quality_score=_as_float(record.get("scene_quality_score")),
-                valid_pixel_percentage=_as_float(record.get("valid_pixel_percentage")),
-            )
-        )
+        observations_by_date[observed_on] = record
 
-    session.add(analysis)
+    existing_by_date = {item.observed_on: item for item in analysis.observations}
+    for observed_on, record in observations_by_date.items():
+        observation = existing_by_date.pop(observed_on, None)
+        if observation is None:
+            observation = AnalysisObservation(observed_on=observed_on)
+            analysis.observations.append(observation)
+        observation.ndvi_mean = _as_float(record.get("ndvi_mean"))
+        observation.ndvi_median = _as_float(record.get("ndvi_median"))
+        observation.scene_quality_score = _as_float(record.get("scene_quality_score"))
+        observation.valid_pixel_percentage = _as_float(
+            record.get("valid_pixel_percentage")
+        )
+    for obsolete in existing_by_date.values():
+        analysis.observations.remove(obsolete)
+
+    latest_valid = max(observations_by_date, default=None)
+    analysis.latest_valid_observation_on = latest_valid
     session.flush()
+    if identity is not None:
+        source = (
+            "automatic"
+            if payload.get("analysis_trigger") == "automatic_viewport"
+            else "manual"
+        )
+        MonitoredSectionRepository(session).upsert(
+            identity,
+            geometry=geometry,
+            source=source,
+            analysis_at=analysis.created_at,
+            latest_valid_observation_on=latest_valid,
+            cadence_days=monitored_section_cadence_days,
+        )
     return analysis
 
 

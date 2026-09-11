@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 import math
 import sqlite3
@@ -582,6 +583,7 @@ class AutomaticAnalysisCoordinator:
                     execute,
                     started,
                     zoom,
+                    response_metadata,
                 )
             except Exception:
                 self.repository.fail(
@@ -837,10 +839,29 @@ class AutomaticAnalysisCoordinator:
         execute: Callable[[dict[str, Any], str], Mapping[str, Any]],
         started: datetime,
         zoom: float,
+        response_metadata: Mapping[str, Any] | None = None,
     ) -> None:
         processing_stage = "pipeline_and_response_adapter"
         try:
-            result = dict(execute(canonical.geometry, analysis_id))
+            parameters = inspect.signature(execute).parameters.values()
+            accepts_context = any(
+                parameter.name == "analysis_context"
+                or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters
+            )
+            if accepts_context:
+                context = {"spatial_key": canonical.spatial_key}
+                if response_metadata:
+                    context.update(response_metadata)
+                result = dict(
+                    execute(
+                        canonical.geometry,
+                        analysis_id,
+                        analysis_context=context,
+                    )
+                )
+            else:
+                result = dict(execute(canonical.geometry, analysis_id))
             pipeline_result_status = str(result.get("status") or "unknown")
             finished = self.clock()
             processing_stage = "cache_persistence"

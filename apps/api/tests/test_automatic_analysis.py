@@ -742,6 +742,18 @@ def test_automatic_endpoint_exposes_roadside_contract_and_reuses_pipeline(client
     cached_body = cached.json()
     assert cached_body["status"] == "cache_hit"
     assert cached_body["result"]["recommendation"]["decision"] == "cortar"
+    with session_scope() as session:
+        persisted = get_analysis(session, body["analysis_id"])
+        assert persisted is not None
+        assert persisted.subject_kind == "road_section"
+        assert persisted.subject_key == body["spatial_key"]
+        assert persisted.spatial_key == body["spatial_key"]
+        assert persisted.road_id == "SP-330"
+        assert persisted.road_ref == "SP-330"
+        assert persisted.road_name == "Rodovia Anhanguera"
+        assert persisted.axis_id == body["road"]["axis_id"]
+        assert persisted.section_id == body["road"]["section_id"]
+        assert persisted.section_index == body["road"]["section_index"]
     fusion = cached_body["result"]["multisource"]["experimental_fusion"]
     assert fusion["multisource_recommendation"] == "cortar"
     assert fusion["final_recommendation"] == "cortar"
