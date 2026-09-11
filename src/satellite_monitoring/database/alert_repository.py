@@ -5,11 +5,34 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .identity import AnalysisIdentity
-from .models import Alert, AlertEvent, MonitoredSection
+from .models import Alert, AlertEvent, AlertStatus, Analysis, MonitoredSection
+
+
+class AlertVersionConflict(RuntimeError):
+    """The projection changed since the client read it."""
+
+
+class InvalidAlertTransition(ValueError):
+    """The requested operational status transition is not allowed."""
+
+
+_ALLOWED_STATUS_TRANSITIONS = {
+    AlertStatus.NEW.value: {
+        AlertStatus.SEEN.value,
+        AlertStatus.MONITORING.value,
+        AlertStatus.RESOLVED.value,
+    },
+    AlertStatus.SEEN.value: {
+        AlertStatus.MONITORING.value,
+        AlertStatus.RESOLVED.value,
+    },
+    AlertStatus.MONITORING.value: {AlertStatus.RESOLVED.value},
+    AlertStatus.RESOLVED.value: set(),
+}
 
 
 class AlertRepository:
@@ -23,6 +46,113 @@ class AlertRepository:
 
     def get(self, alert_id: str) -> Alert | None:
         return self.session.get(Alert, alert_id)
+
+    def get_analysis(self, analysis_id: str | None) -> Analysis | None:
+        return self.session.get(Analysis, analysis_id) if analysis_id else None
+
+    def list_filtered(
+        self,
+        *,
+        status: str | None = None,
+        severity: str | None = None,
+        alert_type: str | None = None,
+        road: str | None = None,
+        section_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[int, int, Sequence[Alert]]:
+        filters = []
+        if status is not None:
+            filters.append(Alert.status == status)
+        if severity is not None:
+            filters.append(Alert.severity == severity)
+        if alert_type is not None:
+            filters.append(Alert.type == alert_type)
+        if road is not None:
+            normalized = road.strip().lower()
+            filters.append(
+                or_(
+                    func.lower(Alert.road_id) == normalized,
+                    func.lower(Alert.road_ref) == normalized,
+                    func.lower(Alert.road_name).contains(normalized),
+                )
+            )
+        if section_id is not None:
+            filters.append(Alert.section_id == section_id)
+
+        total = self.session.scalar(select(func.count(Alert.id)).where(*filters)) or 0
+        active_count = self.session.scalar(
+            select(func.count(Alert.id)).where(
+                *filters, Alert.status != AlertStatus.RESOLVED.value
+            )
+        ) or 0
+        active_order = case((Alert.status == AlertStatus.RESOLVED.value, 1), else_=0)
+        severity_order = case(
+            (Alert.severity == "critical", 0),
+            (Alert.severity == "high", 1),
+            (Alert.severity == "medium", 2),
+            else_=3,
+        )
+        items = self.session.execute(
+            select(Alert)
+            .where(*filters)
+            .order_by(active_order, severity_order, Alert.last_seen_at.desc(), Alert.id)
+            .limit(limit)
+            .offset(offset)
+        ).scalars().all()
+        return int(total), int(active_count), items
+
+    def update_status(
+        self,
+        alert_id: str,
+        *,
+        expected_version: int,
+        new_status: str,
+        now: datetime,
+    ) -> Alert | None:
+        alert = self.get(alert_id)
+        if alert is None:
+            return None
+        if alert.version != expected_version:
+            raise AlertVersionConflict(alert_id)
+        if new_status not in _ALLOWED_STATUS_TRANSITIONS.get(alert.status, set()):
+            raise InvalidAlertTransition(f"{alert.status}:{new_status}")
+
+        previous_status = alert.status
+        values: dict[str, Any] = {
+            "status": new_status,
+            "updated_at": now,
+            "version": Alert.version + 1,
+        }
+        if alert.acknowledged_at is None:
+            values["acknowledged_at"] = now
+        if new_status == AlertStatus.RESOLVED.value:
+            values["resolved_at"] = now
+            values["open_key"] = None
+
+        result = self.session.execute(
+            update(Alert)
+            .where(Alert.id == alert_id, Alert.version == expected_version)
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            raise AlertVersionConflict(alert_id)
+        self.session.expire(alert)
+        self.session.refresh(alert)
+        AlertEventRepository(self.session).add(
+            AlertEvent(
+                alert_id=alert.id,
+                event_type="status_changed",
+                occurred_at=now,
+                analysis_id=alert.last_analysis_id,
+                previous_status=previous_status,
+                new_status=new_status,
+                severity=alert.severity,
+                metadata_json={"source": "operator_api"},
+            )
+        )
+        return alert
 
     def get_open_by_key(self, open_key: str) -> Alert | None:
         return self.session.execute(

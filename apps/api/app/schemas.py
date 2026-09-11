@@ -442,3 +442,108 @@ class AutomaticAnalysisResponse(StrictModel):
     side_b_geometry: dict[str, Any] | None = None
     analyzed_geometry: dict[str, Any] | None = None
     roadside_metrics: dict[str, Any] | None = None
+
+
+AlertTypeValue = Literal[
+    "RECOMMENDATION_CHANGED",
+    "CUT_PENDING",
+    "REOBSERVATION_REQUIRED",
+    "STALE_MONITORING",
+    "SUPPORT_DIVERGENCE",
+]
+AlertSeverityValue = Literal["low", "medium", "high", "critical"]
+AlertStatusValue = Literal["new", "seen", "monitoring", "resolved"]
+AlertRecommendationValue = Literal["cortar", "nao_cortar", "inconclusivo"]
+
+
+class AlertListItem(StrictModel):
+    id: str
+    type: AlertTypeValue
+    severity: AlertSeverityValue
+    status: AlertStatusValue
+    subject_kind: str
+    subject_key: str
+    spatial_key: str | None = None
+    road_id: str | None = None
+    road_ref: str | None = None
+    road_name: str | None = None
+    axis_id: str | None = None
+    section_id: str | None = None
+    section_index: int | None = None
+    analysis_id: str
+    previous_analysis_id: str | None = None
+    last_analysis_id: str | None = None
+    current_recommendation: AlertRecommendationValue | None = None
+    previous_recommendation: AlertRecommendationValue | None = None
+    first_detected_at: datetime
+    last_seen_at: datetime
+    acknowledged_at: datetime | None = None
+    resolved_at: datetime | None = None
+    updated_at: datetime
+    version: int = Field(ge=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AlertPage(StrictModel):
+    total: int = Field(ge=0)
+    active_count: int = Field(ge=0)
+    limit: int = Field(ge=1, le=200)
+    offset: int = Field(ge=0)
+    items: list[AlertListItem]
+
+
+class AlertEventResponse(StrictModel):
+    id: int
+    event_type: str
+    occurred_at: datetime
+    analysis_id: str | None = None
+    previous_status: AlertStatusValue | None = None
+    new_status: AlertStatusValue | None = None
+    severity: AlertSeverityValue | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AlertAnalysisReference(StrictModel):
+    analysis_id: str
+    created_at: datetime
+    status: str
+    decision: AlertRecommendationValue | None = None
+    confidence: str | None = None
+    latest_valid_observation_on: date | None = None
+
+
+class AlertRoadMetadata(StrictModel):
+    road_id: str | None = None
+    road_ref: str | None = None
+    road_name: str | None = None
+    axis_id: str | None = None
+    section_id: str | None = None
+    section_index: int | None = None
+    spatial_key: str | None = None
+
+
+class AlertMapTarget(StrictModel):
+    geometry: dict[str, Any] | None = None
+    bounds: ViewportBounds | None = None
+    centroid: Centroid | None = None
+    road_ref: str | None = None
+    road_name: str | None = None
+    section_id: str | None = None
+
+
+class AlertDetail(AlertListItem):
+    timeline: list[AlertEventResponse]
+    origin_analysis: AlertAnalysisReference
+    previous_analysis: AlertAnalysisReference | None = None
+    latest_analysis: AlertAnalysisReference | None = None
+    road_metadata: AlertRoadMetadata
+    map_target: AlertMapTarget
+
+
+class AlertPatchRequest(StrictModel):
+    status: Literal["seen", "monitoring", "resolved"]
+    version: int = Field(ge=1)
+
+
+class AlertPatchResponse(AlertListItem):
+    pass

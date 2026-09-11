@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from zoneinfo import ZoneInfo
@@ -39,6 +39,12 @@ def get_analysis_now() -> datetime:
     """Relogio injetavel usado para definir o periodo oficial da analise."""
 
     return datetime.now(ZoneInfo(settings.analysis_timezone))
+
+
+def get_alert_now() -> datetime:
+    """Injectable UTC clock for operational alert state changes."""
+
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dataclass(frozen=True)

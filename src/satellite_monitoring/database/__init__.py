@@ -35,6 +35,8 @@ from .identity import (
 from .alert_repository import (
     AlertEventRepository,
     AlertRepository,
+    AlertVersionConflict,
+    InvalidAlertTransition,
     MonitoredSectionRepository,
 )
 from .alert_engine import AlertEngine, AlertEngineConfig
@@ -65,6 +67,7 @@ __all__ = [
     "AlertEngine",
     "AlertEngineConfig",
     "AlertRepository",
+    "AlertVersionConflict",
     "AlertSeverity",
     "AlertStatus",
     "AlertType",
@@ -76,6 +79,7 @@ __all__ = [
     "HEIGHT_THRESHOLD_CM",
     "Highway",
     "KmMarker",
+    "InvalidAlertTransition",
     "MowingPolygon",
     "MonitoredSection",
     "MonitoredSectionRepository",
