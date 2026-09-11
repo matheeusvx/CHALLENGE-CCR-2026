@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -51,6 +51,25 @@ class AnalysisRunRequest(StrictModel):
     min_observations: int | None = Field(None, ge=1, le=100)
     daily_aggregation: Literal["best", "median", "none"] | None = None
     decision: DecisionParameters | None = None
+
+
+class ViewportBounds(StrictModel):
+    west: float
+    south: float
+    east: float
+    north: float
+
+
+class ViewportCenter(StrictModel):
+    lng: float
+    lat: float
+
+
+class AutomaticAnalysisRequest(StrictModel):
+    bounds: ViewportBounds
+    zoom: float
+    center: ViewportCenter
+    force_refresh: bool = False
 
 
 class HealthResponse(StrictModel):
@@ -241,10 +260,22 @@ class ExperimentalFusionResponse(StrictModel):
     schema_version: Literal["1.0"]
     fusion_mode: Literal["disabled", "shadow", "experimental", "operational"]
     fusion_policy: Literal["experimental_v1"] | None
-    experimental_policy_version: Literal["1.0"] | None
+    experimental_policy_version: Literal["1.0", "1.1"] | None
     sentinel2_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
     multisource_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"]
     sentinel1_influenced_decision: bool
+    final_recommendation: Literal["cortar", "nao_cortar", "inconclusivo"] | None = None
+    sentinel1_validation_status: Literal[
+        "not_evaluated", "missing", "no_coverage", "unavailable", "error",
+        "disabled", "calibration_unavailable", "temporal_disabled",
+        "temporal_insufficient_data", "valid",
+    ] | None = None
+    multisource_disagreement: bool = False
+    review_recommended: bool = False
+    review_rule: Literal["B"] | None = None
+    review_reason: Literal[
+        "sentinel1_temporal_mixed_with_sentinel2_cut"
+    ] | None = None
     fusion_rule: Literal["B"] | None
     fusion_reason: Literal[
         "sentinel1_temporal_mixed_with_sentinel2_cut"
@@ -269,6 +300,23 @@ class ExperimentalFusionResponse(StrictModel):
         "sentinel1_temporal_disabled",
         "sentinel1_temporal_insufficient_data",
     ] | None
+
+    @model_validator(mode="after")
+    def preserve_sentinel2_as_primary_decision(self) -> "ExperimentalFusionResponse":
+        """Normalize cached policy-1.0 payloads to the S2-primary contract."""
+        self.final_recommendation = self.sentinel2_recommendation
+        self.multisource_recommendation = self.sentinel2_recommendation
+        self.sentinel1_influenced_decision = False
+        if (
+            self.fusion_rule == "B"
+            and self.sentinel2_recommendation == "cortar"
+            and self.sentinel1_temporal_status == "mixed"
+        ):
+            self.multisource_disagreement = True
+            self.review_recommended = True
+            self.review_rule = "B"
+            self.review_reason = "sentinel1_temporal_mixed_with_sentinel2_cut"
+        return self
 
 
 class MultisourceResponse(StrictModel):
@@ -314,6 +362,7 @@ class AnalysisResponse(StrictModel):
     artifacts: dict[str, str]
     warnings: list[dict[str, Any]]
     errors: list[dict[str, Any]]
+    analysis_trigger: Literal["manual", "automatic_viewport"] = "manual"
 
 
 class AnalysisHistoryItem(StrictModel):
@@ -350,3 +399,46 @@ class AnalysisHistoryDetail(StrictModel):
     created_at: datetime
     geometry: dict[str, Any] | None = None
     result: AnalysisResponse
+
+
+class AutomaticAnalysisResponse(StrictModel):
+    status: Literal[
+        "disabled",
+        "zoom_required",
+        "invalid_viewport",
+        "cache_hit",
+        "in_progress",
+        "analysis_started",
+        "completed",
+        "failed",
+        "road_context_required",
+        "road_geometry_unavailable",
+        "road_not_found",
+        "road_geometry_unreliable",
+        "road_ambiguous",
+        "road_section_resolved",
+        "roadside_too_small",
+        "roadside_geometry_invalid",
+    ]
+    spatial_key: str | None = None
+    analysis_id: str | None = None
+    analysis_started: bool
+    cache_hit: bool
+    automatic: Literal[True]
+    reason: str | None = None
+    canonical_bounds: ViewportBounds | None = None
+    cache_state: Literal["fresh", "in_progress", "failed"] | None = None
+    expires_at: str | None = None
+    result: AnalysisResponse | None = None
+    road: dict[str, Any] | None = None
+    spatial_strategy: dict[str, Any] | None = None
+    canonical_segment_geometry: dict[str, Any] | None = None
+    candidate_audit: list[dict[str, Any]] = Field(default_factory=list)
+    roadway_exclusion_m: float | None = None
+    lateral_width_m: float | None = None
+    centerline: dict[str, Any] | None = None
+    roadway_exclusion_geometry: dict[str, Any] | None = None
+    side_a_geometry: dict[str, Any] | None = None
+    side_b_geometry: dict[str, Any] | None = None
+    analyzed_geometry: dict[str, Any] | None = None
+    roadside_metrics: dict[str, Any] | None = None

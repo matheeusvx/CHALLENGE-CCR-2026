@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from apps.api.app.dependencies import get_analysis_service
 from apps.api.app.main import app
+from apps.api.app.schemas import ExperimentalFusionResponse
 from apps.api.tests.conftest import make_result
 from src.satellite_monitoring.multisource.models import EvidenceObservation, EvidenceStatus, SourceEvidence
 from src.satellite_monitoring.multisource.runtime import collect_multisource_evidence
@@ -14,6 +15,34 @@ from src.satellite_monitoring.multisource.experimental_fusion import (
     attach_experimental_fusion,
 )
 from src.satellite_monitoring.sentinel1_temporal import Sentinel1TemporalConfig
+
+
+def test_experimental_fusion_schema_accepts_previous_1_0_payload() -> None:
+    historical = ExperimentalFusionResponse.model_validate(
+        {
+            "schema_version": "1.0",
+            "fusion_mode": "experimental",
+            "fusion_policy": "experimental_v1",
+            "experimental_policy_version": "1.0",
+            "sentinel2_recommendation": "cortar",
+            "multisource_recommendation": "inconclusivo",
+            "sentinel1_influenced_decision": True,
+            "fusion_rule": "B",
+            "fusion_reason": "sentinel1_temporal_mixed_with_sentinel2_cut",
+            "sentinel1_temporal_status": "mixed",
+            "experimental": True,
+            "operationally_authorized": False,
+            "experimental_fusion_evaluated": True,
+            "experimental_fusion_evaluable": True,
+            "fusion_not_evaluable_reason": None,
+        }
+    )
+    assert historical.experimental_policy_version == "1.0"
+    assert historical.final_recommendation == "cortar"
+    assert historical.multisource_recommendation == "cortar"
+    assert historical.sentinel1_influenced_decision is False
+    assert historical.multisource_disagreement is True
+    assert historical.review_recommended is True
 
 
 def test_temporal_flag_api_serialization_and_identical_recommendation(client, valid_payload):
@@ -191,7 +220,10 @@ def test_experimental_multisource_recommendation_is_additive_in_api(
     assert body["recommendation"]["decision"] == "cortar"
     fusion = body["multisource"]["experimental_fusion"]
     assert fusion["sentinel2_recommendation"] == "cortar"
-    assert fusion["multisource_recommendation"] == "inconclusivo"
-    assert fusion["sentinel1_influenced_decision"] is True
+    assert fusion["multisource_recommendation"] == "cortar"
+    assert fusion["final_recommendation"] == "cortar"
+    assert fusion["sentinel1_influenced_decision"] is False
+    assert fusion["multisource_disagreement"] is True
+    assert fusion["review_recommended"] is True
     assert fusion["fusion_rule"] == "B"
     assert fusion["operationally_authorized"] is False

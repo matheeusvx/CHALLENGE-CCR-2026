@@ -60,8 +60,7 @@ export const MAP_CONFIG = {
 export const AUTO_ANALYSIS_CONFIG = {
   debounceMs: 1000,
   pollingIntervalMs: 2500,
-  maxPollingIterations: 30,
-  minZoom: 14,
+  minZoom: 13,
   maxZoom: 22,
   storageKey: "motiva.auto_analysis_enabled",
 } as const;

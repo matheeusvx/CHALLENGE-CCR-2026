@@ -75,5 +75,5 @@ only producer of the official recommendation.
 
 The same radiometric status may be consumed by the explicitly opt-in
 `experimental_v1` policy described in `docs/sentinel1_experimental_fusion.md`.
-That policy exposes a separate multisource recommendation and does not change
-the meaning of the Sentinel-2 `recommendation` field.
+That policy exposes disagreement/review audit fields but preserves Sentinel-2
+as both the primary and final recommendation.

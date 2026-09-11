@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Loader2, ZoomIn } from "lucide-react";
+import { AlertCircle, Info, Loader2, ZoomIn } from "lucide-react";
 import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
 import { getEffectiveRecommendation, decisionLabels } from "@/lib/utils/recommendation";
 
@@ -31,6 +31,7 @@ export function AutoAnalysisPanel() {
       role="region"
       aria-label="Controle de análise automática"
       data-status={uiStatus}
+      data-analysis-id={result?.analysis_id}
       data-tour="auto-analysis"
     >
       {/* Linha 1: toggle */}
@@ -62,9 +63,24 @@ export function AutoAnalysisPanel() {
               <span>Estabilizando...</span>
             </span>
           ) : uiStatus === "zoom_required" ? (
-            <span className="pill-status-item zoom-required" title="Aproxime o mapa (zoom ≥ 14)">
+            <span className="pill-status-item zoom-required" title="Aproxime o mapa (zoom ≥ 13)">
               <ZoomIn size={12} aria-hidden="true" />
               <span>Aproxime o mapa</span>
+            </span>
+          ) : uiStatus === "road_context_required" ? (
+            <span className="pill-status-item road-context-required" title="Aproxime um pouco para identificar o trecho">
+              <ZoomIn size={12} aria-hidden="true" />
+              <span>Aproxime um pouco para identificar o trecho</span>
+            </span>
+          ) : uiStatus === "road_not_found" ? (
+            <span className="pill-status-item road-not-found" title="Nenhuma rodovia monitorada identificada neste ponto">
+              <Info size={12} aria-hidden="true" />
+              <span>Nenhuma rodovia monitorada identificada neste ponto</span>
+            </span>
+          ) : uiStatus === "road_ambiguous" ? (
+            <span className="pill-status-item road-ambiguous" title="Não foi possível identificar o trecho com segurança">
+              <AlertCircle size={12} aria-hidden="true" />
+              <span>Não foi possível identificar o trecho com segurança</span>
             </span>
           ) : uiStatus === "failed" ? (
             <span className="pill-status-item failed" title="Falha na análise automática">

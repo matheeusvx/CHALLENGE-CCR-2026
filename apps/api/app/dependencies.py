@@ -7,15 +7,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from threading import RLock
 from zoneinfo import ZoneInfo
 
 from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.database import get_analysis, session_scope
 from src.satellite_monitoring.config import STAC_ENDPOINT
 from src.satellite_monitoring.multisource.providers.sentinel1 import Sentinel1Provider
+from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvider
 from src.satellite_monitoring.service import AnalysisResult, run_monitoring_analysis
 
 from .config import settings
+from .automatic_analysis import (
+    AutomaticAnalysisCoordinator,
+    AutomaticAnalysisPolicy,
+    AutomaticAnalysisRepository,
+)
 from .validation.repository import ValidationSampleRepository
 from .validation.temporal_benchmark import ValidationTemporalBenchmarkRunner
 
@@ -53,12 +60,15 @@ class AnalysisRegistry:
 
     def __init__(self) -> None:
         self._results: dict[str, AnalysisResult] = {}
+        self._lock = RLock()
 
     def add(self, result: AnalysisResult) -> None:
-        self._results[result.analysis_id] = result
+        with self._lock:
+            self._results[result.analysis_id] = result
 
     def get(self, analysis_id: str) -> AnalysisResult | StoredAnalysis | None:
-        cached = self._results.get(analysis_id)
+        with self._lock:
+            cached = self._results.get(analysis_id)
         if cached is not None:
             return cached
         return self._load_from_history(analysis_id)
@@ -82,14 +92,61 @@ class AnalysisRegistry:
             return None
 
     def clear(self) -> None:
-        self._results.clear()
+        with self._lock:
+            self._results.clear()
 
 
 analysis_registry = AnalysisRegistry()
+_automatic_analysis_coordinator: AutomaticAnalysisCoordinator | None = None
+_automatic_analysis_lock = RLock()
 
 
 def get_analysis_registry() -> AnalysisRegistry:
     return analysis_registry
+
+
+def get_automatic_analysis_coordinator() -> AutomaticAnalysisCoordinator:
+    global _automatic_analysis_coordinator
+    with _automatic_analysis_lock:
+        if _automatic_analysis_coordinator is None:
+            _automatic_analysis_coordinator = AutomaticAnalysisCoordinator(
+                AutomaticAnalysisRepository(settings.automatic_analysis_db_path),
+                AutomaticAnalysisPolicy(
+                    enabled=settings.auto_analysis_enabled,
+                    min_zoom=settings.auto_analysis_min_zoom,
+                    max_zoom=settings.auto_analysis_max_zoom,
+                    canonical_tile_zoom=settings.auto_analysis_canonical_tile_zoom,
+                    max_area_km2=settings.auto_analysis_max_area_km2,
+                    min_dimension_meters=settings.auto_analysis_min_dimension_meters,
+                    max_dimension_meters=settings.auto_analysis_max_dimension_meters,
+                    cache_ttl_seconds=settings.auto_analysis_cache_ttl_seconds,
+                    in_progress_ttl_seconds=settings.auto_analysis_in_progress_ttl_seconds,
+                    failure_ttl_seconds=settings.auto_analysis_failure_ttl_seconds,
+                    force_refresh_cooldown_seconds=(
+                        settings.auto_analysis_force_refresh_cooldown_seconds
+                    ),
+                    max_concurrent=settings.auto_analysis_max_concurrent,
+                    spatial_strategy=settings.auto_analysis_spatial_strategy,
+                    roadside_min_zoom=settings.auto_analysis_roadside_min_zoom,
+                    road_snap_max_distance_m=(
+                        settings.auto_analysis_road_snap_max_distance_m
+                    ),
+                    road_ambiguity_tolerance_m=(
+                        settings.auto_analysis_road_ambiguity_tolerance_m
+                    ),
+                    road_segment_length_m=(
+                        settings.auto_analysis_road_segment_length_m
+                    ),
+                    roadway_exclusion_m=settings.auto_analysis_roadway_exclusion_m,
+                    lateral_width_m=settings.auto_analysis_lateral_width_m,
+                    roadside_min_area_m2=settings.auto_analysis_roadside_min_area_m2,
+                    roadside_min_width_m=settings.auto_analysis_roadside_min_width_m,
+                ),
+                road_geometry_provider=LocalGeoJsonRoadGeometryProvider(
+                    settings.automatic_analysis_roads_dataset_path
+                ),
+            )
+        return _automatic_analysis_coordinator
 
 
 def get_validation_repository() -> ValidationSampleRepository:

@@ -2,7 +2,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PolygonGeometry } from "@/lib/map/geometry";
-import type { AnalysisResponse, AutomaticAnalysisResponse, ViewportBounds } from "@/lib/schemas/analyses";
+import {
+  automaticAnalysisResponseSchema,
+  type AnalysisResponse,
+  type AutomaticAnalysisResponse,
+  type ViewportBounds,
+} from "@/lib/schemas/analyses";
 import { AUTO_ANALYSIS_CONFIG, computeTileKey, DEFAULT_MAP_STYLE_ID, MAP_CONFIG } from "@/lib/map/config";
 import { getCurrentAnalysisResponse, useAnalysisStore } from "@/stores/analysis-store";
 import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
@@ -359,8 +364,8 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     const map = runtime.maps[0];
     act(() => map.emit("load"));
 
-    // Zoom 14 é aceito e dispara análise
-    map.zoom = 14;
+    // Zoom 13 é aceito e dispara análise
+    map.zoom = 13;
     act(() => map.emit("moveend"));
     act(() => vi.advanceTimersByTime(1000));
 
@@ -369,12 +374,12 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     });
 
     expect(mockRunAutomaticAnalysis).toHaveBeenCalledWith(
-      expect.objectContaining({ zoom: 14 }),
+      expect.objectContaining({ zoom: 13 }),
       expect.any(AbortSignal),
     );
 
-    // Zoom 13 está abaixo do novo mínimo (14) e exige mais zoom
-    map.zoom = 13;
+    // Zoom 12 está abaixo do novo mínimo (13) e exige mais zoom
+    map.zoom = 12;
     mockRunAutomaticAnalysis.mockClear();
     act(() => map.emit("moveend"));
     act(() => vi.advanceTimersByTime(1000));
@@ -384,8 +389,56 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     expect(screen.getByText("Aproxime o mapa")).toBeInTheDocument();
   });
 
+  it("mantém polling além do antigo limite de 75s até o backend concluir", async () => {
+    useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
+    const completedResult = makeMockResult("nao_cortar");
+    let callCount = 0;
+    mockRunAutomaticAnalysis.mockImplementation(async () => {
+      callCount += 1;
+      if (callCount <= 31) {
+        return {
+          status: callCount === 1 ? "analysis_started" : "in_progress",
+          analysis_id: "long-running-analysis",
+          analysis_started: callCount === 1,
+          cache_hit: false,
+          automatic: true,
+          spatial_key: "roadside:v1:test:section:1:side:both:profile",
+          canonical_bounds: mockBounds,
+          cache_state: "in_progress",
+          expires_at: "2026-09-08T17:00:00-03:00",
+        } satisfies AutomaticAnalysisResponse;
+      }
+      return {
+        status: "completed",
+        analysis_id: completedResult.analysis_id,
+        analysis_started: false,
+        cache_hit: false,
+        automatic: true,
+        canonical_bounds: mockBounds,
+        result: completedResult,
+      } satisfies AutomaticAnalysisResponse;
+    });
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.debounceMs); });
+
+    for (let index = 0; index < 31; index += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.pollingIntervalMs);
+      });
+    }
+
+    expect(mockRunAutomaticAnalysis).toHaveBeenCalledTimes(32);
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("completed");
+    expect(useAutoAnalysisStore.getState().reason).not.toBe("timeout");
+    expect(useAutoAnalysisStore.getState().result?.analysis_id).toBe(completedResult.analysis_id);
+  });
+
   it("F) backend e frontend possuem limites consistentes", () => {
-    expect(AUTO_ANALYSIS_CONFIG.minZoom).toBe(14);
+    expect(AUTO_ANALYSIS_CONFIG.minZoom).toBe(13);
   });
 
   it("G) analysis completed → resultado vira análise selecionada", async () => {
@@ -558,7 +611,7 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     expect(useAnalysisStore.getState().isGeometryDirty).toBe(true);
   });
 
-  it("M) multisource recommendation continua sendo principal", async () => {
+  it("M) resultado principal segue Sentinel-2 e remove detalhes internos da fusao", async () => {
     const fusionResult = makeMockResult("cortar");
     fusionResult.multisource = {
       enabled: true,
@@ -619,14 +672,13 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
       </QueryClientProvider>
     );
 
-    // UI principal mostra INCONCLUSIVO em destaque
-    expect(screen.getByText("INCONCLUSIVO")).toBeInTheDocument();
-    // Sentinel-2 original continua visível/auditável
-    expect(screen.getByText(/Sentinel-2:\s*CORTAR/)).toBeInTheDocument();
-    // Indicação discreta de influência do Sentinel-1
-    expect(screen.getByText("Sentinel-1 influenciou esta análise")).toBeInTheDocument();
-    // Regra aplicada
-    expect(screen.getByText("Regra B")).toBeInTheDocument();
+    // UI principal mostra CORTAR em destaque (priorizando Sentinel-2)
+    expect(screen.getAllByText("CORTAR").length).toBeGreaterThanOrEqual(1);
+    // NÃO exibe detalhes internos de fusão na UI operacional
+    expect(screen.queryByText("Sentinel-1 influenciou esta análise")).not.toBeInTheDocument();
+    expect(screen.queryByText("Regra B")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resultado multissensor")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sentinel-2:\s*CORTAR/)).not.toBeInTheDocument();
   });
 
   it("N) stale response não troca sidebar para resultado antigo", async () => {
@@ -819,7 +871,7 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     expect(badge).toHaveClass("auto-result-badge--inconclusive");
   });
 
-  it("S) multisource_recommendation tem prioridade no badge do mapa", () => {
+  it("S) decisao do Sentinel-2 tem prioridade no badge do mapa", () => {
     const fusionResult = makeMockResult("cortar"); // S2 = cortar
     fusionResult.multisource = {
       enabled: true,
@@ -853,10 +905,10 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     const { container } = render(<AutoAnalysisPanel />);
     const badge = container.querySelector(".auto-result-badge");
     expect(badge).toBeInTheDocument();
-    // Deve mostrar multisource (INCONCLUSIVO), não o S2 (CORTAR)
-    expect(badge).toHaveTextContent("INCONCLUSIVO");
-    expect(badge).toHaveClass("auto-result-badge--inconclusive");
-    expect(badge).not.toHaveTextContent("CORTAR");
+    // Deve mostrar prioridade Sentinel-2 (CORTAR), divergência de Sentinel-1 permanece interna
+    expect(badge).toHaveTextContent("CORTAR");
+    expect(badge).toHaveClass("auto-result-badge--cut");
+    expect(badge).not.toHaveTextContent("INCONCLUSIVO");
   });
 
   it("T) badge desaparece ao desativar análise automática", () => {
@@ -952,5 +1004,468 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     // Badge ainda deve mostrar CORTAR (B), não NÃO CORTAR (A stale)
     const badgeAfter = container.querySelector(".auto-result-badge");
     expect(badgeAfter).toHaveTextContent("CORTAR");
+  });
+});
+
+describe("AUTO-03D — Frontend road-aware", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    runtime.maps = [];
+    runtime.draws = [];
+    runtime.popups = [];
+    mockRunAutomaticAnalysis.mockReset();
+    useAutoAnalysisStore.setState({
+      enabled: true,
+      uiStatus: "idle",
+      result: null,
+      currentSpatialKey: null,
+      canonicalBounds: null,
+      road: null,
+      analyzedGeometry: null,
+      centerline: null,
+      sideAGeometry: null,
+      sideBGeometry: null,
+      spatialStrategy: null,
+    });
+    useAnalysisStore.setState({
+      geometry: null,
+      geometryRevision: 0,
+      activeTab: "area",
+      currentResult: null,
+      selectedTool: "navigate",
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const mockRoadsidePolygon = {
+    type: "Polygon",
+    coordinates: [
+      [
+        [-46.95, -23.1],
+        [-46.948, -23.1],
+        [-46.948, -23.098],
+        [-46.95, -23.098],
+        [-46.95, -23.1],
+      ],
+    ],
+  };
+
+  const mockCenterline = {
+    type: "LineString",
+    coordinates: [
+      [-46.95, -23.1],
+      [-46.948, -23.098],
+    ],
+  };
+
+  it("cache_hit real policy 1.1 substitui failed anterior e renderiza MultiPolygon roadside", async () => {
+    const cachedResult = makeMockResult("nao_cortar");
+    cachedResult.analysis_id = "3c6eaaa6-98a7-4b52-b8c9-bc93279ff545";
+    cachedResult.multisource = {
+      enabled: true,
+      fusion_mode: "experimental",
+      official_recommendation_changed: false,
+      generated_at: "2026-09-08T17:11:00-03:00",
+      experimental_fusion: {
+        schema_version: "1.0",
+        fusion_mode: "experimental",
+        fusion_policy: "experimental_v1",
+        experimental_policy_version: "1.1",
+        sentinel2_recommendation: "nao_cortar",
+        final_recommendation: "nao_cortar",
+        multisource_recommendation: "nao_cortar",
+        sentinel1_influenced_decision: false,
+        fusion_rule: null,
+        fusion_reason: null,
+        sentinel1_temporal_status: "stable",
+        experimental: true,
+        operationally_authorized: false,
+      },
+    };
+    const analyzedMultiPolygon = {
+      type: "MultiPolygon",
+      coordinates: [
+        [[[ -46.957, -23.119 ], [ -46.956, -23.119 ], [ -46.956, -23.118 ], [ -46.957, -23.119 ]]],
+        [[[ -46.955, -23.117 ], [ -46.954, -23.117 ], [ -46.954, -23.116 ], [ -46.955, -23.117 ]]],
+      ],
+    };
+    const rawCacheHit = {
+      status: "cache_hit",
+      cache_hit: true,
+      analysis_started: false,
+      automatic: true,
+      analysis_id: cachedResult.analysis_id,
+      spatial_key: "roadside:v1:local_geojson:sp348:section:000170:side:both:profile",
+      canonical_bounds: mockBounds,
+      cache_state: "fresh",
+      result: cachedResult,
+      road: { id: "SP-348", ref: "SP-348", name: "Rodovia dos Bandeirantes" },
+      spatial_strategy: { name: "roadside", version: "1.0" },
+      centerline: mockCenterline,
+      side_a_geometry: mockRoadsidePolygon,
+      side_b_geometry: mockRoadsidePolygon,
+      analyzed_geometry: analyzedMultiPolygon,
+      roadside_metrics: { area_m2: 23994.7 },
+    };
+
+    const parsed = automaticAnalysisResponseSchema.parse(rawCacheHit);
+    expect(parsed.result?.multisource?.experimental_fusion?.experimental_policy_version).toBe("1.1");
+    expect(parsed.analyzed_geometry?.type).toBe("MultiPolygon");
+
+    useAutoAnalysisStore.getState().setFailed("old_failure", mockBounds);
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("failed");
+    mockRunAutomaticAnalysis.mockResolvedValueOnce(parsed);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.debounceMs);
+    });
+
+    const autoState = useAutoAnalysisStore.getState();
+    expect(autoState.uiStatus).toBe("cache_hit");
+    expect(autoState.reason).toBeNull();
+    expect(autoState.result?.analysis_id).toBe(cachedResult.analysis_id);
+    expect(useAnalysisStore.getState().currentResult?.response.analysis_id).toBe(cachedResult.analysis_id);
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
+    expect(screen.queryByText("Falha na análise")).not.toBeInTheDocument();
+    expect(screen.queryByText("Regra B")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Controle de análise automática" })).toHaveAttribute(
+      "data-analysis-id",
+      cachedResult.analysis_id,
+    );
+    expect(map.getSource("roadside-aoi-source")).toBeDefined();
+    expect(map.getSource("canonical-aoi-source")).toBeUndefined();
+  });
+
+  it("mantém a AOI roadside e enquadra uma vez durante started, polling e cache_hit", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cachedResult = makeMockResult("nao_cortar");
+    cachedResult.analysis_id = "roadside-hook-regression";
+    const analyzedMultiPolygon = {
+      type: "MultiPolygon",
+      coordinates: [
+        [[[-46.957, -23.119], [-46.956, -23.119], [-46.956, -23.118], [-46.957, -23.119]]],
+        [[[-46.955, -23.117], [-46.954, -23.117], [-46.954, -23.116], [-46.955, -23.117]]],
+      ],
+    };
+    const roadsideResponse = {
+      analysis_id: cachedResult.analysis_id,
+      automatic: true,
+      spatial_key: "roadside:v1:test:axis:section:1:side:both:profile",
+      canonical_bounds: mockBounds,
+      spatial_strategy: "roadside",
+      road: { id: "SP-348", ref: "SP-348", name: "Rodovia dos Bandeirantes" },
+      centerline: mockCenterline,
+      side_a_geometry: mockRoadsidePolygon,
+      side_b_geometry: mockRoadsidePolygon,
+      analyzed_geometry: analyzedMultiPolygon,
+    };
+
+    useAutoAnalysisStore.setState({
+      uiStatus: "analyzing",
+      canonicalBounds: mockBounds,
+      spatialStrategy: null,
+      analyzedGeometry: null,
+    });
+    mockRunAutomaticAnalysis
+      .mockResolvedValueOnce({
+        ...roadsideResponse,
+        status: "analysis_started",
+        analysis_started: true,
+        cache_hit: false,
+      } satisfies AutomaticAnalysisResponse)
+      .mockResolvedValueOnce({
+        ...roadsideResponse,
+        status: "in_progress",
+        analysis_started: false,
+        cache_hit: false,
+      } satisfies AutomaticAnalysisResponse)
+      .mockResolvedValueOnce({
+        ...roadsideResponse,
+        status: "cache_hit",
+        analysis_started: false,
+        cache_hit: true,
+        result: cachedResult,
+      } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.debounceMs);
+    });
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("analyzing");
+    const roadsideSource = map.getSource("roadside-aoi-source");
+    expect(roadsideSource).toBeDefined();
+    expect(map.getSource("canonical-aoi-source")).toBeUndefined();
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.pollingIntervalMs);
+    });
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("analyzing");
+    expect(map.getSource("roadside-aoi-source")).toBe(roadsideSource);
+    expect(map.getSource("canonical-aoi-source")).toBeUndefined();
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.pollingIntervalMs);
+    });
+
+    const hookErrors = consoleError.mock.calls.filter(([message]) =>
+      String(message).includes("changed size between renders"),
+    );
+    expect(hookErrors).toEqual([]);
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("cache_hit");
+    expect(useAutoAnalysisStore.getState().reason).toBeNull();
+    expect(useAnalysisStore.getState().currentResult?.response.analysis_id).toBe(cachedResult.analysis_id);
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    expect(screen.getByText("NÃO CORTAR")).toBeInTheDocument();
+    expect(screen.queryByText("Falha na análise")).not.toBeInTheDocument();
+    expect(map.getSource("roadside-aoi-source")).toBe(roadsideSource);
+    expect(map.getSource("canonical-aoi-source")).toBeUndefined();
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+    expect(map.getLayer("roadside-aoi-fill")?.paint?.["fill-color"]).toBe("#27865b");
+  });
+
+  it("1) resposta roadside_v1 desenha analyzed_geometry e centerline sem quadrado z17", async () => {
+    const roadsideResult = makeMockResult("nao_cortar");
+    roadsideResult.analysis_id = "roadside-test-1111";
+
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "completed",
+      spatial_strategy: "roadside",
+      road: { id: "sp-330", ref: "SP-330", name: "Rodovia Anhanguera" },
+      analyzed_geometry: mockRoadsidePolygon,
+      centerline: mockCenterline,
+      result: roadsideResult,
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Camada roadside foi instalada
+    expect(map.getSource("roadside-aoi-source")).toBeDefined();
+    expect(map.getLayer("roadside-aoi-fill")).toBeDefined();
+    expect(map.getLayer("roadside-aoi-outline")).toBeDefined();
+    expect(map.getSource("roadside-centerline-source")).toBeDefined();
+    expect(map.getLayer("roadside-centerline-line")).toBeDefined();
+
+    // Quadrado z17 (canonical) NÃO deve estar presente
+    expect(map.getSource("canonical-aoi-source")).toBeUndefined();
+
+    // Store foi atualizado com metadados da rodovia
+    const storeState = useAutoAnalysisStore.getState();
+    expect(storeState.road?.ref).toBe("SP-330");
+    expect(storeState.road?.name).toBe("Rodovia Anhanguera");
+    expect(storeState.spatialStrategy).toBe("roadside");
+  });
+
+  it("2) roadside em andamento exibe feedback visual analyzing", async () => {
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "analysis_started",
+      spatial_strategy: "roadside",
+      road: { id: "sp-330", ref: "SP-330", name: "Rodovia Anhanguera" },
+      analyzed_geometry: mockRoadsidePolygon,
+      centerline: mockCenterline,
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(map.getSource("roadside-aoi-source")).toBeDefined();
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("analyzing");
+    expect(screen.getByText("Analisando...")).toBeInTheDocument();
+  });
+
+  it("3) exibe mensagens informativas não-bloqueantes para road_context_required, road_not_found e road_ambiguous", async () => {
+    // A) road_context_required
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "road_context_required",
+      reason: "zoom_too_far_for_road_detection",
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("road_context_required");
+    expect(screen.getByText("Aproxime um pouco para identificar o trecho")).toBeInTheDocument();
+    expect(map.getSource("roadside-aoi-source")).toBeUndefined();
+
+    // B) road_not_found
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "road_not_found",
+      reason: "no_managed_road_in_area",
+    } satisfies AutomaticAnalysisResponse);
+
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("road_not_found");
+    expect(screen.getByText("Nenhuma rodovia monitorada identificada neste ponto")).toBeInTheDocument();
+
+    // C) road_ambiguous
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "road_ambiguous",
+      reason: "multiple_candidates_equidistant",
+    } satisfies AutomaticAnalysisResponse);
+
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("road_ambiguous");
+    expect(screen.getByText("Não foi possível identificar o trecho com segurança")).toBeInTheDocument();
+  });
+
+  it("4) resultado roadside abre aba Resultado imediatamente e exibe nome da rodovia sem chaves tecnicas", async () => {
+    const roadsideResult = makeMockResult("nao_cortar");
+    roadsideResult.analysis_id = "roadside-completed-auto";
+
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "completed",
+      spatial_strategy: "roadside",
+      road: { id: "sp-330", ref: "SP-330", name: "Rodovia Anhanguera" },
+      analyzed_geometry: mockRoadsidePolygon,
+      result: roadsideResult,
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Aba de resultado abre imediatamente sem clique extra
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+
+    const queryClient = new QueryClient();
+    const activeResult = useAnalysisStore.getState().currentResult?.response;
+    expect(activeResult).toBeDefined();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AnalysisResultSidebar result={activeResult} onRetry={() => undefined} />
+      </QueryClientProvider>
+    );
+
+    // Exibe identificação amigável da rodovia
+    expect(screen.getByText("SP-330")).toBeInTheDocument();
+    expect(screen.getByText("Rodovia Anhanguera")).toBeInTheDocument();
+    expect(screen.getByText("Trecho analisado")).toBeInTheDocument();
+
+    // PROIBIDO exibir chaves técnicas na UI operacional
+    expect(screen.queryByText(/axis_id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/section_id/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/spatial_key/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Regra B")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sentinel-1 influenciou esta análise")).not.toBeInTheDocument();
+  });
+
+  it("5) movimentação para fora de rodovia limpa geometria anterior (sem fantasmas)", async () => {
+    const roadsideResult = makeMockResult("nao_cortar");
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "completed",
+      spatial_strategy: "roadside",
+      road: { id: "sp-330", ref: "SP-330", name: "Rodovia Anhanguera" },
+      analyzed_geometry: mockRoadsidePolygon,
+      result: roadsideResult,
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(map.getSource("roadside-aoi-source")).toBeDefined();
+
+    // Operador move para ponto sem rodovia
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "road_not_found",
+      reason: "no_road",
+    } satisfies AutomaticAnalysisResponse);
+
+    act(() => map.emit("movestart"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Geometria roadside foi removida (sem fantasmas)
+    expect(map.getSource("roadside-aoi-source")).toBeUndefined();
+    expect(useAutoAnalysisStore.getState().analyzedGeometry).toBeNull();
+  });
+
+  it("6) retrocompatibilidade com tile_v1: canonical_bounds continua funcionando", async () => {
+    const tileResult = makeMockResult("cortar");
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({
+      status: "completed",
+      cache_hit: false,
+      analysis_started: false,
+      canonical_bounds: mockBounds,
+      result: tileResult,
+    } satisfies AutomaticAnalysisResponse);
+
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    act(() => map.emit("moveend"));
+    act(() => vi.advanceTimersByTime(1000));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Tile v1 abre resultado normalmente
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("completed");
   });
 });

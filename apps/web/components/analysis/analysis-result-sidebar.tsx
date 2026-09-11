@@ -30,6 +30,7 @@ import {
   selectedAreaSquareMeters,
 } from "@/lib/utils/recommendation";
 import { useAnalysisStore } from "@/stores/analysis-store";
+import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
 
 function SegmentationSummary({ zones, coveragePct }: { zones: SpatialZone[]; coveragePct?: number | null }) {
   const stats = calculateZoneAreaStats(zones, coveragePct);
@@ -96,6 +97,7 @@ function SegmentationSummary({ zones, coveragePct }: { zones: SpatialZone[]; cov
 
 export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisResponse; onRetry: () => void }) {
   const requestFit = useAnalysisStore((state) => state.requestGeometryFit);
+  const autoRoad = useAutoAnalysisStore((state) => state.road);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
   const [savedSamples, setSavedSamples] = useState<Set<string>>(new Set());
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -121,23 +123,24 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
     : null;
 
   const effective = getEffectiveRecommendation(result);
+  const road = result.road ?? (result.analysis_trigger === "automatic_viewport" ? autoRoad : null);
 
   return (
     <div className="workspace-panel-content result-sidebar">
       <div className={`decision-block ${effective.primaryDecision}`} data-decision={effective.primaryDecision}>
-        <span>{effective.isMultisource ? "Resultado multissensor" : hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
-        <strong>{formatRecommendation(effective.primaryDecision)}</strong>
-        {effective.isMultisource ? (
-          <div className="sidebar-multisource-audit">
-            <span className="s2-audit-tag">Sentinel-2: {formatRecommendation(effective.s2Decision)}</span>
-            {effective.influenced ? (
-              <span className="s1-influenced-tag">Sentinel-1 influenciou esta análise</span>
-            ) : null}
-            {effective.fusionRule ? (
-              <span className="fusion-rule-tag">Regra {effective.fusionRule}</span>
-            ) : null}
+        <div className="decision-header-flex">
+          <div className="decision-main-info">
+            <span>{hasSegmentation ? "Resultado consolidado" : "Recomendação"}</span>
+            <strong>{formatRecommendation(effective.primaryDecision)}</strong>
           </div>
-        ) : null}
+          {road ? (
+            <div className="decision-road-context" data-testid="result-road-context">
+              {road.ref ? <span className="road-title">{road.ref}</span> : null}
+              {road.name ? <span className="road-name">{road.name}</span> : null}
+              <span className="road-subtitle">Trecho analisado</span>
+            </div>
+          ) : null}
+        </div>
         <p>{formatRecommendationSummary(effective.summary)}</p>
 
         {zoneStats && zoneStats.cutCount > 0 ? (

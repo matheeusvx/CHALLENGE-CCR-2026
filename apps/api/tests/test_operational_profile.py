@@ -138,6 +138,68 @@ def test_experimental_fusion_mode_is_an_explicit_supported_value(monkeypatch) ->
     assert configured.multisource_fusion_mode == "experimental"
 
 
+def test_automatic_analysis_is_disabled_with_conservative_defaults(monkeypatch) -> None:
+    for name in (
+        "AUTO_ANALYSIS_ENABLED",
+        "AUTO_ANALYSIS_MIN_ZOOM",
+        "AUTO_ANALYSIS_MAX_AREA_KM2",
+        "AUTO_ANALYSIS_CACHE_TTL_SECONDS",
+        "AUTO_ANALYSIS_MAX_CONCURRENT",
+        "AUTO_ANALYSIS_SPATIAL_STRATEGY",
+        "AUTO_ANALYSIS_ROADSIDE_MIN_ZOOM",
+        "AUTO_ANALYSIS_ROAD_SNAP_MAX_DISTANCE_M",
+        "AUTO_ANALYSIS_ROAD_AMBIGUITY_TOLERANCE_M",
+        "AUTO_ANALYSIS_ROAD_SEGMENT_LENGTH_M",
+        "AUTO_ANALYSIS_ROADWAY_EXCLUSION_M",
+        "AUTO_ANALYSIS_LATERAL_WIDTH_M",
+        "AUTO_ANALYSIS_ROADSIDE_MIN_AREA_M2",
+        "AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    configured = ApiSettings()
+    assert configured.auto_analysis_enabled is False
+    assert configured.auto_analysis_min_zoom == 14
+    assert configured.auto_analysis_max_area_km2 == 1000.0
+    assert configured.auto_analysis_cache_ttl_seconds == 21600
+    assert configured.auto_analysis_max_concurrent == 2
+    assert configured.auto_analysis_spatial_strategy == "roadside_v1"
+    assert configured.auto_analysis_roadside_min_zoom == 13
+    assert configured.auto_analysis_road_snap_max_distance_m == 50
+    assert configured.auto_analysis_road_ambiguity_tolerance_m == 10
+    assert configured.auto_analysis_road_segment_length_m == 300
+    assert configured.auto_analysis_roadway_exclusion_m == 25
+    assert configured.auto_analysis_lateral_width_m == 40
+    assert configured.auto_analysis_roadside_min_area_m2 == 5000
+    assert configured.auto_analysis_roadside_min_width_m == 20
+
+
+def test_roadside_configuration_is_explicit_and_validated(monkeypatch) -> None:
+    monkeypatch.setenv("AUTO_ANALYSIS_SPATIAL_STRATEGY", "roadside_v1")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADSIDE_MIN_ZOOM", "13")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROAD_SNAP_MAX_DISTANCE_M", "50")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROAD_AMBIGUITY_TOLERANCE_M", "10")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROAD_SEGMENT_LENGTH_M", "300")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADWAY_EXCLUSION_M", "25")
+    monkeypatch.setenv("AUTO_ANALYSIS_LATERAL_WIDTH_M", "40")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADSIDE_MIN_AREA_M2", "5000")
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M", "20")
+
+    configured = ApiSettings()
+    assert configured.auto_analysis_spatial_strategy == "roadside_v1"
+    assert configured.auto_analysis_roadside_min_zoom == 13
+    assert configured.auto_analysis_roadway_exclusion_m == 25
+    assert configured.auto_analysis_lateral_width_m == 40
+
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M", "0")
+    with pytest.raises(ValueError, match="AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M"):
+        ApiSettings()
+    monkeypatch.setenv("AUTO_ANALYSIS_ROADSIDE_MIN_WIDTH_M", "20")
+
+    monkeypatch.setenv("AUTO_ANALYSIS_SPATIAL_STRATEGY", "invented")
+    with pytest.raises(ValueError, match="AUTO_ANALYSIS_SPATIAL_STRATEGY"):
+        ApiSettings()
+
+
 def test_multisource_disabled_keeps_the_sentinel_service_unchanged(monkeypatch) -> None:
     monkeypatch.setenv("MULTISOURCE_ENABLED", "false")
 

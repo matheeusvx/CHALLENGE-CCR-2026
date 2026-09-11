@@ -1,8 +1,8 @@
 # Experimental Fusion V1
 
-Experimental Fusion V1 lets Sentinel-1 influence an explicitly separate
-multisource recommendation for research and demonstration. It is not an
-operationally authorized recommendation.
+Experimental Fusion V1 evaluates Sentinel-1 as validation/review evidence while
+keeping Sentinel-2 as the primary decision source. It is not an operationally
+authorized fusion policy.
 
 Enable it with all four settings:
 
@@ -14,22 +14,27 @@ MULTISOURCE_FUSION_MODE=experimental
 ```
 
 The existing API `recommendation` keeps its Sentinel-2 meaning for backward
-compatibility. Consumers that intentionally opt into the experiment may read
-`multisource.experimental_fusion.multisource_recommendation`.
+compatibility. Consumers may read the additive audit at
+`multisource.experimental_fusion`. `final_recommendation` and the compatible
+`multisource_recommendation` alias both preserve the Sentinel-2 result.
 
 ## Policy `experimental_v1`
 
-There is one rule:
+There is one review rule:
 
 ```text
 Sentinel-2 = cortar
 and calibrated Sentinel-1 temporal combined_status = mixed
--> experimental multisource recommendation = inconclusivo
+-> multisource_disagreement = true
+-> review_recommended = true
+-> final recommendation remains cortar
 ```
 
-The original Sentinel-2 recommendation remains `cortar`. The policy does not
-convert this case to `nao_cortar`; it only increases uncertainty. Every other
-combination preserves the Sentinel-2 result. Rules A, C and A+B are not present.
+Sentinel-1 never converts an objective `cortar` or `nao_cortar` decision to
+another class or to `inconclusivo`. `sentinel1_influenced_decision` therefore
+remains false. Rule B, its reason and the temporal validation status remain
+auditable. Every other combination preserves the Sentinel-2 result without a
+review trigger. Rules A, C and A+B are not present.
 
 `mixed` means VV and VH exhibit divergent radiometric temporal behavior under
 the existing calibrated sigma0, canonical-relative-orbit analysis. It does not
@@ -42,9 +47,12 @@ falls back to Sentinel-2 and the analysis continues.
 
 The two benchmark error patterns illustrate the intentional limitation:
 
-- `S2=cortar, S1=mixed` becomes experimental `inconclusivo`, never `no_cut`;
+- `S2=cortar, S1=mixed` remains `cortar` and receives an internal review signal;
 - `S2=nao_cortar, S1=increasing` remains `nao_cortar`, because rule A was not
   approved for this policy.
+
+When Sentinel-2 is `inconclusivo`, V1 also remains `inconclusivo`: current
+Sentinel-1 evidence does not support inventing a binary decision.
 
 ## Separation from operational fusion
 
@@ -57,4 +65,3 @@ The two benchmark error patterns illustrate the intentional limitation:
 `ExperimentalFusionPolicyV1` does not implement or inherit
 `OperationalFusionPolicy`. Selecting `operational` never activates the
 experimental policy.
-

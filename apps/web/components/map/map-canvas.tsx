@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 import type { Polygon } from "geojson";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MapLibreMap, Popup as MapPopup } from "maplibre-gl";
@@ -17,13 +18,12 @@ import { getAoiVisualState } from "@/lib/map/aoi-visual-state";
 import { AUTO_ANALYSIS_CONFIG, computeTileKey, MAP_CONFIG, OPERATIONAL_RASTER_STYLE } from "@/lib/map/config";
 import { runAutomaticAnalysis } from "@/lib/api/analyses";
 import { fitMapToGeometry } from "@/lib/map/fit-map-to-geometry";
-import { calculateGeometryPreview, type PolygonGeometry } from "@/lib/map/geometry";
-import { getResultPopupPresentation } from "@/lib/map/result-popup";
+import type { PolygonGeometry } from "@/lib/map/geometry";
 import type { AnalysisResponse, AutomaticAnalysisRequest, AutomaticAnalysisResponse } from "@/lib/schemas/analyses";
 import { isCurrentGeometryValidated, useAnalysisStore } from "@/stores/analysis-store";
 import { useAutoAnalysisStore } from "@/stores/auto-analysis-store";
 import { useHistoryStore } from "@/stores/history-store";
-import { getEffectiveRecommendation } from "@/lib/utils/recommendation";
+import { decisionLabels, getEffectiveRecommendation } from "@/lib/utils/recommendation";
 import { DrawingControls } from "./drawing-controls";
 import { AutoAnalysisPanel } from "./auto-analysis-panel";
 import { installAoiHoverInteractions, installOrUpdateAoiLayer, bringAoiLayersToFront } from "./layers/aoi-layer";
@@ -32,6 +32,11 @@ import {
   installOrUpdateCanonicalAoiLayer,
   removeCanonicalAoiLayer,
 } from "./layers/canonical-aoi-layer";
+import {
+  fitMapToRoadsideGeometry,
+  installOrUpdateRoadsideLayer,
+  removeRoadsideLayer,
+} from "./layers/roadside-layer";
 import { installOrUpdateManagedRoadsLayer } from "./layers/managed-roads-layer";
 import { installOrUpdateZonesLayer, removeZonesLayer, bringZonesLayersToFront, installZoneClickInteraction } from "./layers/spatial-zones-layer";
 import { MapStatus, type MapLoadStatus } from "./map-status";
@@ -40,6 +45,31 @@ import { useRoadColorStore } from "@/stores/road-color-store";
 
 
 type Props = { result?: AnalysisResponse; validationFailed?: boolean };
+
+function getSpatialStrategyName(response: AutomaticAnalysisResponse): string {
+  if (typeof response.spatial_strategy === "string") return response.spatial_strategy;
+  if (response.spatial_strategy && typeof response.spatial_strategy === "object") {
+    return String((response.spatial_strategy as Record<string, unknown>).name ?? "");
+  }
+  return "";
+}
+
+function isRoadsideResponse(response: AutomaticAnalysisResponse): boolean {
+  return (
+    getSpatialStrategyName(response).startsWith("roadside") ||
+    Boolean(response.analyzed_geometry) ||
+    Boolean(response.side_a_geometry) ||
+    Boolean(response.side_b_geometry)
+  );
+}
+
+function getRoadsideIdentity(response: AutomaticAnalysisResponse): string | null {
+  if (response.spatial_key) return response.spatial_key;
+  const road = response.road as Record<string, unknown> | null | undefined;
+  const axisId = road?.axis_id ?? road?.id;
+  const sectionId = road?.section_id;
+  return axisId && sectionId ? `roadside:${String(axisId)}:${String(sectionId)}` : null;
+}
 
 export function MapCanvas({ result, validationFailed = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +116,12 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const setAutoStarted = useAutoAnalysisStore((state) => state.setAnalysisStarted);
   const setAutoResult = useAutoAnalysisStore((state) => state.setAnalysisResult);
   const setAutoFailed = useAutoAnalysisStore((state) => state.setFailed);
+  const analyzedGeometry = useAutoAnalysisStore((state) => state.analyzedGeometry);
+  const centerline = useAutoAnalysisStore((state) => state.centerline);
+  const spatialStrategy = useAutoAnalysisStore((state) => state.spatialStrategy);
+  const hasRoadsideOverlay = Boolean(
+    spatialStrategy?.startsWith("roadside") || analyzedGeometry,
+  );
   const addHistoryEntry = useHistoryStore((state) => state.addEntry);
 
   const autoEnabledRef = useRef(autoEnabled);
@@ -98,7 +134,9 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef<number>(0);
-  const pollingIterationsRef = useRef<number>(0);
+  const lastFittedRoadsideIdentityRef = useRef<string | null>(null);
+  const roadsideCameraFitInProgressRef = useRef(false);
+  const roadsideCameraFitResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     autoEnabledRef.current = autoEnabled;
@@ -121,8 +159,12 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (roadsideCameraFitResetTimerRef.current) {
+      clearTimeout(roadsideCameraFitResetTimerRef.current);
+      roadsideCameraFitResetTimerRef.current = null;
+    }
+    roadsideCameraFitInProgressRef.current = false;
     requestIdRef.current += 1;
-    pollingIterationsRef.current = 0;
   };
 
   const schedulePolling = (payload: AutomaticAnalysisRequest, currentRequestId: number) => {
@@ -131,11 +173,6 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     }
     pollingTimerRef.current = setTimeout(async () => {
       if (currentRequestId !== requestIdRef.current || !autoEnabledRef.current) return;
-      if (pollingIterationsRef.current >= AUTO_ANALYSIS_CONFIG.maxPollingIterations) {
-        setAutoFailed("timeout");
-        return;
-      }
-      pollingIterationsRef.current += 1;
       try {
         const response = await runAutomaticAnalysis(payload);
         if (currentRequestId !== requestIdRef.current) return;
@@ -153,59 +190,175 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     currentRequestId: number,
   ) => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || currentRequestId !== requestIdRef.current) return;
+    const isRoadside = isRoadsideResponse(response);
+
+    const fitRoadsideOnce = (roadsideGeometry: unknown) => {
+      const identity = getRoadsideIdentity(response);
+      if (!identity || !roadsideGeometry || identity === lastFittedRoadsideIdentityRef.current) return;
+
+      lastFittedRoadsideIdentityRef.current = identity;
+      roadsideCameraFitInProgressRef.current = true;
+      const fitted = fitMapToRoadsideGeometry(map, roadsideGeometry);
+      if (!fitted) {
+        roadsideCameraFitInProgressRef.current = false;
+        lastFittedRoadsideIdentityRef.current = null;
+        return;
+      }
+      if (roadsideCameraFitResetTimerRef.current) {
+        clearTimeout(roadsideCameraFitResetTimerRef.current);
+      }
+      roadsideCameraFitResetTimerRef.current = setTimeout(() => {
+        roadsideCameraFitInProgressRef.current = false;
+        roadsideCameraFitResetTimerRef.current = null;
+      }, 1_200);
+    };
 
     if (response.status === "disabled") {
       setAutoStatus("disabled", response.reason);
       removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
       return;
     }
 
     if (response.status === "zoom_required") {
       setAutoStatus("zoom_required", response.reason);
       removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
       return;
     }
 
     if (response.status === "invalid_viewport") {
       setAutoStatus("invalid_viewport", response.reason);
       removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
+      return;
+    }
+
+    if (response.status === "road_context_required") {
+      setAutoStatus("road_context_required", response.reason);
+      removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
+      return;
+    }
+
+    if (response.status === "road_not_found") {
+      setAutoStatus("road_not_found", response.reason);
+      removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
+      return;
+    }
+
+    if (
+      response.status === "road_geometry_unavailable" ||
+      response.status === "road_geometry_unreliable" ||
+      response.status === "road_ambiguous" ||
+      response.status === "roadside_too_small" ||
+      response.status === "roadside_geometry_invalid"
+    ) {
+      setAutoStatus("road_ambiguous", response.reason);
+      removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
+      return;
+    }
+
+    if (response.status === "skipped") {
+      setAutoStatus("idle", response.reason);
+      removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
       return;
     }
 
     if (response.status === "failed") {
+      removeRoadsideLayer(map);
       setAutoFailed(response.reason, response.canonical_bounds ?? null);
-      if (response.canonical_bounds) {
+      if (!isRoadside && response.canonical_bounds) {
         installOrUpdateCanonicalAoiLayer(map, response.canonical_bounds, "failed");
+      } else {
+        removeCanonicalAoiLayer(map);
       }
+      return;
+    }
+
+    if (
+      response.status === "analysis_started" ||
+      response.status === "in_progress" ||
+      response.status === "road_section_resolved"
+    ) {
+      const roadsideDetails = isRoadside
+        ? {
+            road: response.road ?? null,
+            analyzedGeometry: response.analyzed_geometry ?? null,
+            centerline: response.centerline ?? null,
+            sideAGeometry: response.side_a_geometry ?? null,
+            sideBGeometry: response.side_b_geometry ?? null,
+            spatialStrategy: getSpatialStrategyName(response) || "roadside_v1",
+          }
+        : undefined;
+
+      setAutoStarted(response.spatial_key ?? null, response.canonical_bounds ?? null, roadsideDetails);
+      if (isRoadside) {
+        removeCanonicalAoiLayer(map);
+        installOrUpdateRoadsideLayer(
+          map,
+          {
+            analyzedGeometry: response.analyzed_geometry,
+            centerline: response.centerline,
+            sideAGeometry: response.side_a_geometry,
+            sideBGeometry: response.side_b_geometry,
+          },
+          "analyzing",
+        );
+        fitRoadsideOnce(response.analyzed_geometry);
+      } else {
+        removeRoadsideLayer(map);
+        if (response.canonical_bounds) {
+          installOrUpdateCanonicalAoiLayer(map, response.canonical_bounds, "analyzing");
+        }
+      }
+      schedulePolling(payload, currentRequestId);
       return;
     }
 
     if (response.status === "cache_hit" || response.status === "completed") {
+      if (!response.result || response.result.status !== "completed") {
+        removeCanonicalAoiLayer(map);
+        removeRoadsideLayer(map);
+        setAutoFailed("invalid_terminal_response");
+        return;
+      }
       setAutoResult(response);
-      removeCanonicalAoiLayer(map);
-      if (response.result) {
-        const tileGeometry: PolygonGeometry = response.canonical_bounds
-          ? {
-              type: "Polygon",
-              coordinates: boundsToPolygonCoordinates(response.canonical_bounds),
-            }
-          : {
-              type: "Polygon",
-              coordinates: [],
-            };
-        addHistoryEntry(response.result, tileGeometry);
-        useAnalysisStore.getState().applyAutomaticResult(response.result);
-      }
-      return;
-    }
+      const roadsideState = useAutoAnalysisStore.getState();
+      const roadsideGeometry = response.analyzed_geometry ?? roadsideState.analyzedGeometry;
+      const roadsideCenterline = response.centerline ?? roadsideState.centerline;
+      const decision = getEffectiveRecommendation(response.result).primaryDecision;
 
-    if (response.status === "analysis_started" || response.status === "in_progress") {
-      setAutoStarted(response.spatial_key ?? null, response.canonical_bounds ?? null);
-      if (response.canonical_bounds) {
-        installOrUpdateCanonicalAoiLayer(map, response.canonical_bounds, "analyzing");
+      if (isRoadside || roadsideState.spatialStrategy?.startsWith("roadside")) {
+        removeCanonicalAoiLayer(map);
+        installOrUpdateRoadsideLayer(
+          map,
+          { analyzedGeometry: roadsideGeometry, centerline: roadsideCenterline },
+          response.status,
+          decision,
+        );
+        fitRoadsideOnce(roadsideGeometry);
+      } else {
+        removeRoadsideLayer(map);
+        removeCanonicalAoiLayer(map);
       }
-      schedulePolling(payload, currentRequestId);
+
+      const resultWithRoad = response.road
+        ? { ...response.result, road: response.road }
+        : response.result;
+      if (!isRoadside && response.canonical_bounds) {
+        const tileGeometry: PolygonGeometry = {
+          type: "Polygon",
+          coordinates: boundsToPolygonCoordinates(response.canonical_bounds),
+        };
+        addHistoryEntry(resultWithRoad, tileGeometry, undefined, response.road);
+      }
+      useAnalysisStore.getState().applyAutomaticResult(resultWithRoad);
+      return;
     }
   };
 
@@ -223,6 +376,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       cancelAutoAnalysis();
       setAutoStatus("zoom_required", "zoom_below_minimum");
       removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
       return;
     }
 
@@ -246,7 +400,6 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const currentRequestId = ++requestIdRef.current;
-    pollingIterationsRef.current = 0;
 
     setAutoStatus("analyzing");
 
@@ -347,6 +500,25 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       }
       installOrUpdateAoiLayer(map, geometryRef.current, visualStateRef.current);
       disposeHoverRef.current = geometryRef.current ? installAoiHoverInteractions(map) : () => undefined;
+      const automaticState = useAutoAnalysisStore.getState();
+      if (
+        automaticState.enabled &&
+        automaticState.spatialStrategy?.startsWith("roadside") &&
+        automaticState.analyzedGeometry
+      ) {
+        removeCanonicalAoiLayer(map);
+        installOrUpdateRoadsideLayer(
+          map,
+          {
+            analyzedGeometry: automaticState.analyzedGeometry,
+            centerline: automaticState.centerline,
+          },
+          automaticState.uiStatus === "analyzing" ? "analyzing" : "completed",
+          automaticState.result
+            ? getEffectiveRecommendation(automaticState.result).primaryDecision
+            : undefined,
+        );
+      }
     };
 
     const handleStyleLoad = () => {
@@ -387,6 +559,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       setLoadStatus("error");
     };
     const handleMoveStart = () => {
+      if (roadsideCameraFitInProgressRef.current) return;
       if (autoEnabledRef.current) {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
@@ -399,6 +572,15 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     const handleMoveEnd = () => {
       const center = map.getCenter();
       setMapViewport({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
+
+      if (roadsideCameraFitInProgressRef.current) {
+        roadsideCameraFitInProgressRef.current = false;
+        if (roadsideCameraFitResetTimerRef.current) {
+          clearTimeout(roadsideCameraFitResetTimerRef.current);
+          roadsideCameraFitResetTimerRef.current = null;
+        }
+        return;
+      }
 
       if (!autoEnabledRef.current) return;
       if (selectedToolRef.current === "draw" || selectedToolRef.current === "edit") return;
@@ -458,6 +640,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       cancelAutoAnalysis();
       if (mapRef.current) {
         removeCanonicalAoiLayer(mapRef.current);
+        removeRoadsideLayer(mapRef.current);
       }
     } else {
       if (mapRef.current && styleEditorReadyRef.current && selectedTool === "navigate") {
@@ -473,6 +656,10 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   useEffect(() => {
     if (selectedTool === "draw" || selectedTool === "edit") {
       cancelAutoAnalysis();
+      if (mapRef.current) {
+        removeCanonicalAoiLayer(mapRef.current);
+        removeRoadsideLayer(mapRef.current);
+      }
     }
   }, [selectedTool]);
 
@@ -481,11 +668,27 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     if (!map || !styleEditorReadyRef.current) return;
     if (!autoEnabled) {
       removeCanonicalAoiLayer(map);
+      removeRoadsideLayer(map);
       return;
     }
     const decision = autoResult ? getEffectiveRecommendation(autoResult).primaryDecision : undefined;
-    installOrUpdateCanonicalAoiLayer(map, canonicalBounds, autoStatus, decision);
-  }, [autoEnabled, autoStatus, autoResult, canonicalBounds]);
+    if (hasRoadsideOverlay) {
+      removeCanonicalAoiLayer(map);
+      if (analyzedGeometry) {
+        installOrUpdateRoadsideLayer(
+          map,
+          { analyzedGeometry, centerline },
+          autoStatus === "analyzing" ? "analyzing" : "completed",
+          decision,
+        );
+      } else {
+        removeRoadsideLayer(map);
+      }
+    } else {
+      removeRoadsideLayer(map);
+      installOrUpdateCanonicalAoiLayer(map, canonicalBounds, autoStatus, decision);
+    }
+  }, [autoEnabled, autoStatus, autoResult, canonicalBounds, analyzedGeometry, centerline, hasRoadsideOverlay]);
 
   useEffect(() => {
     const draw = drawRef.current;
@@ -554,28 +757,10 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   }, [activeTab, geometry, result]);
 
   useEffect(() => {
-    popupRef.current?.remove();
-    popupRef.current = null;
-    const map = mapRef.current;
-    // Card grande só para análise manual — automática usa o badge no painel
-    if (!map || !result || !geometry || isGeometryDirty) return;
-    if (result.analysis_trigger === "automatic_viewport") return;
-    const presentation = getResultPopupPresentation(result);
-    const popupNode = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = presentation.decision;
-    const confidence = document.createElement("span");
-    confidence.textContent = `Confiança: ${presentation.confidence}`;
-    const period = document.createElement("span");
-    period.textContent = `Período: ${presentation.period}`;
-    popupNode.className = `map-result-popup ${presentation.state}`;
-    popupNode.dataset.decision = presentation.state;
-    popupNode.append(title, confidence, period);
-    const centroid = geometryValidation?.centroid ?? calculateGeometryPreview(geometry).centroid;
-    popupRef.current = new maplibregl.Popup({ closeButton: false, offset: 14, className: "analysis-result-map-popup" })
-      .setLngLat([centroid.longitude, centroid.latitude])
-      .setDOMContent(popupNode)
-      .addTo(map);
+    if (popupRef.current) {
+      popupRef.current.remove();
+      popupRef.current = null;
+    }
   }, [geometry, geometryValidation, isGeometryDirty, result, validated]);
 
   const retryBaseMap = () => {
@@ -609,6 +794,20 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     setHistoryState({ canUndo: draw.canUndo(), canRedo: draw.canRedo() });
   };
 
+  const isManualResult = Boolean(
+    result &&
+    result.analysis_trigger !== "automatic_viewport" &&
+    geometry
+  );
+  const manualEffective = isManualResult && result ? getEffectiveRecommendation(result) : null;
+  const manualDecisionKey = manualEffective?.primaryDecision ?? null;
+  const manualDecisionLabel = manualDecisionKey ? decisionLabels[manualDecisionKey] : null;
+  const manualClass = manualDecisionKey === "nao_cortar"
+    ? "manual-result-pill--no-cut"
+    : manualDecisionKey === "cortar"
+      ? "manual-result-pill--cut"
+      : "manual-result-pill--inconclusive";
+
   return (
     <div className="map-stage" data-tour="map" tabIndex={0} onKeyDown={(event) => {
       if (event.key === "Escape") setSelectedTool("navigate");
@@ -629,9 +828,29 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
         onUndo={() => replayHistory("undo")}
         onRedo={() => replayHistory("redo")}
       />
-      <AutoAnalysisPanel />
+      <div className="map-top-right-controls">
+        <AutoAnalysisPanel />
+        {isManualResult && manualDecisionKey && manualDecisionLabel ? (
+          <div
+            className={`manual-result-pill ${manualClass}`}
+            data-testid="manual-result-pill"
+            data-decision={manualDecisionKey}
+            role="status"
+            aria-label={`Resultado da análise manual: ${manualDecisionLabel}`}
+          >
+            <span className="manual-result-dot" aria-hidden="true" />
+            <span className="manual-result-prefix">Manual</span>
+            <span className="manual-result-sep" aria-hidden="true"> · </span>
+            <span className="manual-result-decision">{manualDecisionLabel}</span>
+          </div>
+        ) : geometry && validated && !isGeometryDirty && !result ? (
+          <div className="manual-validated-pill" role="status">
+            <CheckCircle2 size={12} className="validated-pill-icon" aria-hidden="true" />
+            <span>Área validada</span>
+          </div>
+        ) : null}
+      </div>
       <MapStatus status={loadStatus} tool={selectedTool} onRetry={retryBaseMap} />
-      {geometry && result?.analysis_trigger !== "automatic_viewport" ? <div className="map-aoi-floating-label" data-state={aoiVisualState.id}>Área selecionada · {aoiVisualState.label}</div> : null}
       <MapStyleSelector active="operational" />
     </div>
   );

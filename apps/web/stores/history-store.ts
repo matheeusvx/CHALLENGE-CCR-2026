@@ -11,13 +11,19 @@ export type HistoryEntry = {
   response: AnalysisResponse;
   geometry: PolygonGeometry;
   geometryValidation?: GeometryValidation;
+  road?: { id?: string; ref?: string; name?: string } | null;
 };
 
 const MAX_ENTRIES = 100;
 
 type HistoryState = {
   entries: HistoryEntry[];
-  addEntry: (response: AnalysisResponse, geometry: PolygonGeometry, validation?: GeometryValidation) => void;
+  addEntry: (
+    response: AnalysisResponse,
+    geometry: PolygonGeometry,
+    validation?: GeometryValidation,
+    road?: { id?: string; ref?: string; name?: string } | null,
+  ) => void;
   removeEntry: (id: string) => void;
   clear: () => void;
 };
@@ -26,7 +32,7 @@ export const useHistoryStore = create<HistoryState>()(
   persist(
     (set) => ({
       entries: [],
-      addEntry: (response, geometry, geometryValidation) =>
+      addEntry: (response, geometry, geometryValidation, road) =>
         set((state) => {
           const entry: HistoryEntry = {
             id: response.analysis_id,
@@ -34,6 +40,7 @@ export const useHistoryStore = create<HistoryState>()(
             response,
             geometry,
             geometryValidation,
+            road: road ?? (response as { road?: { id?: string; ref?: string; name?: string } }).road ?? null,
           };
           const withoutDuplicate = state.entries.filter((item) => item.id !== entry.id);
           return { entries: [entry, ...withoutDuplicate].slice(0, MAX_ENTRIES) };

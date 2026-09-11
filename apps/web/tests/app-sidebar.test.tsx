@@ -1,6 +1,10 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
+import { hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { AppShell } from "@/components/layout/app-shell";
 import { useSettingsStore, SIDEBAR_STORAGE_KEY } from "@/stores/settings-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useOperatorProfileStore } from "@/stores/operator-profile-store";
@@ -13,6 +17,7 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
     useSettingsStore.setState({
       sidebarCollapsed: true, // Padrão para novos operadores
+      sidebarHydrated: true,
       themePreference: "dark",
       notificationsEnabled: true,
     });
@@ -28,6 +33,68 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
       displayMode: "floating",
     });
   });
+
+  it.each([
+    { persisted: "false", expectedClass: "sidebar--expanded", expectedLabel: "Recolher barra lateral" },
+    { persisted: "true", expectedClass: "sidebar--collapsed", expectedLabel: "Expandir barra lateral" },
+  ])(
+    "SSR e primeiro render cliente ficam collapsed antes de aplicar preferência $persisted",
+    async ({ persisted, expectedClass, expectedLabel }) => {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, persisted);
+      useSettingsStore.setState({
+        sidebarCollapsed: true,
+        sidebarHydrated: false,
+      });
+      useOnboardingStore.setState({
+        onboardingCompleted: true,
+        tourActive: false,
+        tourSidebarExpanded: false,
+      });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
+      });
+      queryClient.setQueryData(["health"], { status: "ok" });
+      const ui = (
+        <QueryClientProvider client={queryClient}>
+          <AppShell>
+            <div>Conteúdo</div>
+          </AppShell>
+        </QueryClientProvider>
+      );
+      const serverMarkup = renderToString(ui);
+      expect(serverMarkup).toContain("app-shell sidebar--collapsed");
+      expect(serverMarkup).toContain("Expandir barra lateral");
+      expect(serverMarkup).not.toContain("app-shell sidebar--expanded");
+
+      const host = document.createElement("div");
+      host.innerHTML = serverMarkup;
+      document.body.appendChild(host);
+      expect(host.querySelector(".app-shell")).toHaveClass("sidebar--collapsed");
+
+      const recoverableErrors: unknown[] = [];
+      let root: Root | undefined;
+      await act(async () => {
+        root = hydrateRoot(host, ui, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        });
+        await Promise.resolve();
+      });
+
+      expect(recoverableErrors).toEqual([]);
+      expect(host.querySelector(".app-shell")).toHaveClass(expectedClass);
+      expect(host.querySelector(".sidebar")).toHaveClass(
+        persisted === "false" ? "is-expanded" : "is-collapsed",
+      );
+      expect(host.querySelector("[data-testid='sidebar-toggle-btn']")).toHaveAttribute(
+        "aria-label",
+        expectedLabel,
+      );
+
+      await act(async () => root?.unmount());
+      host.remove();
+    },
+  );
 
   // -------------------------------------------------------------------------
   // A) Sidebar inicia collapsed conforme default

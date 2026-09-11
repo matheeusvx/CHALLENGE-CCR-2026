@@ -50,12 +50,19 @@ def _evaluate(decision, temporal_status="mixed", *, mode="experimental", **optio
     )
 
 
-def test_rule_b_conservatively_changes_cut_to_experimental_inconclusive():
+def test_rule_b_preserves_cut_and_emits_disagreement_review():
     result = _evaluate("cortar", "mixed")
     assert result["fusion_policy"] == EXPERIMENTAL_FUSION_POLICY == "experimental_v1"
+    assert result["experimental_policy_version"] == "1.1"
     assert result["sentinel2_recommendation"] == "cortar"
-    assert result["multisource_recommendation"] == "inconclusivo"
-    assert result["sentinel1_influenced_decision"] is True
+    assert result["final_recommendation"] == "cortar"
+    assert result["multisource_recommendation"] == "cortar"
+    assert result["sentinel1_influenced_decision"] is False
+    assert result["sentinel1_validation_status"] == "valid"
+    assert result["multisource_disagreement"] is True
+    assert result["review_recommended"] is True
+    assert result["review_rule"] == "B"
+    assert result["review_reason"] == "sentinel1_temporal_mixed_with_sentinel2_cut"
     assert result["fusion_rule"] == "B"
     assert result["fusion_reason"] == "sentinel1_temporal_mixed_with_sentinel2_cut"
     assert result["experimental"] is True
@@ -67,20 +74,24 @@ def test_cut_with_any_status_outside_rule_b_remains_cut(temporal_status):
     result = _evaluate("cortar", temporal_status)
     assert result["multisource_recommendation"] == "cortar"
     assert result["sentinel1_influenced_decision"] is False
+    assert result["review_recommended"] is False
     assert result["fusion_rule"] is None
 
 
-@pytest.mark.parametrize("temporal_status", ["increasing", "mixed"])
+@pytest.mark.parametrize("temporal_status", ["increasing", "decreasing", "stable", "mixed"])
 def test_no_cut_is_never_changed_by_experimental_v1(temporal_status):
     result = _evaluate("nao_cortar", temporal_status)
     assert result["multisource_recommendation"] == "nao_cortar"
     assert result["sentinel1_influenced_decision"] is False
+    assert result["multisource_disagreement"] is False
+    assert result["review_recommended"] is False
 
 
 def test_s2_inconclusive_remains_inconclusive():
     result = _evaluate("inconclusivo", "mixed")
     assert result["multisource_recommendation"] == "inconclusivo"
     assert result["sentinel1_influenced_decision"] is False
+    assert result["review_recommended"] is False
 
 
 @pytest.mark.parametrize(
@@ -98,12 +109,17 @@ def test_s2_inconclusive_remains_inconclusive():
         ({"calibrated_observation_count": 0}, "sentinel1_calibration_unavailable"),
     ],
 )
-def test_s1_fail_soft_states_preserve_sentinel2(options, expected_reason):
+@pytest.mark.parametrize("s2_decision", ["cortar", "nao_cortar"])
+def test_s1_fail_soft_states_preserve_sentinel2(
+    options, expected_reason, s2_decision
+):
     options = dict(options)
     temporal_status = options.pop("temporal_status", "mixed")
-    result = _evaluate("cortar", temporal_status, **options)
-    assert result["multisource_recommendation"] == "cortar"
+    result = _evaluate(s2_decision, temporal_status, **options)
+    assert result["final_recommendation"] == s2_decision
+    assert result["multisource_recommendation"] == s2_decision
     assert result["sentinel1_influenced_decision"] is False
+    assert result["review_recommended"] is False
     assert result["experimental_fusion_evaluable"] is False
     assert result["fusion_not_evaluable_reason"] == expected_reason
 
@@ -134,16 +150,22 @@ def test_attachment_is_additive_and_does_not_mutate_official_recommendation():
     recommendation = {"recommendation": "cortar", "confidence": "high"}
     originals = deepcopy((multisource, recommendation))
     result = attach_experimental_fusion(multisource, recommendation)
-    assert result["experimental_fusion"]["multisource_recommendation"] == "inconclusivo"
+    audit = result["experimental_fusion"]
+    assert audit["multisource_recommendation"] == "cortar"
+    assert audit["final_recommendation"] == "cortar"
+    assert audit["multisource_disagreement"] is True
+    assert audit["review_recommended"] is True
+    assert audit["sentinel1_influenced_decision"] is False
     assert result["official_recommendation_changed"] is False
     assert (multisource, recommendation) == originals
 
 
-def test_benchmark_equivalent_false_positive_is_only_made_inconclusive():
+def test_benchmark_equivalent_false_positive_is_reviewed_but_remains_cut():
     # Ground truth is intentionally absent from production policy inputs.
     result = _evaluate("cortar", "mixed")
-    assert result["multisource_recommendation"] == "inconclusivo"
+    assert result["multisource_recommendation"] == "cortar"
     assert result["multisource_recommendation"] != "nao_cortar"
+    assert result["review_recommended"] is True
 
 
 def test_benchmark_equivalent_false_negative_is_unchanged_without_rule_a():
@@ -170,8 +192,10 @@ def test_structured_observability_contains_no_scientific_labels(caplog):
     assert record.experimental_fusion_triggered is True
     assert record.experimental_fusion_rule == "B"
     assert record.sentinel2_recommendation == "cortar"
-    assert record.multisource_recommendation == "inconclusivo"
-    assert record.sentinel1_influenced_decision is True
+    assert record.multisource_recommendation == "cortar"
+    assert record.sentinel1_influenced_decision is False
+    assert record.multisource_disagreement is True
+    assert record.review_recommended is True
     assert not hasattr(record, "ground_truth")
     assert not hasattr(record, "geometry")
 

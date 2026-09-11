@@ -31,7 +31,7 @@ type AnalysisState = {
   clearGeometry: () => void;
   resetAnalysisSession: () => void;
   applyAnalysisResult: (response: AnalysisResponse, revision: number) => void;
-  applyAutomaticResult: (response: AnalysisResponse) => void;
+  applyAutomaticResult: (response: AnalysisResponse, geometry?: PolygonGeometry | null) => void;
   restoreHistoricalAnalysis: (geometry: PolygonGeometry, response: AnalysisResponse, validation?: GeometryValidation) => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
   setSelectedTool: (tool: MapTool) => void;
@@ -113,10 +113,11 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
           }
         : {},
     ),
-  applyAutomaticResult: (response) =>
+  applyAutomaticResult: (response, geometry) =>
     set((state) => {
       const geometryRevision = state.geometryRevision + 1;
       return {
+        geometry: geometry !== undefined ? geometry : state.geometry,
         geometryRevision,
         activeTab: "result",
         currentResult: { response, geometryRevision },
@@ -148,6 +149,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
             lastValidatedGeometryRevision: revision,
             lastValidatedAt: new Date().toISOString(),
             isGeometryDirty: false,
+            selectedTool: validation.valid ? "navigate" : state.selectedTool,
           }
         : {},
     ),

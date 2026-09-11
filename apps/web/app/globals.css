@@ -4118,6 +4118,65 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   border: 1px solid rgba(124, 58, 237, 0.25);
 }
 
+.history-road-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.12);
+  color: #3b82f6;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decision-header-flex, .recommendation-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+}
+
+.decision-road-context, .recommendation-road-context {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 2px;
+}
+
+.decision-road-context .road-title, .recommendation-road-context .road-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.decision-road-context .road-name, .recommendation-road-context .road-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.decision-road-context .road-subtitle, .recommendation-road-context .road-subtitle {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-darker, #858a94);
+  margin-top: 2px;
+}
+
+
+:root[data-theme="dark"] .history-road-badge {
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
 .multisource-audit-row, .sidebar-multisource-audit {
   display: flex;
   flex-wrap: wrap;
@@ -4150,6 +4209,23 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   border-radius: 3px;
 }
 
+/* Top Right Map Controls Container */
+.map-top-right-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.map-top-right-controls > * {
+  pointer-events: auto;
+}
+
 /* Compact Auto-Analysis Pill Control */
 .auto-analysis-pill {
   position: absolute;
@@ -4171,6 +4247,89 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   transition: all 0.2s ease;
   backdrop-filter: blur(8px);
   min-width: 0;
+}
+
+.map-top-right-controls > .auto-analysis-pill {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
+/* Pill de resultado da análise manual no mapa — Fundo 100% sólido, zero glassmorphism */
+.manual-result-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  background: #171520;
+  border: 1px solid #363245;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Ponto semântico */
+.manual-result-dot {
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Prefixo secundário (medium/muted) */
+.manual-result-prefix {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #9d98ab;
+  letter-spacing: 0.01em;
+}
+
+/* Separador */
+.manual-result-sep {
+  color: #6b667e;
+  font-size: 11px;
+}
+
+/* Decisão em alto contraste (bold/branco) */
+.manual-result-decision {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.03em;
+}
+
+/* Verde — NÃO CORTAR */
+.manual-result-pill--no-cut {
+  border-color: rgba(16, 185, 129, 0.38);
+}
+.manual-result-pill--no-cut .manual-result-dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+}
+
+/* Vermelho — CORTAR */
+.manual-result-pill--cut {
+  border-color: rgba(239, 68, 68, 0.38);
+}
+.manual-result-pill--cut .manual-result-dot {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+}
+
+/* Âmbar — INCONCLUSIVO */
+.manual-result-pill--inconclusive {
+  border-color: rgba(245, 158, 11, 0.38);
+}
+.manual-result-pill--inconclusive .manual-result-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.7);
 }
 
 .auto-analysis-switch-label {
@@ -4245,19 +4404,36 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
   align-items: center;
   gap: 5px;
   font-size: 11.5px;
-  white-space: nowrap;
+  line-height: 1.25;
 }
 
 .pill-status-item.analyzing {
   color: #3b82f6;
+  white-space: nowrap;
 }
 
 .pill-status-item.stabilizing {
   color: #eab308;
+  white-space: nowrap;
 }
 
 .pill-status-item.zoom-required {
   color: var(--muted);
+  font-size: 11px;
+}
+
+.pill-status-item.road-context-required {
+  color: #a78bfa;
+  font-size: 11px;
+}
+
+.pill-status-item.road-not-found {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pill-status-item.road-ambiguous {
+  color: #f59e0b;
   font-size: 11px;
 }
 
@@ -4336,4 +4512,26 @@ main { max-width: 1420px; margin: 0 auto; padding: 30px 32px 60px; }
     opacity: 0.4;
     transform: scale(0.85);
   }
+}
+
+/* Pill de validação no mapa — Fundo dark sólido */
+.manual-validated-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  background: #171520;
+  border: 1px solid #363245;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+
+.manual-validated-pill .validated-pill-icon {
+  color: #10b981;
 }

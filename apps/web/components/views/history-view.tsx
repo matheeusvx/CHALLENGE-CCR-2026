@@ -77,13 +77,19 @@ export function HistoryView({ onStartNewAnalysis, onOpenWorkspace }: { onStartNe
               const period = entry.response.analysis_period;
               const Icon = decisionIcons[effective.primaryDecision];
               const isAutomatic = entry.response.analysis_trigger === "automatic_viewport";
+              const road = entry.road ?? (entry.response as { road?: { id?: string; ref?: string; name?: string } }).road;
+              const roadLabel = road ? [road.ref, road.name].filter(Boolean).join(" · ") : null;
               return (
                 <li key={`${entry.id}-${entry.savedAt}`} className={`history-card ${effective.primaryDecision}`}>
                   <div className="history-card-head">
                     <span className="decision-tag" data-decision={effective.primaryDecision}>
                       <Icon size={15} />{formatRecommendation(effective.primaryDecision)}
                     </span>
-                    {isAutomatic ? (
+                    {roadLabel ? (
+                      <span className="history-road-badge" title={`Rodovia monitorada: ${roadLabel}`}>
+                        {roadLabel}
+                      </span>
+                    ) : isAutomatic ? (
                       <span className="history-trigger-badge" title="Origem: análise automática do viewport">
                         Automática
                       </span>

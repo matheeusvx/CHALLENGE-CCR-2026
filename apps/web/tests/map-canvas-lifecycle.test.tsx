@@ -202,7 +202,6 @@ describe("lifecycle operacional do mapa", () => {
     act(() => draw.emit("finish"));
     expect(map.fitBounds).toHaveBeenCalledOnce();
     expect(useAnalysisStore.getState()).toMatchObject({ geometry: polygon, isGeometryDirty: true, selectedTool: "navigate" });
-    expect(screen.getAllByText(/Aguardando validação/).length).toBeGreaterThan(0);
     expect(runtime.polygonModeOptions[0]).toMatchObject({
       showCoordinatePoints: true,
       styles: { outlineWidth: 6, coordinatePointWidth: 10, closingPointWidth: 11 },
@@ -273,7 +272,7 @@ describe("lifecycle operacional do mapa", () => {
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(false);
   });
 
-  it("mantem a AOI entre tabs e apresenta popup legivel apos a analise", () => {
+  it("mantem a AOI entre tabs, nao renderiza card grande no poligono e exibe pill discreta", () => {
     const state = useAnalysisStore.getState();
     state.setGeometry(polygon, "drawn");
     const revision = useAnalysisStore.getState().geometryRevision;
@@ -294,19 +293,138 @@ describe("lifecycle operacional do mapa", () => {
       aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
     } satisfies AnalysisResponse;
 
-    render(<MapCanvas result={result} />);
+    const { container } = render(<MapCanvas result={result} />);
     const map = runtime.maps[0];
     act(() => map.emit("load"));
     act(() => useAnalysisStore.getState().setField("activeTab", "result"));
     act(() => useAnalysisStore.getState().setField("activeTab", "area"));
 
+    // Polígono continua visível no mapa com a cor semântica do resultado
     expect(map.sources.has(AOI_LAYER_IDS.source)).toBe(true);
     expect(map.layers.get(AOI_LAYER_IDS.outline)?.paint?.["line-color"]).toBe("#27865b");
-    expect(runtime.popups.at(-1)?.options).toMatchObject({ className: "analysis-result-map-popup" });
-    expect(runtime.popups.at(-1)?.content).toHaveTextContent("NÃO CORTAR");
-    expect(runtime.popups.at(-1)?.content).toHaveTextContent("Confiança: Alta");
-    expect(runtime.popups.at(-1)?.content).toHaveTextContent("Período: 11/07/2026 a 11/08/2026");
-    expect(runtime.popups.at(-1)?.content?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+
+    // SEM card grande no polígono / sem popup MapLibre permanente
+    expect(runtime.popups).toHaveLength(0);
+    expect(container.querySelector(".map-result-popup")).toBeNull();
+
+    // SEM badge redundante "Área selecionada · ..."
+    expect(screen.queryByText(/Área selecionada ·/)).not.toBeInTheDocument();
+    expect(container.querySelector(".map-aoi-floating-label")).toBeNull();
+
+    // Pill discreta no canto superior direito abaixo do controle automático
+    const manualPill = screen.getByTestId("manual-result-pill");
+    expect(manualPill).toBeInTheDocument();
+    expect(manualPill).toHaveTextContent("Manual · NÃO CORTAR");
+    expect(manualPill).toHaveClass("manual-result-pill--no-cut");
+    expect(manualPill).toHaveAttribute("data-decision", "nao_cortar");
+  });
+
+  it("analise manual com recomendacao CORTAR exibe pill vermelha e sem card grande", () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    const result = {
+      analysis_id: "c047a001-321d-4a27-9f0f-9fcbd5ecab62",
+      status: "completed",
+      analysis_period: { start_date: "2026-07-11", end_date: "2026-08-11", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
+      recommendation: { decision: "cortar", confidence: "medium", experimental: true, summary: "Intervenção indicada.", reasons: [], blocking_reasons: [], limitations: [], metrics: {} },
+      aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
+    } satisfies AnalysisResponse;
+
+    const { container } = render(<MapCanvas result={result} />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+
+    // Sem card grande
+    expect(runtime.popups).toHaveLength(0);
+    expect(container.querySelector(".map-result-popup")).toBeNull();
+    expect(screen.queryByText(/Área selecionada ·/)).not.toBeInTheDocument();
+
+    // Pill discreta vermelha
+    const manualPill = screen.getByTestId("manual-result-pill");
+    expect(manualPill).toHaveTextContent("Manual · CORTAR");
+    expect(manualPill).toHaveClass("manual-result-pill--cut");
+  });
+
+  it("analise manual com recomendacao INCONCLUSIVO exibe pill ambar e sem card grande", () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    const result = {
+      analysis_id: "inc-321d-4a27-9f0f-9fcbd5ecab62",
+      status: "completed",
+      analysis_period: { start_date: "2026-07-11", end_date: "2026-08-11", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
+      recommendation: { decision: "inconclusivo", confidence: "low", experimental: true, summary: "Inconclusivo.", reasons: [], blocking_reasons: [], limitations: [], metrics: {} },
+      aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
+    } satisfies AnalysisResponse;
+
+    const { container } = render(<MapCanvas result={result} />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+
+    expect(runtime.popups).toHaveLength(0);
+    expect(container.querySelector(".map-result-popup")).toBeNull();
+
+    const manualPill = screen.getByTestId("manual-result-pill");
+    expect(manualPill).toHaveTextContent("Manual · INCONCLUSIVO");
+    expect(manualPill).toHaveClass("manual-result-pill--inconclusive");
+  });
+
+  it("analise manual com fusao multissensor prioriza decisao do Sentinel-2 na pill", () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    const fusionResult = {
+      analysis_id: "fus-321d-4a27-9f0f-9fcbd5ecab62",
+      status: "completed",
+      analysis_period: { start_date: "2026-07-11", end_date: "2026-08-11", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
+      recommendation: { decision: "cortar", confidence: "high", experimental: true, summary: "S2 cortar.", reasons: [], blocking_reasons: [], limitations: [], metrics: {} },
+      multisource: {
+        enabled: true,
+        fusion_mode: "experimental",
+        generated_at: "2026-08-01T00:00:00Z",
+        experimental_fusion: {
+          schema_version: "1.0",
+          fusion_mode: "experimental",
+          experimental_policy_version: "1.0",
+          sentinel2_recommendation: "cortar",
+          multisource_recommendation: "inconclusivo",
+          sentinel1_influenced_decision: true,
+          fusion_rule: "B",
+          fusion_reason: "temporal_mix",
+          sentinel1_temporal_status: "mixed",
+          experimental: true,
+          operationally_authorized: false,
+          experimental_fusion_evaluated: true,
+          experimental_fusion_evaluable: true,
+          fusion_not_evaluable_reason: null,
+        },
+      },
+      aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
+    } satisfies AnalysisResponse;
+
+    render(<MapCanvas result={fusionResult} />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+
+    // Pill deve refletir prioridade Sentinel-2 (CORTAR), divergência de Sentinel-1 permanece interna
+    const manualPill = screen.getByTestId("manual-result-pill");
+    expect(manualPill).toHaveTextContent("Manual · CORTAR");
+    expect(manualPill).toHaveClass("manual-result-pill--cut");
+    expect(manualPill).not.toHaveTextContent("INCONCLUSIVO");
+  });
+
+  it("analise automatica nao exibe a pill de analise manual", () => {
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    const autoResult = {
+      analysis_id: "auto-321d-4a27-9f0f-9fcbd5ecab62",
+      status: "completed",
+      analysis_trigger: "automatic_viewport",
+      analysis_period: { start_date: "2026-07-11", end_date: "2026-08-11", timezone: "America/Sao_Paulo", strategy: "previous_calendar_month" },
+      recommendation: { decision: "nao_cortar", confidence: "high", experimental: true, summary: "Auto.", reasons: [], blocking_reasons: [], limitations: [], metrics: {} },
+      aoi: {}, summary: {}, timeseries: [], scenes: [], artifacts: {}, warnings: [], errors: [],
+    } satisfies AnalysisResponse;
+
+    render(<MapCanvas result={autoResult} />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+
+    // A pill "Manual · ..." não deve aparecer para análise automática
+    expect(screen.queryByTestId("manual-result-pill")).not.toBeInTheDocument();
   });
 
   it("nao conserva listeners de uma montagem descartada pelo Strict Mode", () => {
