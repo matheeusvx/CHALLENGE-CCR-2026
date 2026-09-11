@@ -37,6 +37,7 @@ from .alert_repository import (
     AlertRepository,
     MonitoredSectionRepository,
 )
+from .alert_engine import AlertEngine, AlertEngineConfig
 from .repository import (
     count_analyses,
     delete_analysis,
@@ -61,6 +62,8 @@ __all__ = [
     "Alert",
     "AlertEvent",
     "AlertEventRepository",
+    "AlertEngine",
+    "AlertEngineConfig",
     "AlertRepository",
     "AlertSeverity",
     "AlertStatus",

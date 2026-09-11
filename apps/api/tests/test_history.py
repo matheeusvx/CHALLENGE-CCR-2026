@@ -10,11 +10,20 @@ from apps.api.app.dependencies import analysis_registry, get_analysis_service
 from apps.api.app.main import app
 from apps.api.tests.conftest import VALID_GEOMETRY, make_result
 from src.satellite_monitoring.database import session_scope
-from src.satellite_monitoring.database.models import Analysis
+from src.satellite_monitoring.database.models import (
+    Alert,
+    AlertEvent,
+    Analysis,
+    MonitoredSection,
+)
 
 
 def _clear_history() -> None:
     with session_scope() as session:
+        # Operational alerts intentionally retain FKs to their source analyses.
+        session.query(AlertEvent).delete()
+        session.query(Alert).delete()
+        session.query(MonitoredSection).delete()
         session.query(Analysis).delete()
 
 

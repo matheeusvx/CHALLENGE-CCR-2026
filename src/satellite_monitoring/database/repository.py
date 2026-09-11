@@ -88,6 +88,7 @@ def save_analysis(
     created_at: datetime | None = None,
     identity: AnalysisIdentity | None = None,
     monitored_section_cadence_days: int = 30,
+    alert_now: datetime | None = None,
 ) -> Analysis:
     """Insert or update an analysis without replacing its database row."""
 
@@ -200,6 +201,13 @@ def save_analysis(
             analysis_at=analysis.created_at,
             latest_valid_observation_on=latest_valid,
             cadence_days=monitored_section_cadence_days,
+        )
+        # Local import avoids coupling the persistence modules at import time.
+        # Evaluation shares this transaction with the analysis and section upsert.
+        from .alert_engine import AlertEngine
+
+        AlertEngine(session).evaluate_analysis(
+            analysis, now=alert_now or analysis.created_at
         )
     return analysis
 

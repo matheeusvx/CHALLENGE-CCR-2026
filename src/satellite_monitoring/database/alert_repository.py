@@ -36,6 +36,23 @@ class AlertRepository:
             .order_by(Alert.first_detected_at.desc())
         ).scalars().all()
 
+    def list_open_by_subject_key(self, subject_key: str) -> Sequence[Alert]:
+        return self.session.execute(
+            select(Alert).where(
+                Alert.subject_key == subject_key,
+                Alert.open_key.is_not(None),
+            )
+        ).scalars().all()
+
+    def get_open_by_type(self, subject_key: str, alert_type: str) -> Alert | None:
+        return self.session.execute(
+            select(Alert).where(
+                Alert.subject_key == subject_key,
+                Alert.type == alert_type,
+                Alert.open_key.is_not(None),
+            )
+        ).scalars().first()
+
 
 class AlertEventRepository:
     def __init__(self, session: Session) -> None:
@@ -52,6 +69,18 @@ class AlertEventRepository:
             .where(AlertEvent.alert_id == alert_id)
             .order_by(AlertEvent.occurred_at, AlertEvent.id)
         ).scalars().all()
+
+    def created_for_analysis(self, alert_type: str, analysis_id: str) -> bool:
+        return self.session.execute(
+            select(AlertEvent.id)
+            .join(Alert, Alert.id == AlertEvent.alert_id)
+            .where(
+                Alert.type == alert_type,
+                AlertEvent.event_type == "created",
+                AlertEvent.analysis_id == analysis_id,
+            )
+            .limit(1)
+        ).first() is not None
 
 
 class MonitoredSectionRepository:
