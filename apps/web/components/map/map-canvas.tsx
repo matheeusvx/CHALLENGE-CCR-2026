@@ -92,6 +92,8 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const activeRoadColors = useRoadColorStore((state) => state.activeColors);
   const activeRoadVisibility = useRoadColorStore((state) => state.activeVisibility);
   const fitRequestId = useAnalysisStore((state) => state.fitRequestId);
+  const alertTarget = useAnalysisStore((state) => state.alertTarget);
+  const alertFitRequestId = useAnalysisStore((state) => state.alertFitRequestId);
   const setGeometry = useAnalysisStore((state) => state.setGeometry);
   const clearGeometry = useAnalysisStore((state) => state.clearGeometry);
   const setSelectedTool = useAnalysisStore((state) => state.setSelectedTool);
@@ -137,6 +139,8 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   const lastFittedRoadsideIdentityRef = useRef<string | null>(null);
   const roadsideCameraFitInProgressRef = useRef(false);
   const roadsideCameraFitResetTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const alertTargetFitInProgressRef = useRef(false);
+  const alertTargetFitResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     autoEnabledRef.current = autoEnabled;
@@ -559,7 +563,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
       setLoadStatus("error");
     };
     const handleMoveStart = () => {
-      if (roadsideCameraFitInProgressRef.current) return;
+      if (roadsideCameraFitInProgressRef.current || alertTargetFitInProgressRef.current) return;
       if (autoEnabledRef.current) {
         if (debounceTimerRef.current) {
           clearTimeout(debounceTimerRef.current);
@@ -572,6 +576,15 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     const handleMoveEnd = () => {
       const center = map.getCenter();
       setMapViewport({ longitude: center.lng, latitude: center.lat, zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() });
+
+      if (alertTargetFitInProgressRef.current) {
+        alertTargetFitInProgressRef.current = false;
+        if (alertTargetFitResetTimerRef.current) {
+          clearTimeout(alertTargetFitResetTimerRef.current);
+          alertTargetFitResetTimerRef.current = null;
+        }
+        return;
+      }
 
       if (roadsideCameraFitInProgressRef.current) {
         roadsideCameraFitInProgressRef.current = false;
@@ -745,6 +758,52 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
   useEffect(() => {
     if (fitRequestId > 0 && geometry && mapRef.current) fitMapToGeometry(mapRef.current, geometry);
   }, [fitRequestId, geometry]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || alertFitRequestId <= 0 || !alertTarget) return;
+
+    cancelAutoAnalysis();
+    alertTargetFitInProgressRef.current = true;
+    if (alertTargetFitResetTimerRef.current) {
+      clearTimeout(alertTargetFitResetTimerRef.current);
+    }
+    alertTargetFitResetTimerRef.current = setTimeout(() => {
+      alertTargetFitInProgressRef.current = false;
+      alertTargetFitResetTimerRef.current = null;
+    }, 1_500);
+
+    const bounds = alertTarget.bounds;
+    const centroid = alertTarget.centroid;
+
+    if (
+      bounds &&
+      Number.isFinite(bounds.west) &&
+      Number.isFinite(bounds.south) &&
+      Number.isFinite(bounds.east) &&
+      Number.isFinite(bounds.north)
+    ) {
+      map.fitBounds(
+        [
+          [bounds.west, bounds.south],
+          [bounds.east, bounds.north],
+        ],
+        { padding: 50, duration: 800 },
+      );
+    } else if (
+      centroid &&
+      Number.isFinite(centroid.longitude) &&
+      Number.isFinite(centroid.latitude)
+    ) {
+      map.flyTo({
+        center: [centroid.longitude, centroid.latitude],
+        zoom: 14,
+        duration: 800,
+      });
+    } else if (geometry) {
+      fitMapToGeometry(map, geometry);
+    }
+  }, [alertFitRequestId, alertTarget, geometry]);
 
   const previousResultTab = useRef(activeTab);
   const lastFittedAnalysis = useRef<string | undefined>(undefined);

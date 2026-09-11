@@ -181,11 +181,11 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
   // -------------------------------------------------------------------------
   // F, G, H, I) Navegação entre views funciona corretamente
   // -------------------------------------------------------------------------
-  it("F) navega para 'Nova análise' ao clicar no item correspondente", () => {
+  it("F) navega para 'Painel' ao clicar no item correspondente", () => {
     const onNavigate = vi.fn();
     render(<AppSidebar activeView="history" onNavigate={onNavigate} />);
 
-    const btn = screen.getByRole("button", { name: "Nova análise" });
+    const btn = screen.getByRole("button", { name: "Painel" });
     fireEvent.click(btn);
     expect(onNavigate).toHaveBeenCalledWith("analysis");
   });
@@ -208,36 +208,37 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
     expect(onNavigate).toHaveBeenCalledWith("sources");
   });
 
-  it("I) navega para 'Validação' ao clicar no item correspondente", () => {
+  it("I) navega para 'Alertas' ao clicar no item correspondente e 'Validação' não aparece na navegação", () => {
     const onNavigate = vi.fn();
     render(<AppSidebar activeView="analysis" onNavigate={onNavigate} />);
 
-    const btn = screen.getByRole("button", { name: "Validação" });
+    const btn = screen.getByRole("button", { name: "Alertas" });
+    expect(screen.queryByRole("button", { name: "Validação" })).toBeNull();
     fireEvent.click(btn);
-    expect(onNavigate).toHaveBeenCalledWith("validation");
+    expect(onNavigate).toHaveBeenCalledWith("alerts");
   });
 
   // -------------------------------------------------------------------------
   // J, K) Exclusividade e fidelidade do item ativo
   // -------------------------------------------------------------------------
-  it("J) somente um item de navega˧ão fica ativo por vez", () => {
+  it("J) somente um item de navegação fica ativo por vez", () => {
     const onNavigate = vi.fn();
     const { rerender } = render(<AppSidebar activeView="history" onNavigate={onNavigate} />);
 
     const historyBtn = screen.getByRole("button", { name: "Histórico" });
-    const analysisBtn = screen.getByRole("button", { name: "Nova análise" });
+    const analysisBtn = screen.getByRole("button", { name: "Painel" });
+    const alertsBtn = screen.getByRole("button", { name: "Alertas" });
     const sourcesBtn = screen.getByRole("button", { name: "Fontes de dados" });
-    const validationBtn = screen.getByRole("button", { name: "Validação" });
 
     expect(historyBtn).toHaveClass("active");
     expect(analysisBtn).not.toHaveClass("active");
+    expect(alertsBtn).not.toHaveClass("active");
     expect(sourcesBtn).not.toHaveClass("active");
-    expect(validationBtn).not.toHaveClass("active");
 
     // K) Active state acompanha a view real
-    rerender(<AppSidebar activeView="validation" onNavigate={onNavigate} />);
+    rerender(<AppSidebar activeView="alerts" onNavigate={onNavigate} />);
     expect(historyBtn).not.toHaveClass("active");
-    expect(validationBtn).toHaveClass("active");
+    expect(alertsBtn).toHaveClass("active");
   });
 
   // -------------------------------------------------------------------------
@@ -248,15 +249,15 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
     const { container } = render(<AppSidebar activeView="analysis" onNavigate={onNavigate} />);
 
     const tooltips = container.querySelectorAll(".sidebar-tooltip[role='tooltip']");
-    // Toggle, Nova análise, Histórico, Fontes, Validação, gu.ia, Operador = 7 tooltips
+    // Toggle, Painel, Histórico, Alertas, Fontes, gu.ia, Operador = 7 tooltips
     expect(tooltips.length).toBeGreaterThanOrEqual(7);
 
     const tooltipTexts = Array.from(tooltips).map((t) => t.textContent?.trim());
     expect(tooltipTexts).toContain("Expandir barra lateral");
-    expect(tooltipTexts).toContain("Nova análise");
+    expect(tooltipTexts).toContain("Painel");
     expect(tooltipTexts).toContain("Histórico");
+    expect(tooltipTexts).toContain("Alertas");
     expect(tooltipTexts).toContain("Fontes de dados");
-    expect(tooltipTexts).toContain("Validação");
     expect(tooltipTexts).toContain("gu.ia — Assistente virtual");
     expect(tooltipTexts.some((txt) => txt?.includes("Rafael Ferreira"))).toBe(true);
   });
@@ -275,7 +276,20 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
 
     const labels = container.querySelectorAll(".nav-item-label");
     const labelTexts = Array.from(labels).map((l) => l.textContent?.trim());
-    expect(labelTexts).toEqual(["Nova análise", "Histórico", "Fontes de dados", "Validação"]);
+    expect(labelTexts).toEqual(["Painel", "Histórico", "Alertas", "Fontes de dados"]);
+  });
+
+  it("M2) exibe badge com active_count e formata '99+' se > 99", () => {
+    const onNavigate = vi.fn();
+    const { rerender } = render(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={4} />);
+
+    const badge = screen.getByTestId("alerts-badge");
+    expect(badge).toHaveTextContent("4");
+    expect(screen.getByRole("button", { name: "Alertas 4" })).toBeInTheDocument();
+
+    rerender(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={120} />);
+    expect(screen.getByTestId("alerts-badge")).toHaveTextContent("99+");
+    expect(screen.getByRole("button", { name: "Alertas 99+" })).toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
@@ -406,7 +420,7 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
     expect(toggleBtn).toHaveAttribute("aria-expanded", "false");
 
     // AD) aria-current="page" no item ativo
-    const analysisBtn = screen.getByRole("button", { name: "Nova análise" });
+    const analysisBtn = screen.getByRole("button", { name: "Painel" });
     const historyBtn = screen.getByRole("button", { name: "Histórico" });
     expect(analysisBtn).toHaveAttribute("aria-current", "page");
     expect(historyBtn).not.toHaveAttribute("aria-current");

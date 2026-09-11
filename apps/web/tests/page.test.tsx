@@ -89,7 +89,7 @@ describe("workspace geoespacial", () => {
     expect(screen.getAllByText("API operacional")).toHaveLength(1);
   });
 
-  it("inicia uma sessão limpa ao voltar do Histórico para Nova análise", () => {
+  it("inicia uma sessão limpa ao voltar do Histórico para Painel", () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
 
@@ -106,7 +106,7 @@ describe("workspace geoespacial", () => {
     expect(screen.getByRole("heading", { name: "Configurações" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Cobertura máxima de nuvens")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    fireEvent.click(screen.getByRole("button", { name: "Painel" }));
     expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
     expect(useAnalysisStore.getState().geometry).toBeNull();
     expect(useAnalysisStore.getState().currentResult).toBeNull();
@@ -260,12 +260,12 @@ describe("workspace geoespacial", () => {
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "editing");
   });
 
-  it("reinicia a sessão ao clicar em Nova análise mesmo quando já está no workspace", async () => {
+  it("reinicia a sessão ao clicar em Painel mesmo quando já está no workspace", async () => {
     useAnalysisStore.getState().setGeometry(polygon, "drawn");
     render(<Home />, { wrapper });
     await completeCurrentAnalysis();
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    fireEvent.click(screen.getByRole("button", { name: "Painel" }));
 
     expect(useAnalysisStore.getState().geometry).toBeNull();
     expect(useAnalysisStore.getState().geometryValidation).toBeNull();
@@ -304,7 +304,7 @@ describe("workspace geoespacial", () => {
     await screen.findByText("Área validada");
     fireEvent.click(screen.getByRole("button", { name: "Executar análise" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    fireEvent.click(screen.getByRole("button", { name: "Painel" }));
     await act(async () => resolve(result));
 
     expect(useAnalysisStore.getState().geometry).toBeNull();
@@ -320,7 +320,7 @@ describe("workspace geoespacial", () => {
     await completeCurrentAnalysis();
     expect(useHistoryStore.getState().entries).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Nova análise" }));
+    fireEvent.click(screen.getByRole("button", { name: "Painel" }));
     expect(useHistoryStore.getState().entries).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
     fireEvent.click(screen.getByRole("button", { name: "Abrir análise" }));

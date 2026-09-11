@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { AnalysisResponse, GeometryValidation } from "@/lib/schemas/analyses";
+import type { AlertMapTarget } from "@/lib/schemas/alerts";
 import { DEFAULT_MAP_STYLE_ID, MAP_CONFIG, type MapStyleId, type MapViewport } from "@/lib/map/config";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 
@@ -25,6 +26,8 @@ type AnalysisState = {
   lastValidatedAt: string | null;
   geometryText: string;
   fitRequestId: number;
+  alertTarget: AlertMapTarget | null;
+  alertFitRequestId: number;
   activeTab: WorkspaceTab;
   currentResult: CurrentAnalysisResult | null;
   setGeometry: (geometry: PolygonGeometry, source: GeometrySource) => void;
@@ -33,6 +36,7 @@ type AnalysisState = {
   applyAnalysisResult: (response: AnalysisResponse, revision: number) => void;
   applyAutomaticResult: (response: AnalysisResponse, geometry?: PolygonGeometry | null) => void;
   restoreHistoricalAnalysis: (geometry: PolygonGeometry, response: AnalysisResponse, validation?: GeometryValidation) => void;
+  focusAlertTarget: (target: AlertMapTarget) => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
   setSelectedTool: (tool: MapTool) => void;
   setActiveMapStyle: (style: MapStyleId) => void;
@@ -58,6 +62,8 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   lastValidatedAt: null,
   geometryText: "",
   fitRequestId: 0,
+  alertTarget: null,
+  alertFitRequestId: 0,
   activeTab: "area",
   currentResult: null,
   setGeometry: (geometry, source) =>
@@ -139,6 +145,40 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
         geometryText: JSON.stringify(geometry, null, 2),
         activeTab: "result",
         currentResult: { response, geometryRevision },
+      };
+    }),
+  focusAlertTarget: (target) =>
+    set((state) => {
+      let polyGeometry: PolygonGeometry | null = null;
+      if (target.geometry) {
+        if (target.geometry.type === "Polygon" && Array.isArray(target.geometry.coordinates)) {
+          polyGeometry = target.geometry as unknown as PolygonGeometry;
+        } else if (
+          target.geometry.type === "Feature" &&
+          typeof target.geometry.geometry === "object" &&
+          target.geometry.geometry !== null &&
+          (target.geometry.geometry as { type?: string }).type === "Polygon"
+        ) {
+          polyGeometry = (target.geometry as { geometry: PolygonGeometry }).geometry;
+        }
+      }
+
+      const nextGeometryRevision = polyGeometry ? state.geometryRevision + 1 : state.geometryRevision;
+
+      return {
+        geometry: polyGeometry ?? state.geometry,
+        geometryRevision: nextGeometryRevision,
+        geometrySource: polyGeometry ? "predefined" : state.geometrySource,
+        geometryValidation: null,
+        isGeometryDirty: false,
+        selectedTool: "navigate",
+        lastValidatedGeometryRevision: null,
+        lastValidatedAt: null,
+        geometryText: polyGeometry ? JSON.stringify(polyGeometry, null, 2) : state.geometryText,
+        activeTab: "area",
+        currentResult: null,
+        alertTarget: target,
+        alertFitRequestId: state.alertFitRequestId + 1,
       };
     }),
   applyGeometryValidation: (validation, revision) =>

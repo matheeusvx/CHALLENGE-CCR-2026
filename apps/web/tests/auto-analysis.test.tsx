@@ -243,6 +243,8 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
       lastValidatedGeometryRevision: null,
       lastValidatedAt: null,
       fitRequestId: 0,
+      alertTarget: null,
+      alertFitRequestId: 0,
       activeTab: "area",
     });
 
@@ -280,6 +282,32 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     fireEvent.click(switchInput);
     expect(useAutoAnalysisStore.getState().enabled).toBe(true);
     expect(switchInput).toBeChecked();
+  });
+
+  it("movimento programático de Abrir trecho não dispara análise automática", async () => {
+    useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+
+    act(() => {
+      useAnalysisStore.getState().focusAlertTarget({
+        geometry: null,
+        bounds: { west: -47, south: -23.1, east: -46.9, north: -23 },
+        centroid: { longitude: -46.95, latitude: -23.05 },
+        road_ref: "SP-330",
+        road_name: "Rodovia Anhanguera",
+        section_id: "section-1",
+      });
+    });
+
+    expect(map.fitBounds).toHaveBeenCalledOnce();
+    act(() => map.emit("movestart"));
+    act(() => map.emit("moveend"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.debounceMs);
+    });
+    expect(mockRunAutomaticAnalysis).not.toHaveBeenCalled();
   });
 
   it("B) spatial_key nunca aparece visualmente", () => {

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import { QueryClient, QueryClientContext, useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Bell,
   ChevronsUpDown,
   Database,
   FileClock,
-  FlaskConical,
   Leaf,
   LogOut,
   PanelLeftClose,
@@ -16,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { GuiaWidget } from "@/components/guia/guia-widget";
+import { listAlerts } from "@/lib/api/alerts";
 import {
   DEFAULT_OPERATOR_PROFILE,
   useOperatorProfileStore,
@@ -23,14 +25,24 @@ import {
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useSettingsStore } from "@/stores/settings-store";
 
-export type AppView = "analysis" | "history" | "sources" | "validation" | "settings" | "account";
+export type AppView = "analysis" | "history" | "alerts" | "sources" | "validation" | "settings" | "account";
 
 const navigation = [
-  { id: "analysis", label: "Nova análise", icon: Activity },
+  { id: "analysis", label: "Painel", icon: Activity },
   { id: "history", label: "Histórico", icon: FileClock },
+  { id: "alerts", label: "Alertas", icon: Bell },
   { id: "sources", label: "Fontes de dados", icon: Database },
-  { id: "validation", label: "Validação", icon: FlaskConical },
 ] satisfies Array<{ id: AppView; label: string; icon: typeof Activity }>;
+
+let fallbackClient: QueryClient | null = null;
+function getFallbackClient(): QueryClient {
+  if (!fallbackClient) {
+    fallbackClient = new QueryClient({
+      defaultOptions: { queries: { enabled: false, retry: false } },
+    });
+  }
+  return fallbackClient;
+}
 
 function initialsOf(name: string) {
   return name
@@ -41,7 +53,15 @@ function initialsOf(name: string) {
     .join("");
 }
 
-export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; onNavigate: (view: AppView) => void }) {
+export function AppSidebar({
+  activeView,
+  onNavigate,
+  activeCount: propActiveCount,
+}: {
+  activeView: AppView;
+  onNavigate: (view: AppView) => void;
+  activeCount?: number;
+}) {
   const persistedProfile = useOperatorProfileStore();
   const [operatorProfileHydrated, setOperatorProfileHydrated] = useState(false);
   const tourActive = useOnboardingStore((s) => s.tourActive);
@@ -126,6 +146,21 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menuOpen, logoutModalOpen, setMenuOpen]);
 
+  const queryClient = useContext(QueryClientContext);
+  const clientToUse = queryClient ?? getFallbackClient();
+  const { data: alertsPage } = useQuery(
+    {
+      queryKey: ["alerts-count"],
+      queryFn: () => listAlerts({ limit: 1 }),
+      staleTime: 30_000,
+      retry: 1,
+      enabled: Boolean(queryClient) && propActiveCount === undefined,
+    },
+    clientToUse,
+  );
+  const activeCount = propActiveCount !== undefined ? propActiveCount : (alertsPage?.active_count ?? 0);
+  const activeCountBadge = activeCount > 99 ? "99+" : activeCount > 0 ? String(activeCount) : null;
+
   return (
     <>
       <aside
@@ -159,22 +194,36 @@ export function AppSidebar({ activeView, onNavigate }: { activeView: AppView; on
 
         {/* Zona Central / Navegação */}
         <nav data-tour="navigation">
-          {navigation.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={activeView === id ? "nav-item active" : "nav-item"}
-              type="button"
-              aria-label={label}
-              aria-current={activeView === id ? "page" : undefined}
-              onClick={() => onNavigate(id)}
-              data-tour={id === "analysis" ? "new-analysis" : id === "history" ? "nav-history" : undefined}
-            >
-              <span className="nav-item-indicator" aria-hidden="true" />
-              <Icon size={17} aria-hidden="true" className="nav-item-icon" />
-              <span className="nav-item-label">{label}</span>
-              <span className="sidebar-tooltip" role="tooltip">{label}</span>
-            </button>
-          ))}
+          {navigation.map(({ id, label, icon: Icon }) => {
+            const hasBadge = id === "alerts" && Boolean(activeCountBadge);
+            const tooltipText = hasBadge ? `${label} (${activeCountBadge})` : label;
+            return (
+              <button
+                key={id}
+                className={activeView === id ? "nav-item active" : "nav-item"}
+                type="button"
+                aria-label={hasBadge ? `${label} ${activeCountBadge}` : label}
+                aria-current={activeView === id ? "page" : undefined}
+                onClick={() => onNavigate(id)}
+                data-tour={id === "analysis" ? "new-analysis" : id === "history" ? "nav-history" : undefined}
+                data-testid={`nav-item-${id}`}
+              >
+                <span className="nav-item-indicator" aria-hidden="true" />
+                <Icon size={17} aria-hidden="true" className="nav-item-icon" />
+                <span className="nav-item-label">{label}</span>
+                {hasBadge && (
+                  <span
+                    className="nav-badge"
+                    data-testid="alerts-badge"
+                    aria-label={`${activeCount} alertas ativos`}
+                  >
+                    {activeCountBadge}
+                  </span>
+                )}
+                <span className="sidebar-tooltip" role="tooltip">{tooltipText}</span>
+              </button>
+            );
+          })}
         </nav>
 
         {/* Zona Inferior / Assistente e Usuário */}

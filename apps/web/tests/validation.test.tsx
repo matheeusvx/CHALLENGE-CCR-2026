@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { AppShell } from "@/components/layout/app-shell";
 import { ValidationView } from "@/components/views/validation-view";
 import { SampleDetailModal } from "@/components/validation/sample-detail-modal";
 import { SaveValidationSampleModal } from "@/components/validation/save-validation-sample-modal";
@@ -260,39 +259,20 @@ const dummyAnalysisResult: AnalysisResponse = {
 };
 
 describe("Validation Module — Navegação e Sidebar", () => {
-  it("sidebar exibe a opção 'Validação' na ordem correta e preserva GuIA", () => {
+  it("sidebar substitui 'Validação' por 'Alertas' e 'Validação' não aparece na navegação", () => {
     const onNavigate = vi.fn();
     render(<AppSidebar activeView="analysis" onNavigate={onNavigate} />);
 
-    expect(screen.getByRole("button", { name: "Validação" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Validação" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Alertas" })).toBeInTheDocument();
     expect(screen.getByTestId("guia-widget")).toBeInTheDocument();
 
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map((b) => b.textContent);
+    const alertsIndex = labels.findIndex((l) => l?.includes("Alertas"));
     const sourcesIndex = labels.findIndex((l) => l?.includes("Fontes de dados"));
-    const validationIndex = labels.findIndex((l) => l?.includes("Validação"));
-    expect(sourcesIndex).toBeLessThan(validationIndex);
+    expect(alertsIndex).toBeLessThan(sourcesIndex);
     expect(screen.queryByRole("button", { name: "Configurações" })).toBeNull();
-  });
-
-  it("clicar em 'Validação' na navegação abre a view de validação no AppShell", async () => {
-    vi.mocked(validationApi.getValidationSummary).mockResolvedValue(emptySummary);
-    vi.mocked(validationApi.getValidationSamples).mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 });
-    vi.mocked(validationApi.getValidationExportUrl).mockReturnValue("http://localhost:8000/api/validation-export");
-
-    const Wrapper = createWrapper();
-    render(
-      <Wrapper>
-        <AppShell><div>Conteúdo de análise</div></AppShell>
-      </Wrapper>,
-    );
-
-    const validationNav = screen.getByRole("button", { name: "Validação" });
-    fireEvent.click(validationNav);
-
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Validação multissensor" })).toBeInTheDocument();
-    });
   });
 });
 

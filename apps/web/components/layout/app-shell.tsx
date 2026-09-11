@@ -3,10 +3,12 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { AccountView } from "@/components/views/account-view";
+import { AlertsView } from "@/components/views/alerts-view";
 import { HistoryView } from "@/components/views/history-view";
 import { SettingsView } from "@/components/views/settings-view";
 import { SourcesView } from "@/components/views/sources-view";
 import { ValidationView } from "@/components/views/validation-view";
+import type { AlertMapTarget } from "@/lib/schemas/alerts";
 import { useAnalysisStore } from "@/stores/analysis-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -43,6 +45,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     else setActiveView(view);
   };
 
+  const handleOpenTrack = (target: AlertMapTarget) => {
+    useAnalysisStore.getState().focusAlertTarget(target);
+    setActiveView("analysis");
+  };
+
   /** Tour navigation — sets the view WITHOUT resetting analysis session. */
   const handleTourNavigate = (view: AppView) => {
     setActiveView(view);
@@ -67,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {children}
           </div>
           {activeView === "history" ? <HistoryView onStartNewAnalysis={startNewAnalysis} onOpenWorkspace={() => setActiveView("analysis")} /> : null}
+          {activeView === "alerts" ? <AlertsView onOpenTrack={handleOpenTrack} /> : null}
           {activeView === "sources" ? <SourcesView /> : null}
           {activeView === "validation" ? <ValidationView onStartNewAnalysis={startNewAnalysis} /> : null}
           {activeView === "account" ? <AccountView onNavigate={handleNavigation} /> : null}
