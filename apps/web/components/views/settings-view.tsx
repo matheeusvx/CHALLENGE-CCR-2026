@@ -73,10 +73,10 @@ export function SettingsView({ onNavigate }: { onNavigate?: (view: AppView) => v
 
   return (
     <section className="secondary-view" aria-labelledby="secondary-view-settings">
-      <header>
-        <span>Preferências operacionais</span>
-        <h1 id="secondary-view-settings">Configurações</h1>
-        <p>Ajuste a aparência do painel e consulte as informações da conta e do aplicativo.</p>
+      <header className="page-heading">
+        <span className="page-heading-eyebrow">Preferências operacionais</span>
+        <h1 id="secondary-view-settings" className="page-heading-title">Configurações</h1>
+        <p className="page-heading-description">Ajuste a aparência do painel e consulte as informações da conta e do aplicativo.</p>
       </header>
 
       <div className="settings-grid">

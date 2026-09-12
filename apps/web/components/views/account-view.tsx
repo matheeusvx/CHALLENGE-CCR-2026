@@ -155,10 +155,10 @@ export function AccountView({ onNavigate }: { onNavigate?: (view: AppView) => vo
 
   return (
     <section className="secondary-view account-view" aria-labelledby="secondary-view-account">
-      <header className="account-view-header">
-        <span>Operador do sistema</span>
-        <h1 id="secondary-view-account">Minha conta</h1>
-        <p>Gerencie seu perfil e acompanhe sua atividade no Motiva Faixa Verde.</p>
+      <header className="account-view-header page-heading">
+        <span className="page-heading-eyebrow">Operador do sistema</span>
+        <h1 id="secondary-view-account" className="page-heading-title">Minha conta</h1>
+        <p className="page-heading-description">Gerencie seu perfil e acompanhe sua atividade no Motiva Faixa Verde.</p>
       </header>
 
       {/* Mensagem de sucesso via aria-live */}

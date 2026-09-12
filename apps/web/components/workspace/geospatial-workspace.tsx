@@ -85,11 +85,11 @@ export function GeospatialWorkspace() {
 
   return (
     <div className="geospatial-page">
-      <div className="product-hero">
+      <div className="product-hero page-heading">
         <div className="product-hero-copy">
-          <span className="product-hero-eyebrow">Painel operacional</span>
-          <h1>Motiva Faixa Verde</h1>
-          <p>Monitoramento inteligente da vegetação lateral rodoviária</p>
+          <span className="product-hero-eyebrow page-heading-eyebrow">Painel operacional</span>
+          <h1 className="page-heading-title">Motiva Faixa Verde</h1>
+          <p className="page-heading-description">Monitoramento inteligente da vegetação lateral rodoviária</p>
         </div>
       </div>
       <div className="geospatial-workspace">

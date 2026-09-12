@@ -245,11 +245,11 @@ export function AlertsView({ onOpenTrack }: AlertsViewProps) {
 
   return (
     <section className="secondary-view alerts-view" aria-labelledby="alerts-view-title">
-      <header className="alerts-view-header">
+      <header className="alerts-view-header page-heading">
         <div className="alerts-view-copy">
-          <span className="alerts-view-eyebrow">Operação</span>
-          <h1 id="alerts-view-title">ALERTAS</h1>
-          <p>
+          <span className="alerts-view-eyebrow page-heading-eyebrow">Operação</span>
+          <h1 id="alerts-view-title" className="page-heading-title">Alertas</h1>
+          <p className="page-heading-description">
             Monitoramento de eventos críticos, mudanças na vegetação e pendências operacionais nos
             trechos rodoviários.
           </p>

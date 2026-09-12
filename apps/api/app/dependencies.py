@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from threading import RLock
 from zoneinfo import ZoneInfo
@@ -33,6 +34,15 @@ AnalysisService = Callable[..., AnalysisResult]
 
 def get_analysis_service() -> AnalysisService:
     return run_monitoring_analysis
+
+
+@lru_cache(maxsize=1)
+def get_manual_road_geometry_provider() -> LocalGeoJsonRoadGeometryProvider:
+    """Shared local road dataset used only for trustworthy manual metadata."""
+
+    return LocalGeoJsonRoadGeometryProvider(
+        settings.automatic_analysis_roads_dataset_path
+    )
 
 
 def get_analysis_now() -> datetime:

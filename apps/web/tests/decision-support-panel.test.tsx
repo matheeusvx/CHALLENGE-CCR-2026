@@ -90,4 +90,11 @@ describe("apoio do histórico", () => {
     expect(screen.getByText(/não há vistoria de campo registrada/i)).toBeInTheDocument();
     expect(screen.queryByText("CORTAR")).not.toBeInTheDocument();
   });
+
+  it("renderiza o ícone History dentro de support-icon com cor branca para alto contraste", () => {
+    const { container } = render(<DecisionSupportPanel support={support()} />);
+    const supportIcon = container.querySelector(".support-icon svg");
+    expect(supportIcon).toBeInTheDocument();
+    expect(supportIcon).toHaveAttribute("stroke", "#ffffff");
+  });
 });

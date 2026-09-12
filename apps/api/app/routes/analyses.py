@@ -25,10 +25,17 @@ from src.satellite_monitoring.database import (
     save_analysis,
     session_scope,
 )
-from src.satellite_monitoring.database.identity import road_section_identity
+from src.satellite_monitoring.database.identity import (
+    geometry_identity,
+    road_section_identity,
+)
 from src.satellite_monitoring.geometry import (
     calculate_geometry_metadata,
     extract_polygon_geometry,
+)
+from src.satellite_monitoring.road_geometry import (
+    RoadGeometryProvider,
+    resolve_canonical_road_section,
 )
 from src.satellite_monitoring.service import InvalidAnalysisGeometryError
 
@@ -39,6 +46,7 @@ from ..dependencies import (
     get_automatic_analysis_coordinator,
     get_analysis_now,
     get_analysis_service,
+    get_manual_road_geometry_provider,
 )
 from ..automatic_analysis import AutomaticAnalysisCoordinator, AutomaticPipelineFailure
 from ..exceptions import ApiError
@@ -100,6 +108,42 @@ def _validated_geometry_metadata(geometry_document: dict[str, Any]) -> dict[str,
             status_code=422,
             details=[{"message": str(exc)}],
         ) from exc
+
+
+def _manual_analysis_identity(
+    geometry_document: dict[str, Any],
+    geometry_metadata: dict[str, Any],
+    road_geometry_provider: RoadGeometryProvider,
+) -> AnalysisIdentity:
+    """Keep geometry identity while adding only unambiguous local-road metadata."""
+
+    identity = geometry_identity(geometry_document)
+    centroid = geometry_metadata["centroid"]
+    try:
+        resolution = resolve_canonical_road_section(
+            road_geometry_provider,
+            longitude=float(centroid["longitude"]),
+            latitude=float(centroid["latitude"]),
+            max_distance_m=settings.auto_analysis_road_snap_max_distance_m,
+            ambiguity_tolerance_m=settings.auto_analysis_road_ambiguity_tolerance_m,
+            segment_length_m=settings.auto_analysis_road_segment_length_m,
+        )
+    except Exception:
+        logger.exception("Falha ao resolver contexto rodoviario da analise manual.")
+        return identity
+    if resolution.status != "road_section_resolved" or not resolution.road:
+        return identity
+    road = resolution.road
+    return AnalysisIdentity(
+        subject_kind=identity.subject_kind,
+        subject_key=identity.subject_key,
+        road_id=road.get("id"),
+        road_ref=road.get("ref"),
+        road_name=road.get("name"),
+        axis_id=road.get("axis_id"),
+        section_id=road.get("section_id"),
+        section_index=road.get("section_index"),
+    )
 
 
 @router.post("/validate-geometry", response_model=GeometryValidationResponse)
@@ -244,6 +288,9 @@ def run_analysis(
     payload: AnalysisRunRequest,
     service: AnalysisService = Depends(get_analysis_service),
     now: datetime = Depends(get_analysis_now),
+    road_geometry_provider: RoadGeometryProvider = Depends(
+        get_manual_road_geometry_provider
+    ),
 ) -> AnalysisResponse:
     try:
         analysis_period = resolve_analysis_period(
@@ -258,7 +305,7 @@ def run_analysis(
             str(exc),
             status_code=422,
         ) from exc
-    _validated_geometry_metadata(payload.geometry)
+    geometry_metadata = _validated_geometry_metadata(payload.geometry)
     try:
         config = _build_monitoring_config(payload, analysis_period)
         result = service(config, analysis_id=str(uuid4()))
@@ -294,7 +341,10 @@ def run_analysis(
     support = _build_support(response, analysis_period)
     if support is not None:
         response.decision_support = DecisionSupportResponse.model_validate(support)
-    _persist_analysis(result, response, payload.geometry)
+    identity = _manual_analysis_identity(
+        payload.geometry, geometry_metadata, road_geometry_provider
+    )
+    _persist_analysis(result, response, payload.geometry, identity=identity)
     return response
 
 

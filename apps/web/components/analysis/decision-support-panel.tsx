@@ -30,7 +30,7 @@ export function DecisionSupportPanel({ support }: { support?: DecisionSupport | 
   return (
     <section className="support-panel" data-status={support.status} aria-labelledby="decision-support-title">
       <div className="support-head">
-        <span className="support-icon" aria-hidden="true"><History size={20} /></span>
+        <span className="support-icon" aria-hidden="true"><History size={20} color="#ffffff" /></span>
         <div>
           <span>Apoio do histórico</span>
           <h2 id="decision-support-title">O que o histórico operacional indica</h2>

@@ -8,10 +8,10 @@ const statusLabels = { active: "Ativa", planned: "Planejada" } as const;
 export function SourcesView() {
   return (
     <section className="secondary-view" aria-labelledby="secondary-view-sources">
-      <header>
-        <span>Dados de monitoramento</span>
-        <h1 id="secondary-view-sources">Fontes de dados</h1>
-        <p>Origens de imagens e índices usados nas análises. Novas fontes aparecem automaticamente nesta lista.</p>
+      <header className="page-heading">
+        <span className="page-heading-eyebrow">Dados de monitoramento</span>
+        <h1 id="secondary-view-sources" className="page-heading-title">Fontes de dados</h1>
+        <p className="page-heading-description">Origens de imagens e índices usados nas análises. Novas fontes aparecem automaticamente nesta lista.</p>
       </header>
 
       <ul className="source-list">

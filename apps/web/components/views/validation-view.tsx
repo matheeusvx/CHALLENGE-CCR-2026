@@ -93,13 +93,13 @@ export function ValidationView({ onStartNewAnalysis }: ValidationViewProps) {
 
   return (
     <section className="secondary-view validation-view" aria-labelledby="validation-view-title">
-      <header className="validation-header">
+      <header className="validation-header page-heading">
         <div className="validation-header-copy">
           <div className="title-row">
-            <h1 id="validation-view-title">Validação multissensor</h1>
+            <h1 id="validation-view-title" className="page-heading-title">Validação multissensor</h1>
             <span className="experimental-badge">EXPERIMENTAL</span>
           </div>
-          <p className="validation-desc">
+          <p className="validation-desc page-heading-description">
             Base de amostras de referência para avaliação do Sentinel-1 e Sentinel-2.
           </p>
           <p className="validation-disclaimer">

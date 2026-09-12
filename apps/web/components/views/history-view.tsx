@@ -136,10 +136,10 @@ export function HistoryView({ onStartNewAnalysis, onOpenWorkspace }: {
 
   return (
     <section className="secondary-view" aria-labelledby="secondary-view-history">
-      <header>
-        <span>Acompanhamento</span>
-        <h1 id="secondary-view-history">Histórico</h1>
-        <p>Consulte as análises realizadas e acompanhe o histórico dos trechos monitorados.</p>
+      <header className="page-heading">
+        <span className="page-heading-eyebrow">Acompanhamento</span>
+        <h1 id="secondary-view-history" className="page-heading-title">Histórico</h1>
+        <p className="page-heading-description">Consulte as análises realizadas e acompanhe o histórico dos trechos monitorados.</p>
       </header>
 
       {history.isLoading ? (

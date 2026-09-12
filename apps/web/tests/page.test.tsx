@@ -94,7 +94,7 @@ async function completeCurrentAnalysis() {
 }
 
 describe("workspace geoespacial", () => {
-  it("renderiza a página, o mapa, o produto e o status da API", async () => {
+  it("renderiza a página, o mapa e o produto", () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
     expect(screen.queryByText("Operações / Vegetação")).not.toBeInTheDocument();
@@ -102,8 +102,8 @@ describe("workspace geoespacial", () => {
     expect(screen.queryByText("Sentinel-2 L2A")).not.toBeInTheDocument();
     expect(screen.queryByText("Planetary Computer")).not.toBeInTheDocument();
     expect(screen.getByTestId("analysis-map")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("api-status")).toHaveTextContent("API operacional"));
-    expect(screen.getAllByText("API operacional")).toHaveLength(1);
+    expect(screen.queryByTestId("api-status")).not.toBeInTheDocument();
+    expect(screen.queryByText("API operacional")).not.toBeInTheDocument();
   });
 
   it("inicia uma sessão limpa ao voltar do Histórico para Painel", () => {

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from pyproj import Transformer
+from shapely.geometry import LineString, mapping
+from shapely.ops import transform
 
-from apps.api.app.dependencies import analysis_registry, get_analysis_service
+from apps.api.app.dependencies import (
+    analysis_registry,
+    get_analysis_service,
+    get_manual_road_geometry_provider,
+)
 from apps.api.app.main import app
 from apps.api.tests.conftest import VALID_GEOMETRY, make_result
 from src.satellite_monitoring.database import session_scope
@@ -16,6 +24,7 @@ from src.satellite_monitoring.database.models import (
     Analysis,
     MonitoredSection,
 )
+from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvider
 
 
 def _clear_history() -> None:
@@ -39,6 +48,48 @@ def _run(client: TestClient, valid_payload: dict) -> str:
     return response.json()["analysis_id"]
 
 
+def _manual_road_fixture(tmp_path):
+    forward = Transformer.from_crs("EPSG:4326", "EPSG:32723", always_xy=True)
+    reverse = Transformer.from_crs("EPSG:32723", "EPSG:4326", always_xy=True)
+    origin_x, origin_y = forward.transform(-47.0, -23.0)
+    road_line = transform(
+        reverse.transform,
+        LineString([(origin_x - 500, origin_y), (origin_x + 500, origin_y)]),
+    )
+    center_lng, center_lat = reverse.transform(origin_x, origin_y + 8)
+    document = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "feature_id": "test:SP-348:axis-1",
+                    "road_id": "SP-348",
+                    "road_ref": "SP-348",
+                    "road_name": "Rodovia dos Bandeirantes",
+                    "geometry_status": "valid",
+                    "source": "TEST",
+                },
+                "geometry": mapping(road_line),
+            }
+        ],
+    }
+    path = tmp_path / "manual-roads.geojson"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    delta = 0.00005
+    geometry = {
+        "type": "Polygon",
+        "coordinates": [[
+            [center_lng - delta, center_lat - delta],
+            [center_lng + delta, center_lat - delta],
+            [center_lng + delta, center_lat + delta],
+            [center_lng - delta, center_lat + delta],
+            [center_lng - delta, center_lat - delta],
+        ]],
+    }
+    return LocalGeoJsonRoadGeometryProvider(path), geometry
+
+
 def test_run_grava_a_analise_no_historico(
     client: TestClient, valid_payload: dict
 ) -> None:
@@ -59,7 +110,56 @@ def test_run_grava_a_analise_no_historico(
     assert item["period_start"] == "2026-05-01"
     assert item["period_end"] == "2026-08-04"
     assert item["analysis_trigger"] == "manual"
+    assert item["road_ref"] == "SP-330"
+    assert item["road_name"]
+
+
+def test_manual_com_contexto_rodoviario_persiste_badge_sem_mudar_identidade(
+    client: TestClient, valid_payload: dict, tmp_path
+) -> None:
+    _clear_history()
+    provider, geometry = _manual_road_fixture(tmp_path)
+    app.dependency_overrides[get_manual_road_geometry_provider] = lambda: provider
+    valid_payload["geometry"] = geometry
+
+    analysis_id = _run(client, valid_payload)
+
+    item = client.get("/api/analyses").json()["items"][0]
+    assert item["analysis_id"] == analysis_id
+    assert item["road_ref"] == "SP-348"
+    assert item["road_name"] == "Rodovia dos Bandeirantes"
+    with session_scope() as session:
+        persisted = session.get(Analysis, analysis_id)
+        assert persisted is not None
+        assert persisted.subject_kind == "geometry"
+        assert persisted.subject_key.startswith("geometry:v1:")
+        assert persisted.road_id == "SP-348"
+        assert persisted.axis_id == "test:SP-348:axis-1"
+        assert persisted.section_id is not None
+
+
+def test_manual_sem_correspondencia_confiavel_continua_sem_rodovia(
+    client: TestClient, valid_payload: dict, tmp_path
+) -> None:
+    _clear_history()
+    path = tmp_path / "empty-roads.geojson"
+    path.write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}),
+        encoding="utf-8",
+    )
+    provider = LocalGeoJsonRoadGeometryProvider(path)
+    app.dependency_overrides[get_manual_road_geometry_provider] = lambda: provider
+
+    analysis_id = _run(client, valid_payload)
+
+    item = client.get("/api/analyses").json()["items"][0]
+    assert item["analysis_id"] == analysis_id
     assert item["road_ref"] is None
+    assert item["road_name"] is None
+    with session_scope() as session:
+        persisted = session.get(Analysis, analysis_id)
+        assert persisted is not None
+        assert persisted.subject_kind == "geometry"
 
 
 def test_historico_devolve_a_analise_completa_com_geometria(
