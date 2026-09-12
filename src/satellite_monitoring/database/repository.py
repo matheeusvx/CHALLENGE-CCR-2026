@@ -10,7 +10,7 @@ import math
 from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from .alert_repository import MonitoredSectionRepository
@@ -244,6 +244,64 @@ def count_analyses(session: Session, *, decision: str | None = None) -> int:
     if decision:
         statement = statement.where(Analysis.decision == decision)
     return int(session.execute(statement).scalar_one())
+
+
+def list_history_analyses(
+    session: Session,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    decision: str | None = None,
+) -> Sequence[Analysis]:
+    """List only analyses visible in the operator-facing History UI."""
+
+    statement = (
+        select(Analysis)
+        .where(Analysis.hidden_from_history_at.is_(None))
+        .order_by(Analysis.created_at.desc())
+    )
+    if decision:
+        statement = statement.where(Analysis.decision == decision)
+    statement = statement.offset(max(0, offset)).limit(max(1, limit))
+    return session.execute(statement).scalars().all()
+
+
+def count_history_analyses(session: Session, *, decision: str | None = None) -> int:
+    """Count visible UI history without changing scientific queries."""
+
+    statement = (
+        select(func.count())
+        .select_from(Analysis)
+        .where(Analysis.hidden_from_history_at.is_(None))
+    )
+    if decision:
+        statement = statement.where(Analysis.decision == decision)
+    return int(session.execute(statement).scalar_one())
+
+
+def hide_analysis_from_history(
+    session: Session, analysis_id: str, *, hidden_at: datetime
+) -> bool:
+    """Soft-hide one analysis; return false only when the row does not exist."""
+
+    analysis = session.get(Analysis, analysis_id)
+    if analysis is None:
+        return False
+    if analysis.hidden_from_history_at is None:
+        analysis.hidden_from_history_at = hidden_at
+        session.flush()
+    return True
+
+
+def hide_all_history_analyses(session: Session, *, hidden_at: datetime) -> int:
+    """Soft-hide every currently visible analysis and return the affected count."""
+
+    result = session.execute(
+        update(Analysis)
+        .where(Analysis.hidden_from_history_at.is_(None))
+        .values(hidden_from_history_at=hidden_at)
+    )
+    return int(result.rowcount or 0)
 
 
 def delete_analysis(session: Session, analysis_id: str) -> bool:

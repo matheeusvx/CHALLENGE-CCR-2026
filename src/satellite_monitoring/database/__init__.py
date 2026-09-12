@@ -48,9 +48,13 @@ from .monitoring import (
 )
 from .repository import (
     count_analyses,
+    count_history_analyses,
     delete_analysis,
     get_analysis,
+    hide_all_history_analyses,
+    hide_analysis_from_history,
     list_analyses,
+    list_history_analyses,
     nearest_km,
     save_analysis,
 )
@@ -97,6 +101,7 @@ __all__ = [
     "STRICT_HEIGHT_LIMIT_CM",
     "Segment",
     "count_analyses",
+    "count_history_analyses",
     "database_url",
     "delete_analysis",
     "exceeds_height_limit",
@@ -107,7 +112,10 @@ __all__ = [
     "geometry_identity",
     "GEOMETRY_IDENTITY_GRID_DEGREES",
     "init_database",
+    "hide_all_history_analyses",
+    "hide_analysis_from_history",
     "list_analyses",
+    "list_history_analyses",
     "nearest_km",
     "reset_engine",
     "road_section_identity",

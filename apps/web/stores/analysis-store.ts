@@ -35,7 +35,12 @@ type AnalysisState = {
   resetAnalysisSession: () => void;
   applyAnalysisResult: (response: AnalysisResponse, revision: number) => void;
   applyAutomaticResult: (response: AnalysisResponse, geometry?: PolygonGeometry | null) => void;
-  restoreHistoricalAnalysis: (geometry: PolygonGeometry, response: AnalysisResponse, validation?: GeometryValidation) => void;
+  restoreHistoricalAnalysis: (
+    geometry: PolygonGeometry | null,
+    response: AnalysisResponse,
+    validation?: GeometryValidation,
+    mapTarget?: AlertMapTarget,
+  ) => void;
   focusAlertTarget: (target: AlertMapTarget) => void;
   applyGeometryValidation: (validation: GeometryValidation, revision: number) => void;
   setSelectedTool: (tool: MapTool) => void;
@@ -129,22 +134,31 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
         currentResult: { response, geometryRevision },
       };
     }),
-  restoreHistoricalAnalysis: (geometry, response, validation) =>
+  restoreHistoricalAnalysis: (geometry, response, validation, mapTarget) =>
     set((state) => {
       const geometryRevision = state.geometryRevision + 1;
       const validated = validation?.valid === true;
       return {
         geometry,
         geometryRevision,
-        geometrySource: "predefined",
+        geometrySource: geometry ? "predefined" : null,
         geometryValidation: validation ?? null,
         isGeometryDirty: false,
         selectedTool: "navigate",
         lastValidatedGeometryRevision: validated ? geometryRevision : null,
         lastValidatedAt: validated ? new Date().toISOString() : null,
-        geometryText: JSON.stringify(geometry, null, 2),
+        geometryText: geometry ? JSON.stringify(geometry, null, 2) : "",
         activeTab: "result",
         currentResult: { response, geometryRevision },
+        alertTarget: mapTarget ?? (geometry ? {
+          geometry,
+          bounds: null,
+          centroid: null,
+          road_ref: null,
+          road_name: null,
+          section_id: null,
+        } : null),
+        alertFitRequestId: geometry || mapTarget ? state.alertFitRequestId + 1 : state.alertFitRequestId,
       };
     }),
   focusAlertTarget: (target) =>

@@ -310,6 +310,44 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     expect(mockRunAutomaticAnalysis).not.toHaveBeenCalled();
   });
 
+  it("movimento programático de Abrir análise histórica não dispara análise automática", async () => {
+    useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
+    render(<MapCanvas />);
+    const map = runtime.maps[0];
+    act(() => map.emit("load"));
+    const historical = makeMockResult();
+    const historicalGeometry: PolygonGeometry = {
+      type: "Polygon",
+      coordinates: [[
+        [-47, -23.1], [-46.9, -23.1], [-46.9, -23], [-47, -23.1],
+      ]],
+    };
+
+    act(() => {
+      useAnalysisStore.getState().restoreHistoricalAnalysis(
+        historicalGeometry,
+        historical,
+        undefined,
+        {
+          geometry: historicalGeometry,
+          bounds: mockBounds,
+          centroid: { longitude: -46.95, latitude: -23.05 },
+          road_ref: "SP-330",
+          road_name: "Rodovia Anhanguera",
+          section_id: "section-1",
+        },
+      );
+    });
+
+    expect(map.fitBounds).toHaveBeenCalled();
+    act(() => map.emit("movestart"));
+    act(() => map.emit("moveend"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_ANALYSIS_CONFIG.debounceMs);
+    });
+    expect(mockRunAutomaticAnalysis).not.toHaveBeenCalled();
+  });
+
   it("B) spatial_key nunca aparece visualmente", () => {
     useAutoAnalysisStore.setState({
       enabled: true,

@@ -15,6 +15,7 @@ from .models import Alert, AlertEvent, MonitoredSection
 
 ALERT_FOUNDATION_VERSION = "0001_alert_foundation"
 MONITORING_CLAIMS_VERSION = "0002_monitoring_claims"
+HISTORY_VISIBILITY_VERSION = "0003_history_visibility"
 
 ANALYSIS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("subject_kind", "VARCHAR(24)"),
@@ -90,6 +91,21 @@ def _upgrade_monitoring_claims(connection: Connection) -> None:
     )
 
 
+def _upgrade_history_visibility(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "analysis" not in inspector.get_table_names():
+        raise RuntimeError("analysis table must exist before history visibility migration")
+    existing = {column["name"] for column in inspector.get_columns("analysis")}
+    if "hidden_from_history_at" not in existing:
+        connection.exec_driver_sql(
+            "ALTER TABLE analysis ADD COLUMN hidden_from_history_at DATETIME"
+        )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_analysis_history_visible "
+        "ON analysis (hidden_from_history_at, created_at)"
+    )
+
+
 def run_migrations(engine: Engine) -> None:
     """Apply every pending embedded migration exactly once."""
 
@@ -121,6 +137,18 @@ def run_migrations(engine: Engine) -> None:
                 ),
                 {
                     "version": MONITORING_CLAIMS_VERSION,
+                    "applied_at": datetime.now(UTC).replace(tzinfo=None),
+                },
+            )
+        if not _migration_applied(connection, HISTORY_VISIBILITY_VERSION):
+            _upgrade_history_visibility(connection)
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migration(version, applied_at) "
+                    "VALUES (:version, :applied_at)"
+                ),
+                {
+                    "version": HISTORY_VISIBILITY_VERSION,
                     "applied_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             )

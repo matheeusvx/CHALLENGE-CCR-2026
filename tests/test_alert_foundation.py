@@ -21,15 +21,21 @@ from src.satellite_monitoring.database import (
     MonitoredSection,
     MonitoredSectionRepository,
     count_analyses,
+    count_history_analyses,
     geometry_identity,
     get_analysis,
     get_engine,
     init_database,
+    hide_analysis_from_history,
+    list_history_analyses,
     reset_engine,
     save_analysis,
     session_scope,
 )
-from src.satellite_monitoring.database.migrations import ALERT_FOUNDATION_VERSION
+from src.satellite_monitoring.database.migrations import (
+    ALERT_FOUNDATION_VERSION,
+    HISTORY_VISIBILITY_VERSION,
+)
 
 
 GEOMETRY = {
@@ -128,6 +134,7 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
         "subject_kind", "subject_key", "spatial_key", "road_id", "road_ref",
         "road_name", "axis_id", "section_id", "section_index",
         "latest_valid_observation_on",
+        "hidden_from_history_at",
     } <= columns
     monitored_columns = {
         item["name"]
@@ -146,6 +153,7 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
             text("SELECT version FROM schema_migration")
         ).scalars())
         assert ALERT_FOUNDATION_VERSION in versions
+        assert HISTORY_VISIBILITY_VERSION in versions
     reset_engine()
 
 
@@ -157,6 +165,49 @@ def test_new_database_contains_alert_foundation(alert_database):
     assert "ix_analysis_subject_created" in {
         item["name"] for item in inspector.get_indexes("analysis")
     }
+    assert "ix_analysis_history_visible" in {
+        item["name"] for item in inspector.get_indexes("analysis")
+    }
+
+
+def test_hidden_analysis_stays_available_to_scientific_alert_history(alert_database):
+    subject_key = geometry_identity(GEOMETRY).subject_key
+    first = _payload()
+    first["recommendation"]["decision"] = "nao_cortar"
+    with session_scope() as session:
+        saved = save_analysis(
+            session,
+            first,
+            geometry=GEOMETRY,
+            created_at=datetime(2026, 8, 1, 12),
+        )
+        assert hide_analysis_from_history(
+            session, saved.id, hidden_at=datetime(2026, 8, 2, 12)
+        )
+
+    with session_scope() as session:
+        assert count_history_analyses(session) == 0
+        assert list_history_analyses(session) == []
+        hidden = get_analysis(session, first["analysis_id"])
+        assert hidden is not None
+        assert len(hidden.observations) == 2
+
+    second = _payload()
+    with session_scope() as session:
+        save_analysis(
+            session,
+            second,
+            geometry=GEOMETRY,
+            created_at=datetime(2026, 8, 3, 12),
+            alert_now=datetime(2026, 8, 3, 12),
+        )
+
+    with session_scope() as session:
+        transition = session.query(Alert).filter_by(
+            subject_key=subject_key,
+            type=AlertType.RECOMMENDATION_CHANGED.value,
+        ).one()
+        assert transition.previous_analysis_id == first["analysis_id"]
 
 
 def test_save_analysis_updates_same_row_without_breaking_foreign_keys(alert_database):

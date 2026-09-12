@@ -381,6 +381,10 @@ class AnalysisHistoryItem(StrictModel):
     observation_count: int | None = None
     nearest_km: int | None = None
     centroid: Centroid | None = None
+    analysis_trigger: Literal["manual", "automatic_viewport"] = "manual"
+    road_ref: str | None = None
+    road_name: str | None = None
+    section_id: str | None = None
 
 
 class AnalysisHistoryPage(StrictModel):
@@ -399,6 +403,15 @@ class AnalysisHistoryDetail(StrictModel):
     created_at: datetime
     geometry: dict[str, Any] | None = None
     result: AnalysisResponse
+
+
+class AnalysisHistoryHideResponse(StrictModel):
+    analysis_id: str
+    hidden: Literal[True] = True
+
+
+class AnalysisHistoryClearResponse(StrictModel):
+    hidden_count: int = Field(ge=0)
 
 
 class AutomaticAnalysisResponse(StrictModel):

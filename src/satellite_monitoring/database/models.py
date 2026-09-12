@@ -222,6 +222,7 @@ class Analysis(Base):
         Index("ix_analysis_subject_created", "subject_key", "created_at"),
         Index("ix_analysis_spatial_key", "spatial_key"),
         Index("ix_analysis_road_section", "road_ref", "section_id"),
+        Index("ix_analysis_history_visible", "hidden_from_history_at", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -268,6 +269,9 @@ class Analysis(Base):
     section_id: Mapped[str | None] = mapped_column(String(64))
     section_index: Mapped[int | None] = mapped_column(Integer)
     latest_valid_observation_on: Mapped[date | None] = mapped_column(Date)
+    # UI-only visibility. Scientific history, relationships and audit records
+    # continue to use the row regardless of this value.
+    hidden_from_history_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     run_directory: Mapped[str | None] = mapped_column(String(512))
     # Caminhos de arquivo dos artefatos gerados, para que continuem acessiveis

@@ -44,7 +44,9 @@ export async function apiRequest<T>(
       0,
     );
   }
-  const body: unknown = await response.json().catch(() => null);
+  const body: unknown = response.status === 204
+    ? undefined
+    : await response.json().catch(() => null);
   if (!response.ok) {
     const parsed = errorEnvelopeSchema.safeParse(body);
     throw new ApiError(

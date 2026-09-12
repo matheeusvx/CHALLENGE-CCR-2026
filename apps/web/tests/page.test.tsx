@@ -10,7 +10,15 @@ import { useAnalysisStore } from "@/stores/analysis-store";
 import { useHistoryStore } from "@/stores/history-store";
 import type { PolygonGeometry } from "@/lib/map/geometry";
 
-vi.mock("@/lib/api/analyses", () => ({ getHealth: vi.fn(), validateGeometry: vi.fn(), runAnalysis: vi.fn() }));
+vi.mock("@/lib/api/analyses", () => ({
+  getHealth: vi.fn(),
+  validateGeometry: vi.fn(),
+  runAnalysis: vi.fn(),
+  listAnalyses: vi.fn(),
+  getAnalysisDetail: vi.fn(),
+  hideAnalysisFromHistory: vi.fn(),
+  clearAnalysisHistory: vi.fn(),
+}));
 vi.mock("@/components/map/analysis-map", () => ({
   AnalysisMap: ({ result: mapResult }: { result?: AnalysisResponse }) => <div data-testid="analysis-map" data-decision={mapResult?.recommendation.decision ?? "editing"} />,
 }));
@@ -65,6 +73,15 @@ beforeEach(() => {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", service: "motiva-vegetation-api", version: "0.1.0" });
   vi.mocked(api.validateGeometry).mockResolvedValue(validation);
   vi.mocked(api.runAnalysis).mockResolvedValue(result);
+  vi.mocked(api.listAnalyses).mockResolvedValue({ total: 0, limit: 20, offset: 0, items: [] });
+  vi.mocked(api.getAnalysisDetail).mockResolvedValue({
+    analysis_id: result.analysis_id,
+    created_at: "2026-08-10T12:00:00Z",
+    geometry: polygon,
+    result,
+  });
+  vi.mocked(api.hideAnalysisFromHistory).mockResolvedValue({ analysis_id: result.analysis_id, hidden: true });
+  vi.mocked(api.clearAnalysisHistory).mockResolvedValue({ hidden_count: 0 });
   useAnalysisStore.setState({ geometry: null, geometryRevision: 0, geometrySource: null, geometryValidation: null, isGeometryDirty: false, selectedTool: "navigate", lastValidatedGeometryRevision: null, lastValidatedAt: null, geometryText: "", fitRequestId: 0, activeTab: "area", currentResult: null });
   useHistoryStore.setState({ entries: [] });
 });
@@ -320,10 +337,30 @@ describe("workspace geoespacial", () => {
     await completeCurrentAnalysis();
     expect(useHistoryStore.getState().entries).toHaveLength(1);
 
+    vi.mocked(api.listAnalyses).mockResolvedValueOnce({
+      total: 1, limit: 20, offset: 0,
+      items: [{
+        analysis_id: result.analysis_id,
+        created_at: "2026-08-10T12:00:00Z",
+        status: "completed",
+        decision: "nao_cortar",
+        confidence: "high",
+        summary: "Vegetação abaixo do nível alto local.",
+        period_start: "2026-07-10",
+        period_end: "2026-08-10",
+        selected_area_m2: 12450,
+        analysis_quality_status: "high",
+        observation_count: 4,
+        analysis_trigger: "manual",
+      }],
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Painel" }));
     expect(useHistoryStore.getState().entries).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
-    fireEvent.click(screen.getByRole("button", { name: "Abrir análise" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir análise" }));
+
+    await waitFor(() => expect(api.getAnalysisDetail).toHaveBeenCalledWith(result.analysis_id));
 
     expect(useAnalysisStore.getState().geometry).toEqual(polygon);
     expect(useAnalysisStore.getState().currentResult?.response.analysis_id).toBe(result.analysis_id);

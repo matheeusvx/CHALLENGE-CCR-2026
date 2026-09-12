@@ -142,7 +142,7 @@ export function ValidationView({ onStartNewAnalysis }: ValidationViewProps) {
         <div className="view-empty validation-empty">
           <FlaskConical size={36} aria-hidden="true" />
           <strong>Nenhuma amostra registrada</strong>
-          <p>Execute uma análise e use &ldquo;Salvar para validação&rdquo; para iniciar o benchmark.</p>
+          <p>Nenhuma amostra de benchmark registrada no momento.</p>
           <button type="button" className="secondary-button" onClick={onStartNewAnalysis}>
             <Leaf size={16} aria-hidden="true" />
             Nova análise

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
@@ -16,9 +16,11 @@ from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.decision_support import build_decision_support
 from src.satellite_monitoring.database import (
     AnalysisIdentity,
-    count_analyses,
+    count_history_analyses,
     get_analysis,
-    list_analyses,
+    hide_all_history_analyses,
+    hide_analysis_from_history,
+    list_history_analyses,
     nearest_km,
     save_analysis,
     session_scope,
@@ -47,6 +49,8 @@ from ..operational_profile import (
 )
 from ..schemas import (
     AnalysisHistoryDetail,
+    AnalysisHistoryClearResponse,
+    AnalysisHistoryHideResponse,
     AnalysisHistoryItem,
     AnalysisHistoryPage,
     AnalysisResponse,
@@ -411,6 +415,10 @@ def _to_history_item(record: Any) -> AnalysisHistoryItem:
         centroid = Centroid(
             longitude=record.centroid_longitude, latitude=record.centroid_latitude
         )
+    payload = record.payload if isinstance(record.payload, dict) else {}
+    trigger = payload.get("analysis_trigger")
+    if trigger not in {"manual", "automatic_viewport"}:
+        trigger = "manual"
     return AnalysisHistoryItem(
         analysis_id=record.id,
         created_at=record.created_at,
@@ -425,6 +433,10 @@ def _to_history_item(record: Any) -> AnalysisHistoryItem:
         observation_count=record.observation_count,
         nearest_km=record.nearest_km,
         centroid=centroid,
+        analysis_trigger=trigger,
+        road_ref=record.road_ref,
+        road_name=record.road_name,
+        section_id=record.section_id,
     )
 
 
@@ -437,14 +449,40 @@ def list_analysis_history(
     """Historico de analises, da mais recente para a mais antiga."""
 
     with session_scope() as session:
-        records = list_analyses(
+        records = list_history_analyses(
             session, limit=limit, offset=offset, decision=decision
         )
-        total = count_analyses(session, decision=decision)
+        total = count_history_analyses(session, decision=decision)
         items = [_to_history_item(record) for record in records]
     return AnalysisHistoryPage(
         total=total, limit=limit, offset=offset, items=items
     )
+
+
+@router.delete("", response_model=AnalysisHistoryClearResponse)
+def clear_analysis_history() -> AnalysisHistoryClearResponse:
+    """Oculta todos os registros visiveis sem remover dados cientificos."""
+
+    hidden_at = datetime.now(UTC).replace(tzinfo=None)
+    with session_scope() as session:
+        hidden_count = hide_all_history_analyses(session, hidden_at=hidden_at)
+    return AnalysisHistoryClearResponse(hidden_count=hidden_count)
+
+
+@router.delete("/{analysis_id}", response_model=AnalysisHistoryHideResponse)
+def hide_analysis_history_item(analysis_id: UUID) -> AnalysisHistoryHideResponse:
+    """Oculta uma analise da interface, preservando linha, FKs e auditoria."""
+
+    hidden_at = datetime.now(UTC).replace(tzinfo=None)
+    with session_scope() as session:
+        found = hide_analysis_from_history(
+            session, str(analysis_id), hidden_at=hidden_at
+        )
+        if not found:
+            raise ApiError(
+                "ANALYSIS_NOT_FOUND", "Analise nao encontrada.", status_code=404
+            )
+    return AnalysisHistoryHideResponse(analysis_id=str(analysis_id))
 
 
 @router.get("/{analysis_id}", response_model=AnalysisHistoryDetail)

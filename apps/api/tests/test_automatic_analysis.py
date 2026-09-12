@@ -622,6 +622,12 @@ def test_automatic_endpoint_reuses_current_pipeline_and_experimental_payload(
         assert persisted.geometry is not None
         assert persisted.payload["analysis_trigger"] == "automatic_viewport"
         assert "decision_support" in persisted.payload
+    history = client.get("/api/analyses", params={"limit": 200})
+    assert history.status_code == 200
+    history_item = next(
+        item for item in history.json()["items"] if item["analysis_id"] == analysis_id
+    )
+    assert history_item["analysis_trigger"] == "automatic_viewport"
     cached = client.post("/api/analyses/automatic", json=payload)
     assert started.status_code == 200
     assert started.json()["status"] == "analysis_started"

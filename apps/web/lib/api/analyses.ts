@@ -1,5 +1,7 @@
 import {
   analysisHistoryDetailSchema,
+  analysisHistoryClearResponseSchema,
+  analysisHistoryHideResponseSchema,
   analysisHistoryPageSchema,
   analysisResponseSchema,
   automaticAnalysisResponseSchema,
@@ -45,6 +47,18 @@ export const listAnalyses = (options: { limit?: number; offset?: number; decisio
 /** Analise completa gravada, incluindo a geometria da AOI. */
 export const getAnalysisDetail = (analysisId: string) =>
   apiRequest(`/api/analyses/${analysisId}`, analysisHistoryDetailSchema);
+
+/** Oculta uma analise somente da visualizacao operacional do Historico. */
+export const hideAnalysisFromHistory = (analysisId: string) =>
+  apiRequest(`/api/analyses/${analysisId}`, analysisHistoryHideResponseSchema, {
+    method: "DELETE",
+  });
+
+/** Oculta todas as analises atualmente visiveis, sem apagar dados cientificos. */
+export const clearAnalysisHistory = () =>
+  apiRequest("/api/analyses", analysisHistoryClearResponseSchema, {
+    method: "DELETE",
+  });
 export const runAutomaticAnalysis = (
   payload: AutomaticAnalysisRequest,
   signal?: AbortSignal,

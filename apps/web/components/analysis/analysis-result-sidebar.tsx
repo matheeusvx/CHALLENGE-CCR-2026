@@ -3,7 +3,6 @@ import {
   CalendarRange,
   CheckCircle2,
   Crosshair,
-  FlaskConical,
   Gauge,
   Grid3x3,
   HelpCircle,
@@ -11,8 +10,6 @@ import {
   MapPinned,
   RotateCcw,
 } from "lucide-react";
-import { useState } from "react";
-import { SaveValidationSampleModal } from "@/components/validation/save-validation-sample-modal";
 import type { AnalysisResponse, SpatialZone } from "@/lib/schemas/analyses";
 import {
   analysisQualityStatus,
@@ -98,15 +95,11 @@ function SegmentationSummary({ zones, coveragePct }: { zones: SpatialZone[]; cov
 export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisResponse; onRetry: () => void }) {
   const requestFit = useAnalysisStore((state) => state.requestGeometryFit);
   const autoRoad = useAutoAnalysisStore((state) => state.road);
-  const [isValidationModalOpen, setIsValidationModalOpen] = useState(false);
-  const [savedSamples, setSavedSamples] = useState<Set<string>>(new Set());
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   if (!result) {
     return <div className="result-panel-empty"><Leaf size={30} /><strong>Nenhum resultado disponível</strong><p>Valide a área e execute a análise para preencher esta etapa.</p></div>;
   }
 
-  const isSampleSaved = Boolean(result.analysis_id && savedSamples.has(result.analysis_id));
   const range = result.analysis_period;
   const quality = analysisQualityStatus(result);
   const effectivePercentage = effectiveAnalysisPercentage(result);
@@ -174,53 +167,16 @@ export function AnalysisResultSidebar({ result, onRetry }: { result?: AnalysisRe
       {hasSegmentation && result.spatial_segmentation ? (
         <SegmentationSummary zones={result.spatial_segmentation.zones} coveragePct={result.spatial_segmentation.effective_coverage_pct} />
       ) : null}
-
-      {feedbackMessage ? (
-        <div className="validation-feedback-pill" role="status">
-          <CheckCircle2 size={15} aria-hidden="true" />
-          <span>{feedbackMessage}</span>
-        </div>
-      ) : null}
-
       <div className="panel-actions result-actions">
-        {result.analysis_id ? (
-          <button
-            type="button"
-            className="secondary-button action-save-validation"
-            onClick={() => setIsValidationModalOpen(true)}
-            disabled={isSampleSaved}
-          >
-            {isSampleSaved ? (
-              <>
-                <CheckCircle2 size={16} aria-hidden="true" />
-                Amostra registrada
-              </>
-            ) : (
-              <>
-                <FlaskConical size={16} aria-hidden="true" />
-                Salvar para validação
-              </>
-            )}
-          </button>
-        ) : null}
-        <button type="button" className="secondary-button" onClick={requestFit}><Crosshair size={16} />Enquadrar área selecionada</button>
-        <button type="button" className="quiet-action" onClick={onRetry}><RotateCcw size={15} />Executar novamente</button>
+        <button type="button" className="secondary-button action-fit-area" onClick={requestFit}>
+          <Crosshair size={16} aria-hidden="true" />
+          Enquadrar área selecionada
+        </button>
+        <button type="button" className="quiet-action" onClick={onRetry}>
+          <RotateCcw size={15} aria-hidden="true" />
+          Executar novamente
+        </button>
       </div>
-
-      {result.analysis_id ? (
-        <SaveValidationSampleModal
-          analysisId={result.analysis_id}
-          isOpen={isValidationModalOpen}
-          onClose={() => setIsValidationModalOpen(false)}
-          onSaved={() => {
-            if (result.analysis_id) {
-              setSavedSamples((prev) => new Set(prev).add(result.analysis_id));
-            }
-            setFeedbackMessage("Amostra salva na base de validação.");
-            setTimeout(() => setFeedbackMessage(null), 5000);
-          }}
-        />
-      ) : null}
     </div>
   );
 }

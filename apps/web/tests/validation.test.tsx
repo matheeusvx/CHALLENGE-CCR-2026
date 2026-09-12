@@ -455,7 +455,7 @@ describe("Cadastro de Amostra — Sidebar e Modal", () => {
     vi.clearAllMocks();
   });
 
-  it("botão 'Salvar para validação' aparece no AnalysisResultSidebar quando há resultado válido", () => {
+  it("botão 'Salvar para validação' não aparece mais no AnalysisResultSidebar", () => {
     const Wrapper = createWrapper();
     render(
       <Wrapper>
@@ -463,8 +463,9 @@ describe("Cadastro de Amostra — Sidebar e Modal", () => {
       </Wrapper>,
     );
 
-    const saveBtn = screen.getByRole("button", { name: /Salvar para validação/ });
-    expect(saveBtn).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Salvar para validação/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Enquadrar área selecionada/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Executar novamente/ })).toBeInTheDocument();
   });
 
   it("abre SaveValidationSampleModal com campos obrigatórios e sem métricas científicas", () => {

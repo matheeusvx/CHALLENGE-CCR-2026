@@ -237,6 +237,10 @@ export const analysisHistoryItemSchema = z.object({
   observation_count: z.number().int().nullable().optional(),
   nearest_km: z.number().int().nullable().optional(),
   centroid: z.object({ longitude: z.number(), latitude: z.number() }).nullable().optional(),
+  analysis_trigger: z.enum(["manual", "automatic_viewport"]).default("manual"),
+  road_ref: z.string().nullable().optional(),
+  road_name: z.string().nullable().optional(),
+  section_id: z.string().nullable().optional(),
 });
 
 export const analysisHistoryPageSchema = z.object({
@@ -249,8 +253,17 @@ export const analysisHistoryPageSchema = z.object({
 export const analysisHistoryDetailSchema = z.object({
   analysis_id: z.string(),
   created_at: z.string(),
-  geometry: z.record(z.string(), z.unknown()).nullable().optional(),
+  geometry: geometrySchema.nullable().optional(),
   result: analysisResponseSchema,
+});
+
+export const analysisHistoryHideResponseSchema = z.union([
+  z.object({ analysis_id: z.string(), hidden: z.literal(true) }),
+  z.undefined(),
+]);
+
+export const analysisHistoryClearResponseSchema = z.object({
+  hidden_count: z.number().int().nonnegative(),
 });
 
 export const healthSchema = z.object({
@@ -265,6 +278,8 @@ export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;
 export type AnalysisHistoryItem = z.infer<typeof analysisHistoryItemSchema>;
 export type AnalysisHistoryPage = z.infer<typeof analysisHistoryPageSchema>;
 export type AnalysisHistoryDetail = z.infer<typeof analysisHistoryDetailSchema>;
+export type AnalysisHistoryHideResponse = z.infer<typeof analysisHistoryHideResponseSchema>;
+export type AnalysisHistoryClearResponse = z.infer<typeof analysisHistoryClearResponseSchema>;
 export type SpatialZone = z.infer<typeof spatialZoneSchema>;
 export type SpatialSegmentation = z.infer<typeof spatialSegmentationSchema>;
 export type DecisionSupport = z.infer<typeof decisionSupportSchema>;
