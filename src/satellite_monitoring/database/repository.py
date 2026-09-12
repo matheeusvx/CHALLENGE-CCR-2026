@@ -87,7 +87,7 @@ def save_analysis(
     artifacts: Mapping[str, str] | None = None,
     created_at: datetime | None = None,
     identity: AnalysisIdentity | None = None,
-    monitored_section_cadence_days: int = 30,
+    monitored_section_cadence_days: int | None = None,
     alert_now: datetime | None = None,
 ) -> Analysis:
     """Insert or update an analysis without replacing its database row."""
@@ -194,6 +194,10 @@ def save_analysis(
             if payload.get("analysis_trigger") == "automatic_viewport"
             else "manual"
         )
+        if monitored_section_cadence_days is None:
+            from .monitoring import MonitoringConfig
+
+            monitored_section_cadence_days = MonitoringConfig.from_env().default_cadence_days
         MonitoredSectionRepository(session).upsert(
             identity,
             geometry=geometry,

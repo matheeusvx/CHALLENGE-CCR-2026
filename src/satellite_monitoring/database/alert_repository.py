@@ -220,6 +220,82 @@ class MonitoredSectionRepository:
     def get_by_subject_key(self, subject_key: str) -> MonitoredSection | None:
         return self.session.get(MonitoredSection, subject_key)
 
+    def list_due(
+        self,
+        *,
+        now: datetime,
+        limit: int = 100,
+        road: str | None = None,
+    ) -> Sequence[MonitoredSection]:
+        if limit <= 0:
+            return []
+        statement = select(MonitoredSection).where(
+            MonitoredSection.enabled.is_(True),
+            MonitoredSection.next_due_at.is_not(None),
+            MonitoredSection.next_due_at <= now,
+        )
+        if road:
+            statement = statement.where(
+                or_(
+                    MonitoredSection.road_ref == road,
+                    MonitoredSection.road_id == road,
+                    MonitoredSection.road_name == road,
+                )
+            )
+        return self.session.execute(
+            statement.order_by(
+                MonitoredSection.next_due_at.asc(),
+                MonitoredSection.last_analysis_at.asc().nulls_first(),
+                MonitoredSection.subject_key.asc(),
+            ).limit(limit)
+        ).scalars().all()
+
+    def claim(
+        self,
+        subject_key: str,
+        *,
+        token: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> MonitoredSection | None:
+        """Atomically claim a due row, including recovery of an expired claim."""
+
+        result = self.session.execute(
+            update(MonitoredSection)
+            .where(
+                MonitoredSection.subject_key == subject_key,
+                MonitoredSection.enabled.is_(True),
+                MonitoredSection.next_due_at.is_not(None),
+                MonitoredSection.next_due_at <= now,
+                or_(
+                    MonitoredSection.claim_token.is_(None),
+                    MonitoredSection.claim_expires_at.is_(None),
+                    MonitoredSection.claim_expires_at <= now,
+                ),
+            )
+            .values(
+                claimed_at=now,
+                claim_token=token,
+                claim_expires_at=expires_at,
+            )
+        )
+        if result.rowcount != 1:
+            return None
+        self.session.flush()
+        return self.session.get(MonitoredSection, subject_key)
+
+    def release_claim(self, subject_key: str, *, token: str) -> bool:
+        result = self.session.execute(
+            update(MonitoredSection)
+            .where(
+                MonitoredSection.subject_key == subject_key,
+                MonitoredSection.claim_token == token,
+            )
+            .values(claimed_at=None, claim_token=None, claim_expires_at=None)
+        )
+        self.session.flush()
+        return result.rowcount == 1
+
     def upsert(
         self,
         identity: AnalysisIdentity,
@@ -228,7 +304,7 @@ class MonitoredSectionRepository:
         source: str,
         analysis_at: datetime,
         latest_valid_observation_on: date | None,
-        cadence_days: int = 30,
+        cadence_days: int = 7,
         metadata: Mapping[str, Any] | None = None,
     ) -> MonitoredSection:
         if cadence_days <= 0:

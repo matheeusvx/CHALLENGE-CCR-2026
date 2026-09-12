@@ -40,6 +40,12 @@ from .alert_repository import (
     MonitoredSectionRepository,
 )
 from .alert_engine import AlertEngine, AlertEngineConfig
+from .monitoring import (
+    DueSection,
+    MonitoringConfig,
+    MonitoringRunSummary,
+    MonitoringService,
+)
 from .repository import (
     count_analyses,
     delete_analysis,
@@ -83,6 +89,10 @@ __all__ = [
     "MowingPolygon",
     "MonitoredSection",
     "MonitoredSectionRepository",
+    "MonitoringConfig",
+    "MonitoringRunSummary",
+    "MonitoringService",
+    "DueSection",
     "NdviFieldSample",
     "STRICT_HEIGHT_LIMIT_CM",
     "Segment",

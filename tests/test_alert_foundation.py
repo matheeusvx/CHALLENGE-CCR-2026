@@ -129,6 +129,11 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
         "road_name", "axis_id", "section_id", "section_index",
         "latest_valid_observation_on",
     } <= columns
+    monitored_columns = {
+        item["name"]
+        for item in inspector.get_columns("monitored_section")
+    }
+    assert {"claimed_at", "claim_token", "claim_expires_at"} <= monitored_columns
     assert {"alert", "alert_event", "monitored_section", "schema_migration"} <= set(
         inspector.get_table_names()
     )
@@ -137,10 +142,10 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
         assert old is not None
         assert old.decision == "cortar"
         assert old.subject_key is None
-        version = session.execute(
+        versions = set(session.execute(
             text("SELECT version FROM schema_migration")
-        ).scalar_one()
-        assert version == ALERT_FOUNDATION_VERSION
+        ).scalars())
+        assert ALERT_FOUNDATION_VERSION in versions
     reset_engine()
 
 

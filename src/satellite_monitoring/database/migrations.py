@@ -14,6 +14,7 @@ from sqlalchemy import Connection, Engine, inspect, text
 from .models import Alert, AlertEvent, MonitoredSection
 
 ALERT_FOUNDATION_VERSION = "0001_alert_foundation"
+MONITORING_CLAIMS_VERSION = "0002_monitoring_claims"
 
 ANALYSIS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("subject_kind", "VARCHAR(24)"),
@@ -62,6 +63,33 @@ def _upgrade_alert_foundation(connection: Connection) -> None:
     MonitoredSection.__table__.create(connection, checkfirst=True)
 
 
+def _upgrade_monitoring_claims(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if "monitored_section" not in inspector.get_table_names():
+        MonitoredSection.__table__.create(connection, checkfirst=True)
+        return
+    existing = {
+        column["name"] for column in inspector.get_columns("monitored_section")
+    }
+    for name, sql_type in (
+        ("claimed_at", "DATETIME"),
+        ("claim_token", "VARCHAR(64)"),
+        ("claim_expires_at", "DATETIME"),
+    ):
+        if name not in existing:
+            connection.exec_driver_sql(
+                f'ALTER TABLE monitored_section ADD COLUMN "{name}" {sql_type}'
+            )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_monitored_section_due "
+        "ON monitored_section (enabled, next_due_at)"
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_monitored_section_claim "
+        "ON monitored_section (claim_expires_at)"
+    )
+
+
 def run_migrations(engine: Engine) -> None:
     """Apply every pending embedded migration exactly once."""
 
@@ -81,6 +109,18 @@ def run_migrations(engine: Engine) -> None:
                 ),
                 {
                     "version": ALERT_FOUNDATION_VERSION,
+                    "applied_at": datetime.now(UTC).replace(tzinfo=None),
+                },
+            )
+        if not _migration_applied(connection, MONITORING_CLAIMS_VERSION):
+            _upgrade_monitoring_claims(connection)
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migration(version, applied_at) "
+                    "VALUES (:version, :applied_at)"
+                ),
+                {
+                    "version": MONITORING_CLAIMS_VERSION,
                     "applied_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             )

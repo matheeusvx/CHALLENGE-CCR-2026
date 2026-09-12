@@ -326,6 +326,7 @@ def _persist_analysis(
     geometry: dict[str, Any],
     *,
     identity: AnalysisIdentity | None = None,
+    raise_on_error: bool = False,
 ) -> None:
     """Grava a analise no historico, ja com o apoio anexado a resposta."""
 
@@ -344,8 +345,64 @@ def _persist_analysis(
                 },
                 identity=identity,
             )
-    except Exception:  # pragma: no cover - nunca invalida a resposta
+    except Exception:  # pragma: no cover - manual/HTTP persistence stays tolerant
         logger.exception("Falha ao gravar a analise no historico.")
+        if raise_on_error:
+            raise
+
+
+def run_persisted_road_section(section: Any, *, now: datetime) -> str:
+    """Run one persisted roadside AOI through the shared automatic pipeline.
+
+    This synchronous adapter is intended for the one-shot monitoring runner. It
+    reuses the operational configuration and persistence path; it does not
+    resolve or rebuild GIS geometry.
+    """
+
+    if section.subject_kind != "road_section" or not section.geometry:
+        raise ValueError("only persisted road_section geometry is eligible")
+    analysis_period = resolve_analysis_period(
+        None, None, now=now, timezone_name=settings.analysis_timezone
+    )
+    payload = AnalysisRunRequest(geometry=section.geometry)
+    _validated_geometry_metadata(section.geometry)
+    result = get_analysis_service()(
+        _build_monitoring_config(payload, analysis_period),
+        analysis_id=str(uuid4()),
+    )
+    if result.status == "failed":
+        code = (
+            str(result.errors[0].get("code") or "PROCESSING_ERROR")
+            if result.errors
+            else "PROCESSING_ERROR"
+        )
+        raise AutomaticPipelineFailure("sentinel2_pipeline_failure", code)
+    analysis_registry.add(result)
+    response = _to_api_response(
+        result, analysis_period, analysis_trigger="automatic_viewport"
+    )
+    support = _build_support(response, analysis_period)
+    if support is not None:
+        response.decision_support = DecisionSupportResponse.model_validate(support)
+    identity = road_section_identity(
+        section.spatial_key or section.subject_key,
+        {
+            "id": section.road_id,
+            "ref": section.road_ref,
+            "name": section.road_name,
+            "axis_id": section.axis_id,
+            "section_id": section.section_id,
+            "section_index": section.section_index,
+        },
+    )
+    _persist_analysis(
+        result,
+        response,
+        section.geometry,
+        identity=identity,
+        raise_on_error=True,
+    )
+    return "completed"
 
 
 def _to_history_item(record: Any) -> AnalysisHistoryItem:
