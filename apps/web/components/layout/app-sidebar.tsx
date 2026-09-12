@@ -196,6 +196,7 @@ export function AppSidebar({
         <nav data-tour="navigation">
           {navigation.map(({ id, label, icon: Icon }) => {
             const hasBadge = id === "alerts" && Boolean(activeCountBadge);
+            const hasPulse = id === "alerts" && activeCount > 0;
             const tooltipText = hasBadge ? `${label} (${activeCountBadge})` : label;
             return (
               <button
@@ -219,6 +220,13 @@ export function AppSidebar({
                   >
                     {activeCountBadge}
                   </span>
+                )}
+                {hasPulse && (
+                  <span
+                    className="nav-alert-pulse"
+                    data-testid="alerts-pulse-dot"
+                    aria-hidden="true"
+                  />
                 )}
                 <span className="sidebar-tooltip" role="tooltip">{tooltipText}</span>
               </button>

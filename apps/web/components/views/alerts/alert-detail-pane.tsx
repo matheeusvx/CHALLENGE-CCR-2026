@@ -162,7 +162,7 @@ export function AlertDetailPane({
           </div>
 
           <div className="detail-meta-grid">
-            <div>
+            <div className="detail-meta-item">
               <span className="detail-label">Severidade</span>
               <span className={`severity-badge severity-badge--${alert.severity}`}>
                 <SeverityIcon severity={alert.severity} />
@@ -170,14 +170,14 @@ export function AlertDetailPane({
               </span>
             </div>
 
-            <div>
+            <div className="detail-meta-item">
               <span className="detail-label">Status</span>
               <span className={`status-badge status-badge--${alert.status}`}>
                 {STATUS_LABELS[alert.status]}
               </span>
             </div>
 
-            <div>
+            <div className="detail-meta-item">
               <span className="detail-label">Recomendação atual</span>
               <strong className={`rec-chip rec-chip--${alert.current_recommendation ?? "inconclusivo"}`}>
                 {currRec ?? "INCONCLUSIVO"}
@@ -185,7 +185,7 @@ export function AlertDetailPane({
             </div>
 
             {prevRec && (
-              <div>
+              <div className="detail-meta-item">
                 <span className="detail-label">Recomendação anterior</span>
                 <strong className={`rec-chip rec-chip--${alert.previous_recommendation}`}>
                   {prevRec}
@@ -218,13 +218,14 @@ export function AlertDetailPane({
 
         {/* Datas operacionais */}
         <section className="detail-section detail-dates">
-          <div>
+          <div className="detail-meta-item">
             <span className="detail-label">Ativo desde</span>
             <time dateTime={alert.first_detected_at}>
               {formatFullDateTimeBR(alert.first_detected_at)}
             </time>
           </div>
-          <div>
+
+          <div className="detail-meta-item">
             <span className="detail-label">Última atualização</span>
             <time dateTime={alert.updated_at}>
               {formatFullDateTimeBR(alert.updated_at)}

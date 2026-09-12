@@ -292,6 +292,28 @@ describe("AppSidebar — Redesign Completo (Pontos A até AD)", () => {
     expect(screen.getByRole("button", { name: "Alertas 99+" })).toBeInTheDocument();
   });
 
+  it("M3) indicador animado de pulso aparece quando active_count > 0 e desaparece quando active_count == 0", () => {
+    const onNavigate = vi.fn();
+    // 1. zero alertas -> indicador ausente
+    const { rerender } = render(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={0} />);
+    expect(screen.queryByTestId("alerts-pulse-dot")).toBeNull();
+
+    // 2. active_count > 0 -> indicador visível
+    rerender(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={3} />);
+    const pulseDot = screen.getByTestId("alerts-pulse-dot");
+    expect(pulseDot).toBeInTheDocument();
+    expect(pulseDot).toHaveClass("nav-alert-pulse");
+
+    // 3. atualização do active_count remove/adiciona indicador corretamente
+    // Remove quando volta a zero
+    rerender(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={0} />);
+    expect(screen.queryByTestId("alerts-pulse-dot")).toBeNull();
+
+    // Adiciona novamente quando > 0
+    rerender(<AppSidebar activeView="analysis" onNavigate={onNavigate} activeCount={15} />);
+    expect(screen.getByTestId("alerts-pulse-dot")).toBeInTheDocument();
+  });
+
   // -------------------------------------------------------------------------
   // N, O)'u.ia continua abrindo e preserva modos
   // -------------------------------------------------------------------------

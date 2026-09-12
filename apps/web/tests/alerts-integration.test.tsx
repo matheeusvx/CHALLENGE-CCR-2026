@@ -242,11 +242,12 @@ describe("ALERT-04 — Integração de Alertas no AppShell e Mapa", () => {
       { wrapper: Wrapper },
     );
 
-    // Badge inicial com contagem 2
+    // Badge inicial com contagem 2 e indicador de pulso ativo
     await waitFor(() => {
       const badge = screen.getByTestId("alerts-badge");
       expect(badge).toBeInTheDocument();
       expect(badge).toHaveTextContent("2");
+      expect(screen.getByTestId("alerts-pulse-dot")).toBeInTheDocument();
     });
   });
 
