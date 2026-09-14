@@ -16,12 +16,17 @@ from apps.api.app.dependencies import (
     get_manual_road_geometry_provider,
 )
 from apps.api.app.main import app
-from apps.api.tests.conftest import VALID_GEOMETRY, make_result
+from apps.api.tests.conftest import (
+    DEFAULT_OPERATOR_SCOPE_ID,
+    VALID_GEOMETRY,
+    make_result,
+)
 from src.satellite_monitoring.database import session_scope
 from src.satellite_monitoring.database.models import (
     Alert,
     AlertEvent,
     Analysis,
+    AnalysisScope,
     MonitoredSection,
 )
 from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvider
@@ -230,7 +235,16 @@ def test_exclusao_individual_oculta_sem_apagar_analise_ou_fk(
     with session_scope() as session:
         analysis = session.get(Analysis, analysis_id)
         assert analysis is not None
-        assert analysis.hidden_from_history_at is not None
+        association = session.get(
+            AnalysisScope,
+            {
+                "analysis_id": analysis_id,
+                "operator_scope_id": DEFAULT_OPERATOR_SCOPE_ID,
+            },
+        )
+        assert analysis.hidden_from_history_at is None
+        assert association is not None
+        assert association.hidden_from_history_at is not None
         assert session.get(Alert, alert_id) is not None
 
     future_id = _run(client, valid_payload)
@@ -277,6 +291,12 @@ def test_limpar_historico_oculta_somente_visiveis_e_preserva_alertas(
         assert session.query(MonitoredSection).count() >= 1
         assert all(
             item.hidden_from_history_at is not None
+            for item in session.query(AnalysisScope)
+            .filter(AnalysisScope.operator_scope_id == DEFAULT_OPERATOR_SCOPE_ID)
+            .all()
+        )
+        assert all(
+            item.hidden_from_history_at is None
             for item in session.query(Analysis).all()
         )
 

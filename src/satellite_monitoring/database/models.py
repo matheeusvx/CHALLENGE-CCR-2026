@@ -307,6 +307,27 @@ class AnalysisObservation(Base):
     analysis: Mapped[Analysis] = relationship(back_populates="observations")
 
 
+class AnalysisScope(Base):
+    """Operator-local history association for a shared scientific analysis."""
+
+    __tablename__ = "analysis_scope"
+    __table_args__ = (
+        Index(
+            "ix_analysis_scope_history",
+            "operator_scope_id",
+            "hidden_from_history_at",
+            "created_at",
+        ),
+    )
+
+    analysis_id: Mapped[str] = mapped_column(
+        ForeignKey("analysis.id", ondelete="CASCADE"), primary_key=True
+    )
+    operator_scope_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    hidden_from_history_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class AlertType(StrEnum):
     RECOMMENDATION_CHANGED = "RECOMMENDATION_CHANGED"
     CUT_PENDING = "CUT_PENDING"
@@ -352,9 +373,11 @@ class Alert(Base):
         Index("ix_alert_severity_status", "severity", "status"),
         Index("ix_alert_road_status", "road_ref", "section_id", "status"),
         Index("ix_alert_subject_history", "subject_key", "first_detected_at"),
+        Index("ix_alert_operator_status", "operator_scope_id", "status"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    operator_scope_id: Mapped[str | None] = mapped_column(String(36))
     type: Mapped[str] = mapped_column(String(40))
     severity: Mapped[str] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(24))

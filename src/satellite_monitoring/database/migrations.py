@@ -11,11 +11,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy import Connection, Engine, inspect, text
 
-from .models import Alert, AlertEvent, MonitoredSection
+from .models import Alert, AlertEvent, AnalysisScope, MonitoredSection
 
 ALERT_FOUNDATION_VERSION = "0001_alert_foundation"
 MONITORING_CLAIMS_VERSION = "0002_monitoring_claims"
 HISTORY_VISIBILITY_VERSION = "0003_history_visibility"
+OPERATOR_SCOPE_VERSION = "0004_operator_scope"
 
 ANALYSIS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("subject_kind", "VARCHAR(24)"),
@@ -106,6 +107,22 @@ def _upgrade_history_visibility(connection: Connection) -> None:
     )
 
 
+def _upgrade_operator_scope(connection: Connection) -> None:
+    """Add Beta isolation without assigning legacy rows to new operators."""
+
+    AnalysisScope.__table__.create(connection, checkfirst=True)
+    inspector = inspect(connection)
+    existing = {column["name"] for column in inspector.get_columns("alert")}
+    if "operator_scope_id" not in existing:
+        connection.exec_driver_sql(
+            "ALTER TABLE alert ADD COLUMN operator_scope_id VARCHAR(36)"
+        )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_alert_operator_status "
+        "ON alert (operator_scope_id, status)"
+    )
+
+
 def run_migrations(engine: Engine) -> None:
     """Apply every pending embedded migration exactly once."""
 
@@ -149,6 +166,18 @@ def run_migrations(engine: Engine) -> None:
                 ),
                 {
                     "version": HISTORY_VISIBILITY_VERSION,
+                    "applied_at": datetime.now(UTC).replace(tzinfo=None),
+                },
+            )
+        if not _migration_applied(connection, OPERATOR_SCOPE_VERSION):
+            _upgrade_operator_scope(connection)
+            connection.execute(
+                text(
+                    "INSERT INTO schema_migration(version, applied_at) "
+                    "VALUES (:version, :applied_at)"
+                ),
+                {
+                    "version": OPERATOR_SCOPE_VERSION,
                     "applied_at": datetime.now(UTC).replace(tzinfo=None),
                 },
             )

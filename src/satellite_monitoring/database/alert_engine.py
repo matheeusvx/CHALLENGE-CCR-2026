@@ -19,6 +19,7 @@ from .models import (
     AlertStatus,
     AlertType,
     Analysis,
+    AnalysisScope,
     MonitoredSection,
 )
 
@@ -41,12 +42,21 @@ class AlertEngine:
     """Evaluate persisted facts and update alert projections in one Session."""
 
     def __init__(
-        self, session: Session, config: AlertEngineConfig | None = None
+        self,
+        session: Session,
+        config: AlertEngineConfig | None = None,
+        *,
+        operator_scope_id: str | None = None,
     ) -> None:
         self.session = session
         self.config = config or AlertEngineConfig()
-        self.alerts = AlertRepository(session)
-        self.events = AlertEventRepository(session)
+        self.operator_scope_id = operator_scope_id
+        self.alerts = AlertRepository(
+            session, operator_scope_id, restrict_to_operator_scope=True
+        )
+        self.events = AlertEventRepository(
+            session, operator_scope_id, restrict_to_operator_scope=True
+        )
 
     def evaluate_analysis(self, analysis: Analysis, *, now: datetime) -> list[Alert]:
         if not analysis.subject_key or analysis.status == "failed":
@@ -333,7 +343,7 @@ class AlertEngine:
         )
 
     def _previous_valid_analysis(self, analysis: Analysis) -> Analysis | None:
-        return self.session.execute(
+        statement = (
             select(Analysis)
             .where(
                 Analysis.subject_key == analysis.subject_key,
@@ -346,10 +356,19 @@ class AlertEngine:
             )
             .order_by(Analysis.created_at.desc(), Analysis.id.desc())
             .limit(1)
-        ).scalars().first()
+        )
+        if self.operator_scope_id is not None:
+            statement = statement.join(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.operator_scope_id == self.operator_scope_id)
+        else:
+            statement = statement.outerjoin(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.analysis_id.is_(None))
+        return self.session.execute(statement).scalars().first()
 
     def _consecutive_cut_analyses(self, analysis: Analysis) -> list[Analysis]:
-        history = self.session.execute(
+        statement = (
             select(Analysis)
             .where(
                 Analysis.subject_key == analysis.subject_key,
@@ -360,7 +379,16 @@ class AlertEngine:
                 ),
             )
             .order_by(Analysis.created_at.desc(), Analysis.id.desc())
-        ).scalars().all()
+        )
+        if self.operator_scope_id is not None:
+            statement = statement.join(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.operator_scope_id == self.operator_scope_id)
+        else:
+            statement = statement.outerjoin(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.analysis_id.is_(None))
+        history = self.session.execute(statement).scalars().all()
         streak: list[Analysis] = []
         for item in history:
             if item.decision != "cortar":
@@ -371,14 +399,19 @@ class AlertEngine:
     def _open_transition_ending_in(
         self, subject_key: str, recommendation: str
     ) -> Alert | None:
-        return self.session.execute(
-            select(Alert).where(
+        statement = select(Alert).where(
                 Alert.subject_key == subject_key,
                 Alert.type == AlertType.RECOMMENDATION_CHANGED.value,
                 Alert.open_key.is_not(None),
                 Alert.current_recommendation == recommendation,
             )
-        ).scalars().first()
+        if self.operator_scope_id is not None:
+            statement = statement.where(
+                Alert.operator_scope_id == self.operator_scope_id
+            )
+        else:
+            statement = statement.where(Alert.operator_scope_id.is_(None))
+        return self.session.execute(statement).scalars().first()
 
     def _create_from_analysis(
         self,
@@ -394,6 +427,7 @@ class AlertEngine:
         open_key = self._open_key(analysis.subject_key, alert_type, variant)
         alert = Alert(
             id=str(uuid4()),
+            operator_scope_id=self.operator_scope_id,
             type=alert_type,
             severity=severity,
             status=AlertStatus.NEW.value,
@@ -441,12 +475,21 @@ class AlertEngine:
     ) -> Alert:
         if section.last_analysis_at is None:
             raise ValueError("monitored section has no source analysis")
-        analysis = self.session.execute(
+        statement = (
             select(Analysis)
             .where(Analysis.subject_key == section.subject_key)
             .order_by(Analysis.created_at.desc(), Analysis.id.desc())
             .limit(1)
-        ).scalars().one()
+        )
+        if self.operator_scope_id is not None:
+            statement = statement.join(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.operator_scope_id == self.operator_scope_id)
+        else:
+            statement = statement.outerjoin(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.analysis_id.is_(None))
+        analysis = self.session.execute(statement).scalars().one()
         return self._create_from_analysis(
             analysis,
             alert_type,
@@ -545,9 +588,9 @@ class AlertEngine:
             )
         )
 
-    @staticmethod
-    def _open_key(subject_key: str, alert_type: str, variant: str) -> str:
-        return f"{subject_key}|{alert_type}|{variant}"
+    def _open_key(self, subject_key: str, alert_type: str, variant: str) -> str:
+        prefix = f"{self.operator_scope_id}|" if self.operator_scope_id else ""
+        return f"{prefix}{subject_key}|{alert_type}|{variant}"
 
     @staticmethod
     def _age_severity(age_days: int, threshold: int) -> str:

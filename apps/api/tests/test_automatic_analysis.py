@@ -23,11 +23,18 @@ from apps.api.app.dependencies import (
     get_automatic_analysis_coordinator,
 )
 from apps.api.app.main import app
-from apps.api.tests.conftest import make_result
+from apps.api.tests.conftest import DEFAULT_OPERATOR_SCOPE_ID, make_result
 from src.satellite_monitoring.multisource.experimental_fusion import (
     attach_experimental_fusion,
 )
-from src.satellite_monitoring.database import get_analysis, session_scope
+from src.satellite_monitoring.database import (
+    Alert,
+    Analysis,
+    geometry_identity,
+    get_analysis,
+    save_analysis,
+    session_scope,
+)
 from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvider
 
 
@@ -147,6 +154,142 @@ def _request(coordinator, execute=lambda geometry, analysis_id: {"analysis_id": 
     }
     values.update(changes)
     return coordinator.request(**values)
+
+
+def test_operator_scopes_share_science_but_isolate_history_and_alerts(
+    client, tmp_path
+):
+    scope_a = DEFAULT_OPERATOR_SCOPE_ID
+    scope_b = "22222222-2222-4222-8222-222222222222"
+    coordinator = _coordinator(tmp_path)
+    executions = 0
+
+    def service(*_, analysis_id: str, **__):
+        nonlocal executions
+        executions += 1
+        return make_result(analysis_id)
+
+    app.dependency_overrides[get_automatic_analysis_coordinator] = lambda: coordinator
+    app.dependency_overrides[get_analysis_service] = lambda: service
+    payload = {"bounds": BOUNDS, "center": CENTER, "zoom": 17}
+
+    started = client.post(
+        "/api/analyses/automatic",
+        json=payload,
+        headers={"X-Operator-Scope": scope_a},
+    )
+    analysis_id = started.json()["analysis_id"]
+    assert started.json()["status"] == "analysis_started"
+    history_a = client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_a}
+    ).json()
+    assert analysis_id in {item["analysis_id"] for item in history_a["items"]}
+    assert client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_b}
+    ).json()["total"] == 0
+    assert client.get(
+        f"/api/analyses/{analysis_id}", headers={"X-Operator-Scope": scope_b}
+    ).status_code == 404
+
+    cached = client.post(
+        "/api/analyses/automatic",
+        json=payload,
+        headers={"X-Operator-Scope": scope_b},
+    )
+    assert cached.json()["status"] == "cache_hit"
+    assert cached.json()["analysis_id"] == analysis_id
+    assert executions == 1
+    assert client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_b}
+    ).json()["items"][0]["analysis_id"] == analysis_id
+
+    hidden = client.delete(
+        f"/api/analyses/{analysis_id}", headers={"X-Operator-Scope": scope_a}
+    )
+    assert hidden.status_code == 200
+    history_a = client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_a}
+    ).json()
+    assert analysis_id not in {item["analysis_id"] for item in history_a["items"]}
+    assert client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_b}
+    ).json()["total"] == 1
+
+    legacy_id = "33333333-3333-4333-8333-333333333333"
+    with session_scope() as session:
+        analysis = session.get(Analysis, analysis_id)
+        assert analysis is not None and analysis.geometry is not None
+        alert_analysis_id = "44444444-4444-4444-8444-444444444444"
+        alert_payload = {
+            "analysis_id": alert_analysis_id,
+            "status": "completed",
+            "recommendation": {
+                "decision": "cortar",
+                "confidence": "medium",
+                "experimental": True,
+                "metrics": {"observation_count": 1},
+            },
+            "analysis_period": {},
+            "aoi": {},
+            "summary": {},
+            "timeseries": [],
+            "decision_support": {
+                "status": "available",
+                "agreement": "diverge",
+                "model_version": "scope-test",
+                "suggestion": "nao_cortar",
+                "confidence": "low",
+            },
+        }
+        save_analysis(
+            session,
+            alert_payload,
+            geometry=analysis.geometry,
+            identity=geometry_identity(analysis.geometry),
+            created_at=analysis.created_at + timedelta(days=1),
+            alert_now=analysis.created_at + timedelta(days=1),
+            operator_scope_id=scope_a,
+        )
+        alert = session.query(Alert).filter(
+            Alert.operator_scope_id == scope_a,
+            Alert.analysis_id == alert_analysis_id,
+            Alert.type == "SUPPORT_DIVERGENCE",
+        ).one()
+        alert_id = alert.id
+        assert alert.open_key is not None and alert.open_key.startswith(f"{scope_a}|")
+        session.add(
+            Analysis(
+                id=legacy_id,
+                created_at=datetime(2026, 8, 1, 10),
+                status="completed",
+                experimental=True,
+            )
+        )
+
+    alerts_a = client.get(
+        "/api/alerts", headers={"X-Operator-Scope": scope_a}
+    ).json()
+    alerts_b = client.get(
+        "/api/alerts", headers={"X-Operator-Scope": scope_b}
+    ).json()
+    assert alert_id in {item["id"] for item in alerts_a["items"]}
+    assert alerts_b["total"] == 0
+    assert client.patch(
+        f"/api/alerts/{alert_id}",
+        json={"status": "seen", "version": 1},
+        headers={"X-Operator-Scope": scope_b},
+    ).status_code == 404
+    assert client.get(
+        "/api/analyses", headers={"X-Operator-Scope": scope_b}
+    ).json()["total"] == 1
+    assert client.get(
+        f"/api/analyses/{legacy_id}", headers={"X-Operator-Scope": scope_a}
+    ).status_code == 404
+    assert client.get(
+        f"/api/analyses/{legacy_id}", headers={"X-Operator-Scope": scope_b}
+    ).status_code == 404
+    with session_scope() as session:
+        assert session.get(Analysis, legacy_id) is not None
 
 
 def test_feature_disabled_never_starts_analysis(tmp_path):

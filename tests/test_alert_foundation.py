@@ -35,6 +35,7 @@ from src.satellite_monitoring.database import (
 from src.satellite_monitoring.database.migrations import (
     ALERT_FOUNDATION_VERSION,
     HISTORY_VISIBILITY_VERSION,
+    OPERATOR_SCOPE_VERSION,
 )
 
 
@@ -141,9 +142,16 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
         for item in inspector.get_columns("monitored_section")
     }
     assert {"claimed_at", "claim_token", "claim_expires_at"} <= monitored_columns
-    assert {"alert", "alert_event", "monitored_section", "schema_migration"} <= set(
-        inspector.get_table_names()
-    )
+    assert {
+        "alert",
+        "alert_event",
+        "analysis_scope",
+        "monitored_section",
+        "schema_migration",
+    } <= set(inspector.get_table_names())
+    assert "operator_scope_id" in {
+        item["name"] for item in inspector.get_columns("alert")
+    }
     with session_scope() as session:
         old = get_analysis(session, analysis_id)
         assert old is not None
@@ -154,12 +162,13 @@ def test_versioned_migration_upgrades_existing_sqlite_and_preserves_analysis(
         ).scalars())
         assert ALERT_FOUNDATION_VERSION in versions
         assert HISTORY_VISIBILITY_VERSION in versions
+        assert OPERATOR_SCOPE_VERSION in versions
     reset_engine()
 
 
 def test_new_database_contains_alert_foundation(alert_database):
     inspector = inspect(get_engine())
-    assert {"analysis", "alert", "alert_event", "monitored_section"} <= set(
+    assert {"analysis", "analysis_scope", "alert", "alert_event", "monitored_section"} <= set(
         inspector.get_table_names()
     )
     assert "ix_analysis_subject_created" in {

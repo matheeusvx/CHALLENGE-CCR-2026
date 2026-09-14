@@ -3,6 +3,7 @@ import { getHealth, hideAnalysisFromHistory } from "@/lib/api/analyses";
 
 describe("cliente da API", () => {
   afterEach(() => {
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -27,5 +28,15 @@ describe("cliente da API", () => {
       "http://localhost:8000/api/analyses/analysis-204",
       expect.objectContaining({ method: "DELETE" }),
     );
+    const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    const firstScope = firstHeaders.get("X-Operator-Scope");
+    expect(firstScope).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+
+    await hideAnalysisFromHistory("analysis-204");
+    const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Headers;
+    expect(secondHeaders.get("X-Operator-Scope")).toBe(firstScope);
+    expect(window.localStorage.getItem("motiva.operator-scope-id")).toBe(firstScope);
   });
 });

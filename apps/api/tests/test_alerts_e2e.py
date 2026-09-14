@@ -25,6 +25,8 @@ from src.satellite_monitoring.database import (
     session_scope,
 )
 
+TEST_OPERATOR_SCOPE_ID = "55555555-5555-4555-8555-555555555555"
+
 
 def _geometry(offset: float) -> dict:
     west, south = -47.0 + offset, -23.0 + offset
@@ -78,6 +80,7 @@ def _persist(
             geometry=geometry,
             created_at=created_at,
             alert_now=created_at,
+            operator_scope_id=TEST_OPERATOR_SCOPE_ID,
         )
     return identifier
 
@@ -229,6 +232,7 @@ def test_persistence_engine_restart_api_patch_and_recurrence(tmp_path, monkeypat
     reset_engine()
     init_database()
     with TestClient(app, raise_server_exceptions=True) as client:
+        client.headers.update({"X-Operator-Scope": TEST_OPERATOR_SCOPE_ID})
         page = client.get("/api/alerts", params={"limit": 200})
         assert page.status_code == 200
         body = page.json()

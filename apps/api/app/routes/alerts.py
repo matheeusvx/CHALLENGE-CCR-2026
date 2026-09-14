@@ -20,7 +20,7 @@ from src.satellite_monitoring.database.alert_repository import (
     InvalidAlertTransition,
 )
 
-from ..dependencies import get_alert_now
+from ..dependencies import get_alert_now, get_operator_scope_id
 from ..exceptions import ApiError
 from ..schemas import (
     AlertAnalysisReference,
@@ -133,9 +133,12 @@ def list_alerts(
     section_id: str | None = Query(None, min_length=1),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    operator_scope_id: str = Depends(get_operator_scope_id),
 ) -> AlertPage:
     with session_scope() as session:
-        total, active_count, records = AlertRepository(session).list_filtered(
+        total, active_count, records = AlertRepository(
+            session, operator_scope_id
+        ).list_filtered(
             status=status,
             severity=severity,
             alert_type=type,
@@ -154,9 +157,12 @@ def list_alerts(
 
 
 @router.get("/{alert_id}", response_model=AlertDetail)
-def get_alert_detail(alert_id: str) -> AlertDetail:
+def get_alert_detail(
+    alert_id: str,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> AlertDetail:
     with session_scope() as session:
-        repository = AlertRepository(session)
+        repository = AlertRepository(session, operator_scope_id)
         alert = repository.get(alert_id)
         if alert is None:
             raise ApiError("ALERT_NOT_FOUND", "Alerta nao encontrado.", status_code=404)
@@ -166,7 +172,9 @@ def get_alert_detail(alert_id: str) -> AlertDetail:
         origin_reference = _analysis_reference(origin)
         if origin_reference is None:  # protected by the database FK
             raise ApiError("ALERT_NOT_FOUND", "Alerta nao encontrado.", status_code=404)
-        events = AlertEventRepository(session).list_for_alert(alert.id)
+        events = AlertEventRepository(
+            session, operator_scope_id
+        ).list_for_alert(alert.id)
         item = _item(alert).model_dump()
         return AlertDetail(
             **item,
@@ -203,10 +211,11 @@ def get_alert_detail(alert_id: str) -> AlertDetail:
 def patch_alert(
     alert_id: str,
     payload: AlertPatchRequest,
+    operator_scope_id: str = Depends(get_operator_scope_id),
     now: datetime = Depends(get_alert_now),
 ) -> AlertPatchResponse:
     with session_scope() as session:
-        repository = AlertRepository(session)
+        repository = AlertRepository(session, operator_scope_id)
         try:
             alert = repository.update_status(
                 alert_id,

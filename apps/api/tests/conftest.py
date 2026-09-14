@@ -37,6 +37,8 @@ VALID_GEOMETRY = {
     ],
 }
 
+DEFAULT_OPERATOR_SCOPE_ID = "11111111-1111-4111-8111-111111111111"
+
 
 def make_result(analysis_id: str, run_directory: Path | None = None) -> AnalysisResult:
     return AnalysisResult(
@@ -74,6 +76,7 @@ def client() -> TestClient:
         2026, 8, 10, 12, tzinfo=ZoneInfo("America/Sao_Paulo")
     )
     with TestClient(app, raise_server_exceptions=False) as test_client:
+        test_client.headers.update({"X-Operator-Scope": DEFAULT_OPERATOR_SCOPE_ID})
         yield test_client
     app.dependency_overrides.clear()
 

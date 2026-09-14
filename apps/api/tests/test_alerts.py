@@ -10,11 +10,13 @@ from fastapi.testclient import TestClient
 
 from apps.api.app.dependencies import get_alert_now
 from apps.api.app.main import app
+from apps.api.tests.conftest import DEFAULT_OPERATOR_SCOPE_ID
 from src.satellite_monitoring.database import (
     Alert,
     AlertEvent,
     Analysis,
     MonitoredSection,
+    associate_analysis_scope,
     session_scope,
 )
 
@@ -95,8 +97,13 @@ def _seed_alert(
             )
         session.add_all(analyses)
         session.flush()
+        for analysis in analyses:
+            associate_analysis_scope(
+                session, analysis, DEFAULT_OPERATOR_SCOPE_ID, created_at=analysis.created_at
+            )
         alert = Alert(
             id=alert_id,
+            operator_scope_id=DEFAULT_OPERATOR_SCOPE_ID,
             type=alert_type,
             severity=severity,
             status=status,

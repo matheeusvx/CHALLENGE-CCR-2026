@@ -9,6 +9,7 @@ from .models import (
     STRICT_HEIGHT_LIMIT_CM,
     Analysis,
     AnalysisObservation,
+    AnalysisScope,
     Alert,
     AlertEvent,
     AlertSeverity,
@@ -47,6 +48,7 @@ from .monitoring import (
     MonitoringService,
 )
 from .repository import (
+    associate_analysis_scope,
     count_analyses,
     count_history_analyses,
     delete_analysis,
@@ -70,6 +72,8 @@ from .session import (
 __all__ = [
     "Analysis",
     "AnalysisObservation",
+    "AnalysisScope",
+    "associate_analysis_scope",
     "AnalysisIdentity",
     "Alert",
     "AlertEvent",

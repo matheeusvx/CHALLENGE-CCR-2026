@@ -16,6 +16,7 @@ from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.decision_support import build_decision_support
 from src.satellite_monitoring.database import (
     AnalysisIdentity,
+    associate_analysis_scope,
     count_history_analyses,
     get_analysis,
     hide_all_history_analyses,
@@ -47,6 +48,7 @@ from ..dependencies import (
     get_analysis_now,
     get_analysis_service,
     get_manual_road_geometry_provider,
+    get_operator_scope_id,
 )
 from ..automatic_analysis import AutomaticAnalysisCoordinator, AutomaticPipelineFailure
 from ..exceptions import ApiError
@@ -147,7 +149,10 @@ def _manual_analysis_identity(
 
 
 @router.post("/validate-geometry", response_model=GeometryValidationResponse)
-def validate_geometry(payload: GeometryRequest) -> GeometryValidationResponse:
+def validate_geometry(
+    payload: GeometryRequest,
+    _operator_scope_id: str = Depends(get_operator_scope_id),
+) -> GeometryValidationResponse:
     metadata = _validated_geometry_metadata(payload.geometry)
     area = float(metadata["area_square_meters"])
     warnings: list[str] = []
@@ -286,6 +291,7 @@ def _build_monitoring_config(
 @router.post("/run", response_model=AnalysisResponse)
 def run_analysis(
     payload: AnalysisRunRequest,
+    operator_scope_id: str = Depends(get_operator_scope_id),
     service: AnalysisService = Depends(get_analysis_service),
     now: datetime = Depends(get_analysis_now),
     road_geometry_provider: RoadGeometryProvider = Depends(
@@ -344,7 +350,13 @@ def run_analysis(
     identity = _manual_analysis_identity(
         payload.geometry, geometry_metadata, road_geometry_provider
     )
-    _persist_analysis(result, response, payload.geometry, identity=identity)
+    _persist_analysis(
+        result,
+        response,
+        payload.geometry,
+        identity=identity,
+        operator_scope_id=operator_scope_id,
+    )
     return response
 
 
@@ -380,6 +392,7 @@ def _persist_analysis(
     geometry: dict[str, Any],
     *,
     identity: AnalysisIdentity | None = None,
+    operator_scope_id: str | None = None,
     raise_on_error: bool = False,
 ) -> None:
     """Grava a analise no historico, ja com o apoio anexado a resposta."""
@@ -398,6 +411,7 @@ def _persist_analysis(
                     for name, value in (result.artifacts or {}).items()
                 },
                 identity=identity,
+                operator_scope_id=operator_scope_id,
             )
     except Exception:  # pragma: no cover - manual/HTTP persistence stays tolerant
         logger.exception("Falha ao gravar a analise no historico.")
@@ -495,14 +509,21 @@ def list_analysis_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     decision: str | None = Query(None),
+    operator_scope_id: str = Depends(get_operator_scope_id),
 ) -> AnalysisHistoryPage:
     """Historico de analises, da mais recente para a mais antiga."""
 
     with session_scope() as session:
         records = list_history_analyses(
-            session, limit=limit, offset=offset, decision=decision
+            session,
+            limit=limit,
+            offset=offset,
+            decision=decision,
+            operator_scope_id=operator_scope_id,
         )
-        total = count_history_analyses(session, decision=decision)
+        total = count_history_analyses(
+            session, decision=decision, operator_scope_id=operator_scope_id
+        )
         items = [_to_history_item(record) for record in records]
     return AnalysisHistoryPage(
         total=total, limit=limit, offset=offset, items=items
@@ -510,23 +531,35 @@ def list_analysis_history(
 
 
 @router.delete("", response_model=AnalysisHistoryClearResponse)
-def clear_analysis_history() -> AnalysisHistoryClearResponse:
+def clear_analysis_history(
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> AnalysisHistoryClearResponse:
     """Oculta todos os registros visiveis sem remover dados cientificos."""
 
     hidden_at = datetime.now(UTC).replace(tzinfo=None)
     with session_scope() as session:
-        hidden_count = hide_all_history_analyses(session, hidden_at=hidden_at)
+        hidden_count = hide_all_history_analyses(
+            session,
+            hidden_at=hidden_at,
+            operator_scope_id=operator_scope_id,
+        )
     return AnalysisHistoryClearResponse(hidden_count=hidden_count)
 
 
 @router.delete("/{analysis_id}", response_model=AnalysisHistoryHideResponse)
-def hide_analysis_history_item(analysis_id: UUID) -> AnalysisHistoryHideResponse:
+def hide_analysis_history_item(
+    analysis_id: UUID,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> AnalysisHistoryHideResponse:
     """Oculta uma analise da interface, preservando linha, FKs e auditoria."""
 
     hidden_at = datetime.now(UTC).replace(tzinfo=None)
     with session_scope() as session:
         found = hide_analysis_from_history(
-            session, str(analysis_id), hidden_at=hidden_at
+            session,
+            str(analysis_id),
+            hidden_at=hidden_at,
+            operator_scope_id=operator_scope_id,
         )
         if not found:
             raise ApiError(
@@ -536,11 +569,16 @@ def hide_analysis_history_item(analysis_id: UUID) -> AnalysisHistoryHideResponse
 
 
 @router.get("/{analysis_id}", response_model=AnalysisHistoryDetail)
-def get_analysis_history_detail(analysis_id: UUID) -> AnalysisHistoryDetail:
+def get_analysis_history_detail(
+    analysis_id: UUID,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> AnalysisHistoryDetail:
     """Analise completa gravada, incluindo a geometria da AOI."""
 
     with session_scope() as session:
-        record = get_analysis(session, str(analysis_id))
+        record = get_analysis(
+            session, str(analysis_id), operator_scope_id=operator_scope_id
+        )
         if record is None or not record.payload:
             raise ApiError(
                 "ANALYSIS_NOT_FOUND", "Analise nao encontrada.", status_code=404
@@ -556,6 +594,7 @@ def get_analysis_history_detail(analysis_id: UUID) -> AnalysisHistoryDetail:
 @router.post("/automatic", response_model=AutomaticAnalysisResponse)
 def run_automatic_analysis(
     payload: AutomaticAnalysisRequest,
+    operator_scope_id: str = Depends(get_operator_scope_id),
     service: AnalysisService = Depends(get_analysis_service),
     now: datetime = Depends(get_analysis_now),
     coordinator: AutomaticAnalysisCoordinator = Depends(
@@ -613,11 +652,17 @@ def run_automatic_analysis(
             identity = road_section_identity(
                 str(analysis_context["spatial_key"]), analysis_context["road"]
             )
-        _persist_analysis(result, response_model, geometry, identity=identity)
+        _persist_analysis(
+            result,
+            response_model,
+            geometry,
+            identity=identity,
+            operator_scope_id=operator_scope_id,
+        )
         response = response_model.model_dump(mode="json")
         return response
 
-    return coordinator.request(
+    response = coordinator.request(
         bounds=payload.bounds.model_dump(),
         center=payload.center.model_dump(),
         zoom=payload.zoom,
@@ -628,11 +673,32 @@ def run_automatic_analysis(
         ),
         execute=execute,
     )
+    analysis_id = response.get("analysis_id")
+    if analysis_id:
+        with session_scope() as session:
+            associate_analysis_scope(
+                session,
+                str(analysis_id),
+                operator_scope_id,
+                evaluate_alerts=bool(response.get("cache_hit")),
+                alert_now=now.replace(tzinfo=None),
+            )
+    return response
 
 
 @router.get("/{analysis_id}/artifacts/{artifact_name}", response_class=FileResponse)
-def get_artifact(analysis_id: UUID, artifact_name: str) -> FileResponse:
+def get_artifact(
+    analysis_id: UUID,
+    artifact_name: str,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> FileResponse:
     if artifact_name not in ALLOWED_ARTIFACTS:
+        raise ApiError("ARTIFACT_NOT_FOUND", "Artefato nao encontrado.", status_code=404)
+    with session_scope() as session:
+        allowed = get_analysis(
+            session, str(analysis_id), operator_scope_id=operator_scope_id
+        )
+    if allowed is None:
         raise ApiError("ARTIFACT_NOT_FOUND", "Artefato nao encontrado.", status_code=404)
     result = analysis_registry.get(str(analysis_id))
     if result is None or artifact_name not in result.artifacts:

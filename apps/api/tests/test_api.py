@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import uuid4
 
 import pytest
@@ -8,7 +9,16 @@ from fastapi.testclient import TestClient
 from apps.api.app.dependencies import analysis_registry, get_analysis_service
 from apps.api.app.main import app
 from apps.api.app.operational_profile import DEFAULT_OPERATIONAL_ANALYSIS_PROFILE
-from apps.api.tests.conftest import VALID_GEOMETRY, make_result
+from apps.api.tests.conftest import (
+    DEFAULT_OPERATOR_SCOPE_ID,
+    VALID_GEOMETRY,
+    make_result,
+)
+from src.satellite_monitoring.database import (
+    Analysis,
+    associate_analysis_scope,
+    session_scope,
+)
 
 
 def test_healthcheck(client: TestClient) -> None:
@@ -432,6 +442,18 @@ def test_multisource_artifact_is_served_without_internal_path(
     result = make_result(analysis_id, run_directory=tmp_path)
     result.artifacts["multisource_evidence"] = artifact
     analysis_registry.add(result)
+    with session_scope() as session:
+        analysis = Analysis(
+            id=analysis_id,
+            created_at=datetime(2026, 8, 10, 12),
+            status="completed",
+            experimental=True,
+        )
+        session.add(analysis)
+        session.flush()
+        associate_analysis_scope(
+            session, analysis, DEFAULT_OPERATOR_SCOPE_ID, created_at=analysis.created_at
+        )
 
     response = client.get(
         f"/api/analyses/{analysis_id}/artifacts/multisource_evidence"
@@ -440,3 +462,18 @@ def test_multisource_artifact_is_served_without_internal_path(
     assert response.status_code == 200
     assert response.json() == {"fusion_mode": "shadow"}
     assert str(tmp_path) not in response.text
+
+def test_operational_routes_require_valid_operator_scope(client: TestClient) -> None:
+    original = client.headers.pop("X-Operator-Scope")
+    try:
+        missing = client.get("/api/analyses")
+        invalid = client.get(
+            "/api/alerts", headers={"X-Operator-Scope": "not-a-uuid"}
+        )
+    finally:
+        client.headers["X-Operator-Scope"] = original
+
+    assert missing.status_code == 422
+    assert missing.json()["error"]["code"] == "OPERATOR_SCOPE_REQUIRED"
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "INVALID_OPERATOR_SCOPE"

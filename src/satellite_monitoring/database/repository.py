@@ -11,11 +11,12 @@ from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .alert_repository import MonitoredSectionRepository
 from .identity import AnalysisIdentity, geometry_identity
-from .models import Analysis, AnalysisObservation, KmMarker
+from .models import Analysis, AnalysisObservation, AnalysisScope, KmMarker
 
 
 def _as_date(value: Any) -> date | None:
@@ -89,6 +90,7 @@ def save_analysis(
     identity: AnalysisIdentity | None = None,
     monitored_section_cadence_days: int | None = None,
     alert_now: datetime | None = None,
+    operator_scope_id: str | None = None,
 ) -> Analysis:
     """Insert or update an analysis without replacing its database row."""
 
@@ -188,6 +190,13 @@ def save_analysis(
     latest_valid = max(observations_by_date, default=None)
     analysis.latest_valid_observation_on = latest_valid
     session.flush()
+    if operator_scope_id is not None:
+        associate_analysis_scope(
+            session,
+            analysis,
+            operator_scope_id,
+            created_at=effective_created_at,
+        )
     if identity is not None:
         source = (
             "automatic"
@@ -210,18 +219,64 @@ def save_analysis(
         # Evaluation shares this transaction with the analysis and section upsert.
         from .alert_engine import AlertEngine
 
-        AlertEngine(session).evaluate_analysis(
+        AlertEngine(session, operator_scope_id=operator_scope_id).evaluate_analysis(
             analysis, now=alert_now or analysis.created_at
         )
     return analysis
 
 
-def get_analysis(session: Session, analysis_id: str) -> Analysis | None:
+def associate_analysis_scope(
+    session: Session,
+    analysis: Analysis | str,
+    operator_scope_id: str,
+    *,
+    created_at: datetime | None = None,
+    evaluate_alerts: bool = False,
+    alert_now: datetime | None = None,
+) -> bool:
+    """Associate a shared analysis with one operator; return whether it was new."""
+
+    record = session.get(Analysis, analysis) if isinstance(analysis, str) else analysis
+    if record is None:
+        return False
+    key = {"analysis_id": record.id, "operator_scope_id": operator_scope_id}
+    association = session.get(AnalysisScope, key)
+    created = association is None
+    if association is None:
+        try:
+            with session.begin_nested():
+                session.add(
+                    AnalysisScope(
+                        analysis_id=record.id,
+                        operator_scope_id=operator_scope_id,
+                        created_at=created_at or datetime.now(),
+                    )
+                )
+                session.flush()
+        except IntegrityError:
+            # Concurrent cache hits can race to create the same association.
+            created = False
+    if evaluate_alerts and record.subject_key:
+        from .alert_engine import AlertEngine
+
+        AlertEngine(session, operator_scope_id=operator_scope_id).evaluate_analysis(
+            record, now=alert_now or record.created_at
+        )
+    return created
+
+
+def get_analysis(
+    session: Session, analysis_id: str, *, operator_scope_id: str | None = None
+) -> Analysis | None:
     statement = (
         select(Analysis)
         .options(selectinload(Analysis.observations))
         .where(Analysis.id == analysis_id)
     )
+    if operator_scope_id is not None:
+        statement = statement.join(
+            AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+        ).where(AnalysisScope.operator_scope_id == operator_scope_id)
     return session.execute(statement).scalars().first()
 
 
@@ -252,55 +307,94 @@ def list_history_analyses(
     limit: int = 50,
     offset: int = 0,
     decision: str | None = None,
+    operator_scope_id: str | None = None,
 ) -> Sequence[Analysis]:
     """List only analyses visible in the operator-facing History UI."""
 
-    statement = (
-        select(Analysis)
-        .where(Analysis.hidden_from_history_at.is_(None))
-        .order_by(Analysis.created_at.desc())
-    )
+    if operator_scope_id is None:
+        statement = select(Analysis).where(Analysis.hidden_from_history_at.is_(None))
+    else:
+        statement = (
+            select(Analysis)
+            .join(AnalysisScope, AnalysisScope.analysis_id == Analysis.id)
+            .where(
+                AnalysisScope.operator_scope_id == operator_scope_id,
+                AnalysisScope.hidden_from_history_at.is_(None),
+            )
+        )
+    statement = statement.order_by(Analysis.created_at.desc())
     if decision:
         statement = statement.where(Analysis.decision == decision)
     statement = statement.offset(max(0, offset)).limit(max(1, limit))
     return session.execute(statement).scalars().all()
 
 
-def count_history_analyses(session: Session, *, decision: str | None = None) -> int:
+def count_history_analyses(
+    session: Session,
+    *,
+    decision: str | None = None,
+    operator_scope_id: str | None = None,
+) -> int:
     """Count visible UI history without changing scientific queries."""
 
-    statement = (
-        select(func.count())
-        .select_from(Analysis)
-        .where(Analysis.hidden_from_history_at.is_(None))
-    )
+    if operator_scope_id is None:
+        statement = select(func.count()).select_from(Analysis).where(
+            Analysis.hidden_from_history_at.is_(None)
+        )
+    else:
+        statement = (
+            select(func.count())
+            .select_from(AnalysisScope)
+            .join(Analysis, Analysis.id == AnalysisScope.analysis_id)
+            .where(
+                AnalysisScope.operator_scope_id == operator_scope_id,
+                AnalysisScope.hidden_from_history_at.is_(None),
+            )
+        )
     if decision:
         statement = statement.where(Analysis.decision == decision)
     return int(session.execute(statement).scalar_one())
 
 
 def hide_analysis_from_history(
-    session: Session, analysis_id: str, *, hidden_at: datetime
+    session: Session,
+    analysis_id: str,
+    *,
+    hidden_at: datetime,
+    operator_scope_id: str | None = None,
 ) -> bool:
     """Soft-hide one analysis; return false only when the row does not exist."""
 
-    analysis = session.get(Analysis, analysis_id)
-    if analysis is None:
+    if operator_scope_id is None:
+        record = session.get(Analysis, analysis_id)
+    else:
+        record = session.get(
+            AnalysisScope,
+            {"analysis_id": analysis_id, "operator_scope_id": operator_scope_id},
+        )
+    if record is None:
         return False
-    if analysis.hidden_from_history_at is None:
-        analysis.hidden_from_history_at = hidden_at
+    if record.hidden_from_history_at is None:
+        record.hidden_from_history_at = hidden_at
         session.flush()
     return True
 
 
-def hide_all_history_analyses(session: Session, *, hidden_at: datetime) -> int:
+def hide_all_history_analyses(
+    session: Session,
+    *,
+    hidden_at: datetime,
+    operator_scope_id: str | None = None,
+) -> int:
     """Soft-hide every currently visible analysis and return the affected count."""
 
-    result = session.execute(
-        update(Analysis)
-        .where(Analysis.hidden_from_history_at.is_(None))
-        .values(hidden_from_history_at=hidden_at)
-    )
+    model = Analysis if operator_scope_id is None else AnalysisScope
+    statement = update(model).where(model.hidden_from_history_at.is_(None))
+    if operator_scope_id is not None:
+        statement = statement.where(
+            AnalysisScope.operator_scope_id == operator_scope_id
+        )
+    result = session.execute(statement.values(hidden_from_history_at=hidden_at))
     return int(result.rowcount or 0)
 
 

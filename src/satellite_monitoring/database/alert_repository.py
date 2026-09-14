@@ -9,7 +9,14 @@ from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .identity import AnalysisIdentity
-from .models import Alert, AlertEvent, AlertStatus, Analysis, MonitoredSection
+from .models import (
+    Alert,
+    AlertEvent,
+    AlertStatus,
+    Analysis,
+    AnalysisScope,
+    MonitoredSection,
+)
 
 
 class AlertVersionConflict(RuntimeError):
@@ -36,8 +43,23 @@ _ALLOWED_STATUS_TRANSITIONS = {
 
 
 class AlertRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        operator_scope_id: str | None = None,
+        *,
+        restrict_to_operator_scope: bool = False,
+    ) -> None:
         self.session = session
+        self.operator_scope_id = operator_scope_id
+        self.restrict_to_operator_scope = restrict_to_operator_scope
+
+    def _scope_filter(self):
+        if self.operator_scope_id is not None:
+            return Alert.operator_scope_id == self.operator_scope_id
+        if self.restrict_to_operator_scope:
+            return Alert.operator_scope_id.is_(None)
+        return None
 
     def add(self, alert: Alert) -> Alert:
         self.session.add(alert)
@@ -45,10 +67,20 @@ class AlertRepository:
         return alert
 
     def get(self, alert_id: str) -> Alert | None:
-        return self.session.get(Alert, alert_id)
+        statement = select(Alert).where(Alert.id == alert_id)
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
+        return self.session.execute(statement).scalars().first()
 
     def get_analysis(self, analysis_id: str | None) -> Analysis | None:
-        return self.session.get(Analysis, analysis_id) if analysis_id else None
+        if not analysis_id:
+            return None
+        statement = select(Analysis).where(Analysis.id == analysis_id)
+        if self.operator_scope_id is not None:
+            statement = statement.join(
+                AnalysisScope, AnalysisScope.analysis_id == Analysis.id
+            ).where(AnalysisScope.operator_scope_id == self.operator_scope_id)
+        return self.session.execute(statement).scalars().first()
 
     def list_filtered(
         self,
@@ -62,6 +94,8 @@ class AlertRepository:
         offset: int = 0,
     ) -> tuple[int, int, Sequence[Alert]]:
         filters = []
+        if (scope_filter := self._scope_filter()) is not None:
+            filters.append(scope_filter)
         if status is not None:
             filters.append(Alert.status == status)
         if severity is not None:
@@ -130,9 +164,13 @@ class AlertRepository:
             values["resolved_at"] = now
             values["open_key"] = None
 
+        statement = update(Alert).where(
+            Alert.id == alert_id, Alert.version == expected_version
+        )
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
         result = self.session.execute(
-            update(Alert)
-            .where(Alert.id == alert_id, Alert.version == expected_version)
+            statement
             .values(**values)
             .execution_options(synchronize_session=False)
         )
@@ -155,38 +193,58 @@ class AlertRepository:
         return alert
 
     def get_open_by_key(self, open_key: str) -> Alert | None:
-        return self.session.execute(
-            select(Alert).where(Alert.open_key == open_key)
-        ).scalars().first()
+        statement = select(Alert).where(Alert.open_key == open_key)
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
+        return self.session.execute(statement).scalars().first()
 
     def list_by_subject_key(self, subject_key: str) -> Sequence[Alert]:
+        statement = select(Alert).where(Alert.subject_key == subject_key)
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
         return self.session.execute(
-            select(Alert)
-            .where(Alert.subject_key == subject_key)
+            statement
             .order_by(Alert.first_detected_at.desc())
         ).scalars().all()
 
     def list_open_by_subject_key(self, subject_key: str) -> Sequence[Alert]:
-        return self.session.execute(
-            select(Alert).where(
+        statement = select(Alert).where(
                 Alert.subject_key == subject_key,
                 Alert.open_key.is_not(None),
             )
-        ).scalars().all()
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
+        return self.session.execute(statement).scalars().all()
 
     def get_open_by_type(self, subject_key: str, alert_type: str) -> Alert | None:
-        return self.session.execute(
-            select(Alert).where(
+        statement = select(Alert).where(
                 Alert.subject_key == subject_key,
                 Alert.type == alert_type,
                 Alert.open_key.is_not(None),
             )
-        ).scalars().first()
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
+        return self.session.execute(statement).scalars().first()
 
 
 class AlertEventRepository:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        operator_scope_id: str | None = None,
+        *,
+        restrict_to_operator_scope: bool = False,
+    ) -> None:
         self.session = session
+        self.operator_scope_id = operator_scope_id
+        self.restrict_to_operator_scope = restrict_to_operator_scope
+
+    def _scope_filter(self):
+        if self.operator_scope_id is not None:
+            return Alert.operator_scope_id == self.operator_scope_id
+        if self.restrict_to_operator_scope:
+            return Alert.operator_scope_id.is_(None)
+        return None
 
     def add(self, event: AlertEvent) -> AlertEvent:
         self.session.add(event)
@@ -194,14 +252,19 @@ class AlertEventRepository:
         return event
 
     def list_for_alert(self, alert_id: str) -> Sequence[AlertEvent]:
+        statement = select(AlertEvent)
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.join(Alert, Alert.id == AlertEvent.alert_id).where(
+                scope_filter
+            )
         return self.session.execute(
-            select(AlertEvent)
+            statement
             .where(AlertEvent.alert_id == alert_id)
             .order_by(AlertEvent.occurred_at, AlertEvent.id)
         ).scalars().all()
 
     def created_for_analysis(self, alert_type: str, analysis_id: str) -> bool:
-        return self.session.execute(
+        statement = (
             select(AlertEvent.id)
             .join(Alert, Alert.id == AlertEvent.alert_id)
             .where(
@@ -210,7 +273,10 @@ class AlertEventRepository:
                 AlertEvent.analysis_id == analysis_id,
             )
             .limit(1)
-        ).first() is not None
+        )
+        if (scope_filter := self._scope_filter()) is not None:
+            statement = statement.where(scope_filter)
+        return self.session.execute(statement).first() is not None
 
 
 class MonitoredSectionRepository:

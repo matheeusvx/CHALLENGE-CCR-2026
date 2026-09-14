@@ -9,7 +9,11 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from threading import RLock
+from typing import Annotated
+from uuid import UUID
 from zoneinfo import ZoneInfo
+
+from fastapi import Header
 
 from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.database import get_analysis, session_scope
@@ -19,6 +23,7 @@ from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvi
 from src.satellite_monitoring.service import AnalysisResult, run_monitoring_analysis
 
 from .config import settings
+from .exceptions import ApiError
 from .automatic_analysis import (
     AutomaticAnalysisCoordinator,
     AutomaticAnalysisPolicy,
@@ -55,6 +60,29 @@ def get_alert_now() -> datetime:
     """Injectable UTC clock for operational alert state changes."""
 
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def get_operator_scope_id(
+    x_operator_scope: Annotated[
+        str | None, Header(alias="X-Operator-Scope")
+    ] = None,
+) -> str:
+    """Validate the Beta isolation key; it is not an authentication token."""
+
+    if x_operator_scope is None:
+        raise ApiError(
+            "OPERATOR_SCOPE_REQUIRED",
+            "O identificador de escopo do operador e obrigatorio.",
+            status_code=422,
+        )
+    try:
+        return str(UUID(x_operator_scope.strip()))
+    except (ValueError, AttributeError) as exc:
+        raise ApiError(
+            "INVALID_OPERATOR_SCOPE",
+            "O identificador de escopo do operador deve ser um UUID valido.",
+            status_code=422,
+        ) from exc
 
 
 @dataclass(frozen=True)
