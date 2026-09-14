@@ -16,8 +16,9 @@ RUN pip install --no-cache-dir -r requirements.txt -r apps/api/requirements.txt
 
 COPY src ./src
 COPY models ./models
+COPY data/roads/processed/motiva-sp-roads-state.geojson ./data/roads/processed/motiva-sp-roads-state.geojson
 COPY apps/__init__.py ./apps/__init__.py
 COPY apps/api ./apps/api
 
 EXPOSE 8000
-CMD ["uvicorn", "apps.api.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn apps.api.app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
