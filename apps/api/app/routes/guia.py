@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.guia_assistant import GuiaAssistant
+from ..beta_auth import enforce_rate_limit
+from ..dependencies import get_operator_scope_id
 
 router = APIRouter(prefix="/api/guia", tags=["guia"])
 
 # Uma instância de GuiaAssistant por sessão de conversa (histórico isolado).
 # O registro é local ao processo, no mesmo espírito do registro de análises.
-_sessoes: dict[str, GuiaAssistant] = {}
+_sessoes: dict[tuple[str, str], GuiaAssistant] = {}
 
 
 class ChatRequest(BaseModel):
@@ -26,21 +28,28 @@ class ChatResponse(BaseModel):
     session_id: str
 
 
-def _get_assistant(session_id: str | None) -> tuple[str, GuiaAssistant]:
+def _get_assistant(
+    operator_scope_id: str, session_id: str | None
+) -> tuple[str, GuiaAssistant]:
     sid = session_id or uuid.uuid4().hex
-    if sid not in _sessoes:
-        _sessoes[sid] = GuiaAssistant()
-    return sid, _sessoes[sid]
+    key = (operator_scope_id, sid)
+    if key not in _sessoes:
+        _sessoes[key] = GuiaAssistant()
+    return sid, _sessoes[key]
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest) -> ChatResponse:
+def chat(
+    payload: ChatRequest,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+) -> ChatResponse:
+    enforce_rate_limit("guia", operator_scope_id, limit=20, window_seconds=10 * 60)
     mensagem = payload.mensagem.strip()
     if not mensagem:
         raise HTTPException(status_code=400, detail="Mensagem vazia.")
 
     try:
-        sid, assistant = _get_assistant(payload.session_id)
+        sid, assistant = _get_assistant(operator_scope_id, payload.session_id)
         resposta = assistant.enviar_mensagem(mensagem)
     except ValueError as exc:
         # Ex.: chave da API ausente na configuração do servidor.

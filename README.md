@@ -276,7 +276,12 @@ uma destas condicoes existir:
   `operational` (padrao `disabled`). `shadow` pode emitir o review signal B;
   `experimental` publica uma recommendation multissensor separada;
   `operational` continua dependente do holdout independente;
-- `NEXT_PUBLIC_API_URL`: URL publica usada pelo navegador.
+- `BACKEND_API_URL`: URL privada usada somente pelo proxy server-side do Next.js.
+- `BETA_PROXY_SECRET`: segredo compartilhado entre o proxy Vercel e a API.
+
+Consulte [docs/beta-deployment.md](docs/beta-deployment.md) para configurar a
+autenticação das duas contas da Beta e gerar os digests/hashes sem armazenar
+senhas em texto puro.
 
 A infraestrutura de holdout independente da Regra B usa coortes persistentes
 `development`/`holdout`, preregistration congelada e avaliacao offline. Consulte

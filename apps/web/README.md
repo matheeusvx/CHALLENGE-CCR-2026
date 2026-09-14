@@ -15,9 +15,10 @@ pnpm --dir apps\web generate:api
 pnpm --dir apps\web dev
 ```
 
-A aplicação abre em `http://localhost:3000`. A API deve estar disponível em
-`http://localhost:8000`, salvo quando `NEXT_PUBLIC_API_URL` definir outro
-endereço.
+A aplicação abre em `http://localhost:3000`. O proxy server-side usa
+`BACKEND_API_URL` (por padrão `http://localhost:8000`) e adiciona o segredo
+privado `BETA_PROXY_SECRET`. Nenhuma URL do Railway ou segredo é enviado ao
+bundle do navegador.
 
 ## Uso Do Mapa
 

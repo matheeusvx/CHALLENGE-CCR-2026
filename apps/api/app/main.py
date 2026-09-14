@@ -9,14 +9,16 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.satellite_monitoring.database import init_database
 
 from .config import settings
+from .beta_auth import beta_auth_enabled, require_authenticated_account
 from .exceptions import install_exception_handlers
 from .routes.analyses import router as analyses_router
+from .routes.auth import router as auth_router
 from .routes.alerts import router as alerts_router
 from .routes.guia import router as guia_router
 from .routes.health import router as health_router
@@ -40,6 +42,9 @@ def create_app() -> FastAPI:
             "API para validacao de AOI e monitoramento Sentinel-2, com execucao "
             "automatica experimental por viewport."
         ),
+        docs_url=None if beta_auth_enabled() else "/docs",
+        redoc_url=None if beta_auth_enabled() else "/redoc",
+        openapi_url=None if beta_auth_enabled() else "/openapi.json",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -49,10 +54,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(analyses_router)
     app.include_router(alerts_router)
-    app.include_router(guia_router)
-    app.include_router(validation_router)
+    operational_dependencies = (
+        [Depends(require_authenticated_account)] if beta_auth_enabled() else []
+    )
+    app.include_router(guia_router, dependencies=operational_dependencies)
+    app.include_router(validation_router, dependencies=operational_dependencies)
     install_exception_handlers(app)
     return app
 

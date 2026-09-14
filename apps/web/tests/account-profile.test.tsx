@@ -299,14 +299,17 @@ describe("Sidebar Operator Profile Footer & Popover", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /sair/i }));
 
     expect(screen.getByText("Encerrar sessão neste dispositivo?")).toBeInTheDocument();
-    expect(screen.getByText(/modo de demonstração local/i)).toBeInTheDocument();
+    expect(screen.getByText(/precisará entrar novamente/i)).toBeInTheDocument();
 
     // Cancelar
     fireEvent.click(screen.getByRole("button", { name: /cancelar/i }));
     expect(screen.queryByText("Encerrar sessão neste dispositivo?")).toBeNull();
   });
 
-  it("confirmação de logout fecha o modal e mantém os dados locais preservados", () => {
+  it("confirmação de logout chama a API, fecha o modal e mantém os dados locais preservados", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
     const onNavigate = vi.fn();
     render(<AppSidebar activeView="analysis" onNavigate={onNavigate} />);
 
@@ -316,7 +319,11 @@ describe("Sidebar Operator Profile Footer & Popover", () => {
     const confirmBtn = screen.getByTestId("confirm-logout-btn");
     fireEvent.click(confirmBtn);
 
-    expect(screen.queryByText("Encerrar sessão neste dispositivo?")).toBeNull();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/logout",
+      { method: "POST", credentials: "same-origin" },
+    ));
+    await waitFor(() => expect(screen.queryByText("Encerrar sessão neste dispositivo?")).toBeNull());
     // Confirma que os dados do perfil permanecem
     expect(useOperatorProfileStore.getState().name).toBe("Rafael Ferreira");
   });

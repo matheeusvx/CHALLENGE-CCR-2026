@@ -103,6 +103,8 @@ export function AppSidebar({
   );
 
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const footRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -160,6 +162,26 @@ export function AppSidebar({
   );
   const activeCount = propActiveCount !== undefined ? propActiveCount : (alertsPage?.active_count ?? 0);
   const activeCountBadge = activeCount > 99 ? "99+" : activeCount > 0 ? String(activeCount) : null;
+
+  const confirmLogout = async () => {
+    setLogoutPending(true);
+    setLogoutError(null);
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("logout failed");
+      setLogoutModalOpen(false);
+      const loginLink = document.createElement("a");
+      loginLink.href = "/login";
+      loginLink.click();
+    } catch {
+      setLogoutError("Não foi possível encerrar a sessão. Tente novamente.");
+    } finally {
+      setLogoutPending(false);
+    }
+  };
 
   return (
     <>
@@ -273,6 +295,7 @@ export function AppSidebar({
                 className="operator-menu-item operator-menu-item--logout"
                 onClick={() => {
                   setMenuOpen(false);
+                  setLogoutError(null);
                   setLogoutModalOpen(true);
                 }}
               >
@@ -326,13 +349,15 @@ export function AppSidebar({
               </button>
             </header>
             <p className="logout-modal-body">
-              Esta versão funciona em modo de demonstração local. Suas análises salvas, preferências operacionais e dados do perfil permanecem armazenados com segurança neste navegador.
+              Você precisará entrar novamente para acessar o Histórico e os Alertas. As preferências e os dados editáveis do perfil permanecem locais neste navegador.
             </p>
+            {logoutError ? <p className="login-error" role="alert">{logoutError}</p> : null}
             <footer className="logout-modal-actions">
               <button
                 type="button"
                 className="secondary-button"
                 onClick={() => setLogoutModalOpen(false)}
+                disabled={logoutPending}
               >
                 Cancelar
               </button>
@@ -340,12 +365,10 @@ export function AppSidebar({
                 type="button"
                 className="logout-confirm-button"
                 data-testid="confirm-logout-btn"
-                onClick={() => {
-                  setLogoutModalOpen(false);
-                  onNavigate("analysis");
-                }}
+                onClick={() => void confirmLogout()}
+                disabled={logoutPending}
               >
-                Encerrar sessão
+                {logoutPending ? "Encerrando…" : "Encerrar sessão"}
               </button>
             </footer>
           </div>

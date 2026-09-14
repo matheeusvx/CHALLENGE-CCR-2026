@@ -1,32 +1,6 @@
 import { z } from "zod";
 
-const apiUrlSchema = z.string().url();
-const API_URL = apiUrlSchema.parse(
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
-);
-
-export const toApiUrl = (path: string) => new URL(path, API_URL).toString();
-
-const OPERATOR_SCOPE_STORAGE_KEY = "motiva.operator-scope-id";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let memoryOperatorScopeId: string | undefined;
-
-export function getOperatorScopeId(): string {
-  if (typeof window !== "undefined") {
-    try {
-      const stored = window.localStorage.getItem(OPERATOR_SCOPE_STORAGE_KEY);
-      if (stored && UUID_PATTERN.test(stored)) return stored;
-      const generated = globalThis.crypto.randomUUID();
-      window.localStorage.setItem(OPERATOR_SCOPE_STORAGE_KEY, generated);
-      return generated;
-    } catch {
-      // Storage can be unavailable in privacy-restricted browser contexts.
-    }
-  }
-  memoryOperatorScopeId ??= globalThis.crypto.randomUUID();
-  return memoryOperatorScopeId;
-}
+export const toApiUrl = (path: string) => path;
 
 const errorEnvelopeSchema = z.object({
   error: z.object({
@@ -55,10 +29,10 @@ export async function apiRequest<T>(
   try {
     const headers = new Headers(init?.headers);
     if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-    headers.set("X-Operator-Scope", getOperatorScopeId());
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(path, {
       ...init,
       headers,
+      credentials: "same-origin",
     });
   } catch (cause) {
     console.error("Falha de rede ao acessar o serviço de análise.", cause);
@@ -72,6 +46,9 @@ export async function apiRequest<T>(
     ? undefined
     : await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.location.replace("/login");
+    }
     const parsed = errorEnvelopeSchema.safeParse(body);
     throw new ApiError(
       parsed.success ? parsed.data.error.code : "NETWORK_ERROR",

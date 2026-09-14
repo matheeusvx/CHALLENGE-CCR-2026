@@ -41,6 +41,7 @@ from src.satellite_monitoring.road_geometry import (
 from src.satellite_monitoring.service import InvalidAnalysisGeometryError
 
 from ..config import settings
+from ..beta_auth import enforce_rate_limit
 from ..dependencies import (
     AnalysisService,
     analysis_registry,
@@ -298,6 +299,7 @@ def run_analysis(
         get_manual_road_geometry_provider
     ),
 ) -> AnalysisResponse:
+    enforce_rate_limit("analysis", operator_scope_id, limit=5, window_seconds=10 * 60)
     try:
         analysis_period = resolve_analysis_period(
             payload.start_date,
@@ -602,6 +604,9 @@ def run_automatic_analysis(
     ),
 ) -> dict[str, Any]:
     """Resolve, deduplicate, and asynchronously execute a canonical viewport AOI."""
+    enforce_rate_limit(
+        "analysis", operator_scope_id, limit=5, window_seconds=10 * 60, record=False
+    )
     try:
         analysis_period = resolve_analysis_period(
             None,
@@ -673,6 +678,8 @@ def run_automatic_analysis(
         ),
         execute=execute,
     )
+    if response.get("status") == "analysis_started":
+        enforce_rate_limit("analysis", operator_scope_id, limit=5, window_seconds=10 * 60)
     analysis_id = response.get("analysis_id")
     if analysis_id:
         with session_scope() as session:

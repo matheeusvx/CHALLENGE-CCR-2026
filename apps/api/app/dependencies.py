@@ -13,7 +13,7 @@ from typing import Annotated
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import Header
+from fastapi import Header, Request
 
 from src.satellite_monitoring.config import MonitoringConfig
 from src.satellite_monitoring.database import get_analysis, session_scope
@@ -23,6 +23,7 @@ from src.satellite_monitoring.road_geometry import LocalGeoJsonRoadGeometryProvi
 from src.satellite_monitoring.service import AnalysisResult, run_monitoring_analysis
 
 from .config import settings
+from .beta_auth import PROXY_HEADER, beta_auth_enabled, require_authenticated_account
 from .exceptions import ApiError
 from .automatic_analysis import (
     AutomaticAnalysisCoordinator,
@@ -63,11 +64,21 @@ def get_alert_now() -> datetime:
 
 
 def get_operator_scope_id(
+    request: Request,
     x_operator_scope: Annotated[
         str | None, Header(alias="X-Operator-Scope")
     ] = None,
 ) -> str:
-    """Validate the Beta isolation key; it is not an authentication token."""
+    """Return the authenticated account scope in Beta mode.
+
+    The legacy browser UUID remains available only when authentication is
+    explicitly disabled, preserving local development and older tests.
+    """
+
+    if beta_auth_enabled():
+        return require_authenticated_account(
+            request, request.headers.get(PROXY_HEADER)
+        ).scope
 
     if x_operator_scope is None:
         raise ApiError(
