@@ -1,0 +1,60 @@
+{
+  "model_version": "regrowth-support-v0",
+  "features": [
+    "current_height_class",
+    "height_limit_cm"
+  ],
+  "intercept": -0.9938900538067615,
+  "coefficients": [
+    1.123915746258019,
+    -0.971902057332261
+  ],
+  "scaler_mean": [
+    1.4879032258064515,
+    28.225806451612904
+  ],
+  "scaler_scale": [
+    0.7349668351016071,
+    5.686484698001369
+  ],
+  "calibration_status": "uncalibrated",
+  "training_sample_count": 248,
+  "positive_sample_count": 19,
+  "negative_sample_count": 229,
+  "group_count": 29,
+  "fold_count": 5,
+  "validation_strategy": "StratifiedGroupKFold_by_km",
+  "validation_metrics": {
+    "roc_auc": 0.8225,
+    "balanced_accuracy": 0.8644,
+    "precision": 0.3091,
+    "recall": 0.8947,
+    "f1": 0.4595,
+    "confusion_matrix": [
+      [
+        191,
+        38
+      ],
+      [
+        2,
+        17
+      ]
+    ]
+  },
+  "prediction_horizon_days": 7,
+  "observed_horizons_days": [
+    7
+  ],
+  "survey_dates": [
+    "2026-03-13",
+    "2026-03-20"
+  ],
+  "training_dataset_sha256": "56eeefd72bc60adf854eeed31a8f4e46e7929dd1d490a07599f2f4711569052a",
+  "training_timestamp": "2026-09-03T23:59:00.951087+00:00",
+  "limitations": [
+    "Treinado sobre uma janela curta de levantamentos de campo; a extrapolacao para prazos maiores que o horizonte do modelo nao tem base empirica.",
+    "O alvo e a classe de altura declarada no unifilar da concessionaria, nao uma medicao fisica em campo.",
+    "Poucos exemplos positivos: a precisao e instavel e o modelo tende a sinalizar mais nao conformidades do que ocorrem.",
+    "Serve apenas como apoio. A recomendacao operacional continua sendo produzida pelo motor de satelite."
+  ]
+}

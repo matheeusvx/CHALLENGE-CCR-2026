@@ -1,0 +1,47 @@
+{
+  "campaign_id": "<CAMPAIGN_ID>",
+  "observed_at": "<ISO_8601_DATE_OR_DATETIME>",
+  "crs": "EPSG:4326",
+  "samples": [
+    {
+      "sample_id": "<SAMPLE_ID>",
+      "road": "<ROAD>",
+      "km": null,
+      "side": "<SIDE>",
+      "location_name": "<LOCATION_NAME>",
+      "geometry": null,
+      "geometry_reference": "<PATH_TO_POLYGON_OR_MULTIPOLYGON_GEOJSON>",
+      "reference_bbox": null,
+      "measurement_type": "multiple",
+      "measured_height_cm": null,
+      "height_lower_bound_cm": null,
+      "height_upper_bound_cm": null,
+      "confirmed_above_lower_bound": false,
+      "height_measurements_cm": [
+        "<PHYSICAL_MEASUREMENT_CM_1>",
+        "<PHYSICAL_MEASUREMENT_CM_2>"
+      ],
+      "measurement_method": "<MEASUREMENT_METHOD>",
+      "measurement_spacing_m": null,
+      "vegetation_cover_pct": null,
+      "vegetation_type": "<VEGETATION_TYPE>",
+      "recent_cut": null,
+      "cut_date": null,
+      "soil_condition": "<SOIL_CONDITION>",
+      "moisture_condition": "<MOISTURE_CONDITION>",
+      "photo_references": [
+        "<PHOTO_PATH_OR_ID>"
+      ],
+      "video_references": [
+        "<VIDEO_PATH_OR_ID>"
+      ],
+      "collector_notes": "<NOTES>",
+      "measurement_quality": "confirmed_multiple_measurements",
+      "classification_ground_truth_strength": "strong",
+      "metric_regression_eligible": true,
+      "training_eligible": false,
+      "external_validation": true,
+      "source": "field_campaign"
+    }
+  ]
+}

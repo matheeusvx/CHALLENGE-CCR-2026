@@ -1,0 +1,72 @@
+{
+  "campaign_id": "field_gt35_external_validation",
+  "crs": "EPSG:4326",
+  "samples": [
+    {
+      "sample_id": "GT35-01",
+      "observed_at": "2026-08-31T12:00:00-03:00",
+      "location_name": "Verificação física >35 cm - ponto 1",
+      "latitude": -23.23658,
+      "longitude": -46.86908,
+      "reference_bbox": {
+        "west": -46.86955,
+        "south": -23.23710,
+        "east": -46.86861,
+        "north": -23.23606
+      },
+      "geometry": null,
+      "geometry_reference": "aoi/gt35_01.geojson",
+      "measurement_type": "threshold_lower_bound",
+      "measured_height_cm": null,
+      "height_lower_bound_cm": 35,
+      "height_upper_bound_cm": null,
+      "confirmed_above_lower_bound": true,
+      "height_mean_cm": null,
+      "height_p50_cm": null,
+      "height_p90_cm": null,
+      "real_class": ">30",
+      "regulatory_gt30": true,
+      "experimental_certainty_zone": "CLEAR_POSITIVE",
+      "classification_ground_truth_strength": "strong",
+      "metric_regression_eligible": false,
+      "measurement_quality": "unknown",
+      "source": "physical_field_verification",
+      "recommendation_at_collection_geometry": "CORTAR",
+      "training_eligible": false,
+      "external_validation": true
+    },
+    {
+      "sample_id": "GT35-02",
+      "observed_at": "2026-08-31T12:00:00-03:00",
+      "location_name": "Verificação física >35 cm - ponto 2",
+      "latitude": -23.259895,
+      "longitude": -46.865345,
+      "reference_bbox": {
+        "west": -46.86567,
+        "south": -23.26032,
+        "east": -46.86502,
+        "north": -23.25947
+      },
+      "geometry": null,
+      "geometry_reference": "aoi/gt35_02.geojson",
+      "measurement_type": "threshold_lower_bound",
+      "measured_height_cm": null,
+      "height_lower_bound_cm": 35,
+      "height_upper_bound_cm": null,
+      "confirmed_above_lower_bound": true,
+      "height_mean_cm": null,
+      "height_p50_cm": null,
+      "height_p90_cm": null,
+      "real_class": ">30",
+      "regulatory_gt30": true,
+      "experimental_certainty_zone": "CLEAR_POSITIVE",
+      "classification_ground_truth_strength": "strong",
+      "metric_regression_eligible": false,
+      "measurement_quality": "unknown",
+      "source": "physical_field_verification",
+      "recommendation_at_collection_geometry": "CORTAR",
+      "training_eligible": false,
+      "external_validation": true
+    }
+  ]
+}

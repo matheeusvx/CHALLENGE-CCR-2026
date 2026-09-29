@@ -1,0 +1,2226 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Motiva Vegetation Intelligence API",
+    "description": "API sincrona para validacao de AOI e monitoramento Sentinel-2.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Healthcheck",
+        "operationId": "healthcheck_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/validate-geometry": {
+      "post": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Validate Geometry",
+        "operationId": "validate_geometry_api_analyses_validate_geometry_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeometryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeometryValidationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/run": {
+      "post": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Run Analysis",
+        "operationId": "run_analysis_api_analyses_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analyses/{analysis_id}/artifacts/{artifact_name}": {
+      "get": {
+        "tags": [
+          "analyses"
+        ],
+        "summary": "Get Artifact",
+        "operationId": "get_artifact_api_analyses__analysis_id__artifacts__artifact_name__get",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Analysis Id"
+            }
+          },
+          {
+            "name": "artifact_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/guia/chat": {
+      "post": {
+        "tags": [
+          "guia"
+        ],
+        "summary": "Chat",
+        "operationId": "chat_api_guia_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/validation-samples": {
+      "post": {
+        "tags": [
+          "validation"
+        ],
+        "summary": "Create Validation Sample",
+        "operationId": "create_validation_sample_api_validation_samples_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidationSampleCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationSampleDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "validation"
+        ],
+        "summary": "List Validation Samples",
+        "operationId": "list_validation_samples_api_validation_samples_get",
+        "parameters": [
+          {
+            "name": "vegetation_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/VegetationClass"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vegetation Class"
+            }
+          },
+          {
+            "name": "maintenance_truth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MaintenanceTruth"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Maintenance Truth"
+            }
+          },
+          {
+            "name": "validation_source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ValidationSource"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Validation Source"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationSampleList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/validation-samples/{sample_id}": {
+      "get": {
+        "tags": [
+          "validation"
+        ],
+        "summary": "Get Validation Sample",
+        "operationId": "get_validation_sample_api_validation_samples__sample_id__get",
+        "parameters": [
+          {
+            "name": "sample_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Sample Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationSampleDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/validation-summary": {
+      "get": {
+        "tags": [
+          "validation"
+        ],
+        "summary": "Validation Summary",
+        "operationId": "validation_summary_api_validation_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/validation-export": {
+      "get": {
+        "tags": [
+          "validation"
+        ],
+        "summary": "Export Validation Samples",
+        "operationId": "export_validation_samples_api_validation_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisPeriodResponse": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": [
+              "previous_calendar_month",
+              "explicit"
+            ],
+            "title": "Strategy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "timezone",
+          "strategy"
+        ],
+        "title": "AnalysisPeriodResponse"
+      },
+      "AnalysisResponse": {
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "title": "Analysis Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/RecommendationResponse"
+          },
+          "height_estimation": {
+            "$ref": "#/components/schemas/HeightEstimationResponse"
+          },
+          "analysis_period": {
+            "$ref": "#/components/schemas/AnalysisPeriodResponse"
+          },
+          "selected_area_m2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Area M2"
+          },
+          "effective_analysis_area_m2": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Analysis Area M2"
+          },
+          "effective_analysis_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Analysis Pct"
+          },
+          "spatial_segmentation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpatialSegmentationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multisource": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MultisourceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aoi": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Aoi"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "timeseries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Timeseries"
+          },
+          "scenes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Scenes"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Artifacts"
+          },
+          "warnings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "status",
+          "recommendation",
+          "height_estimation",
+          "analysis_period",
+          "aoi",
+          "summary",
+          "timeseries",
+          "scenes",
+          "artifacts",
+          "warnings",
+          "errors"
+        ],
+        "title": "AnalysisResponse"
+      },
+      "AnalysisRunRequest": {
+        "properties": {
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "max_cloud_cover": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cloud Cover"
+          },
+          "max_scenes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Scenes"
+          },
+          "scene_order": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "newest",
+                  "oldest"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Order"
+          },
+          "min_valid_pixel_percentage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Valid Pixel Percentage"
+          },
+          "min_observations": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Observations"
+          },
+          "daily_aggregation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "best",
+                  "median",
+                  "none"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Aggregation"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionParameters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "geometry"
+        ],
+        "title": "AnalysisRunRequest"
+      },
+      "Centroid": {
+        "properties": {
+          "longitude": {
+            "type": "number",
+            "title": "Longitude"
+          },
+          "latitude": {
+            "type": "number",
+            "title": "Latitude"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "longitude",
+          "latitude"
+        ],
+        "title": "Centroid"
+      },
+      "ChatRequest": {
+        "properties": {
+          "mensagem": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Mensagem"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mensagem"
+        ],
+        "title": "ChatRequest"
+      },
+      "ChatResponse": {
+        "properties": {
+          "resposta": {
+            "type": "string",
+            "title": "Resposta"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resposta",
+          "session_id"
+        ],
+        "title": "ChatResponse"
+      },
+      "DecisionParameters": {
+        "properties": {
+          "decision_min_observations": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Min Observations"
+          },
+          "high_vegetation_percentile": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Vegetation Percentile"
+          },
+          "significant_drop_absolute": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Significant Drop Absolute"
+          },
+          "significant_drop_relative_percentage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Significant Drop Relative Percentage"
+          },
+          "trend_window": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend Window"
+          },
+          "max_gap_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 366.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gap Days"
+          },
+          "recent_intervention_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 366.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Intervention Days"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DecisionParameters"
+      },
+      "EvidenceObservationResponse": {
+        "properties": {
+          "observed_at": {
+            "type": "string",
+            "title": "Observed At"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "observed_at",
+          "metrics"
+        ],
+        "title": "EvidenceObservationResponse"
+      },
+      "GeometryRequest": {
+        "properties": {
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "geometry"
+        ],
+        "title": "GeometryRequest"
+      },
+      "GeometryValidationResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "geometry_type": {
+            "type": "string",
+            "title": "Geometry Type"
+          },
+          "area_square_meters": {
+            "type": "number",
+            "title": "Area Square Meters"
+          },
+          "centroid": {
+            "$ref": "#/components/schemas/Centroid"
+          },
+          "bounding_box": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bounding Box"
+          },
+          "estimated_sentinel_pixels": {
+            "type": "integer",
+            "title": "Estimated Sentinel Pixels"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "valid",
+          "geometry_type",
+          "area_square_meters",
+          "centroid",
+          "bounding_box",
+          "estimated_sentinel_pixels",
+          "warnings"
+        ],
+        "title": "GeometryValidationResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse"
+      },
+      "HeightEstimationResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "experimental",
+              "unavailable",
+              "disabled"
+            ],
+            "title": "Status"
+          },
+          "estimated_class": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "le_30_cm",
+                  "gt_30_cm",
+                  "inconclusive"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Class"
+          },
+          "score_gt_30_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Gt 30 Cm"
+          },
+          "probability_gt_30_cm": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probability Gt 30 Cm",
+            "description": "Deprecated alias of score_gt_30_cm; not calibrated probability.",
+            "deprecated": true
+          },
+          "calibration_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "uncalibrated"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibration Status"
+          },
+          "vegetation_fraction": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vegetation Fraction"
+          },
+          "height_valid_pixel_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Valid Pixel Count"
+          },
+          "height_total_pixel_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Total Pixel Count"
+          },
+          "mixed_pixel_risk": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mixed Pixel Risk"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "reference_threshold_cm": {
+            "type": "integer",
+            "const": 30,
+            "title": "Reference Threshold Cm",
+            "default": 30
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "estimated_class",
+          "confidence",
+          "model_version"
+        ],
+        "title": "HeightEstimationResponse"
+      },
+      "MaintenanceTruth": {
+        "type": "string",
+        "enum": [
+          "cut",
+          "no_cut",
+          "uncertain"
+        ],
+        "title": "MaintenanceTruth"
+      },
+      "MultisourceResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "fusion_mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "shadow"
+            ],
+            "title": "Fusion Mode"
+          },
+          "official_recommendation_changed": {
+            "type": "boolean",
+            "const": false,
+            "title": "Official Recommendation Changed"
+          },
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "configuration": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Configuration"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceEvidenceResponse"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "fusion_mode",
+          "official_recommendation_changed",
+          "generated_at",
+          "configuration",
+          "sources"
+        ],
+        "title": "MultisourceResponse"
+      },
+      "RecommendationResponse": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "cortar",
+              "nao_cortar",
+              "inconclusivo"
+            ],
+            "title": "Decision"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence"
+          },
+          "experimental": {
+            "type": "boolean",
+            "title": "Experimental"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "blocking_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Blocking Reasons"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "confidence",
+          "experimental",
+          "summary",
+          "reasons",
+          "blocking_reasons",
+          "limitations"
+        ],
+        "title": "RecommendationResponse"
+      },
+      "SourceEvidenceResponse": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "no_coverage",
+              "unavailable",
+              "error",
+              "disabled"
+            ],
+            "title": "Status"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceObservationResponse"
+            },
+            "type": "array",
+            "title": "Observations"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provenance"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "status",
+          "observations",
+          "metrics",
+          "provenance",
+          "warnings"
+        ],
+        "title": "SourceEvidenceResponse"
+      },
+      "SpatialSegmentationResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "not_applicable",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "experimental": {
+            "type": "boolean",
+            "title": "Experimental"
+          },
+          "section_length_m": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Section Length M"
+          },
+          "effective_coverage_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Coverage Pct"
+          },
+          "zones": {
+            "items": {
+              "$ref": "#/components/schemas/SpatialZoneResponse"
+            },
+            "type": "array",
+            "title": "Zones"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "experimental",
+          "section_length_m",
+          "zones"
+        ],
+        "title": "SpatialSegmentationResponse"
+      },
+      "SpatialZoneResponse": {
+        "properties": {
+          "zone_id": {
+            "type": "string",
+            "title": "Zone Id"
+          },
+          "recommendation": {
+            "type": "string",
+            "enum": [
+              "cortar",
+              "nao_cortar",
+              "inconclusivo"
+            ],
+            "title": "Recommendation"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry"
+          },
+          "area_m2": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Area M2"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence"
+          },
+          "analysis_quality": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Analysis Quality"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "start_distance_m": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Start Distance M"
+          },
+          "end_distance_m": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "End Distance M"
+          },
+          "road_ref": {
+            "type": "string",
+            "title": "Road Ref"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "zone_id",
+          "recommendation",
+          "geometry",
+          "area_m2",
+          "confidence",
+          "analysis_quality",
+          "reasons",
+          "start_distance_m",
+          "end_distance_m",
+          "road_ref"
+        ],
+        "title": "SpatialZoneResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationSampleCreate": {
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Analysis Id"
+          },
+          "vegetation_class": {
+            "$ref": "#/components/schemas/VegetationClass"
+          },
+          "maintenance_truth": {
+            "$ref": "#/components/schemas/MaintenanceTruth"
+          },
+          "validation_source": {
+            "$ref": "#/components/schemas/ValidationSource"
+          },
+          "reference_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Reference Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "vegetation_class",
+          "maintenance_truth",
+          "validation_source",
+          "reference_date"
+        ],
+        "title": "ValidationSampleCreate"
+      },
+      "ValidationSampleDetail": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sample Id"
+          },
+          "analysis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Analysis Id"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "vegetation_class": {
+            "$ref": "#/components/schemas/VegetationClass"
+          },
+          "maintenance_truth": {
+            "$ref": "#/components/schemas/MaintenanceTruth"
+          },
+          "validation_source": {
+            "$ref": "#/components/schemas/ValidationSource"
+          },
+          "reference_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Reference Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "selected_area_m2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Area M2"
+          },
+          "s2_decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Decision"
+          },
+          "s2_confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Confidence"
+          },
+          "s2_ndvi_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Ndvi Mean"
+          },
+          "s2_ndvi_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Ndvi Median"
+          },
+          "s2_current_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Current Percentile"
+          },
+          "s1_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Status"
+          },
+          "s1_quality": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Quality"
+          },
+          "s1_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Coverage"
+          },
+          "s1_canonical_relative_orbit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Canonical Relative Orbit"
+          },
+          "s1_canonical_observation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Canonical Observation Count"
+          },
+          "s1_vv_sigma0_linear": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vv Sigma0 Linear"
+          },
+          "s1_vh_sigma0_linear": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Sigma0 Linear"
+          },
+          "s1_vv_sigma0_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vv Sigma0 Db"
+          },
+          "s1_vh_sigma0_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Sigma0 Db"
+          },
+          "s1_vh_minus_vv_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Minus Vv Db"
+          },
+          "s1_vh_vv_sigma0_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Vv Sigma0 Ratio"
+          },
+          "snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_id",
+          "analysis_id",
+          "schema_version",
+          "created_at",
+          "vegetation_class",
+          "maintenance_truth",
+          "validation_source",
+          "reference_date",
+          "snapshot"
+        ],
+        "title": "ValidationSampleDetail"
+      },
+      "ValidationSampleList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationSampleRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ValidationSampleList"
+      },
+      "ValidationSampleRow": {
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Sample Id"
+          },
+          "analysis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Analysis Id"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "vegetation_class": {
+            "$ref": "#/components/schemas/VegetationClass"
+          },
+          "maintenance_truth": {
+            "$ref": "#/components/schemas/MaintenanceTruth"
+          },
+          "validation_source": {
+            "$ref": "#/components/schemas/ValidationSource"
+          },
+          "reference_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Reference Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "selected_area_m2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Area M2"
+          },
+          "s2_decision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Decision"
+          },
+          "s2_confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Confidence"
+          },
+          "s2_ndvi_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Ndvi Mean"
+          },
+          "s2_ndvi_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Ndvi Median"
+          },
+          "s2_current_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S2 Current Percentile"
+          },
+          "s1_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Status"
+          },
+          "s1_quality": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Quality"
+          },
+          "s1_coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Coverage"
+          },
+          "s1_canonical_relative_orbit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Canonical Relative Orbit"
+          },
+          "s1_canonical_observation_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Canonical Observation Count"
+          },
+          "s1_vv_sigma0_linear": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vv Sigma0 Linear"
+          },
+          "s1_vh_sigma0_linear": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Sigma0 Linear"
+          },
+          "s1_vv_sigma0_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vv Sigma0 Db"
+          },
+          "s1_vh_sigma0_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Sigma0 Db"
+          },
+          "s1_vh_minus_vv_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Minus Vv Db"
+          },
+          "s1_vh_vv_sigma0_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S1 Vh Vv Sigma0 Ratio"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_id",
+          "analysis_id",
+          "schema_version",
+          "created_at",
+          "vegetation_class",
+          "maintenance_truth",
+          "validation_source",
+          "reference_date"
+        ],
+        "title": "ValidationSampleRow"
+      },
+      "ValidationSource": {
+        "type": "string",
+        "enum": [
+          "visual_inspection",
+          "aerial_imagery",
+          "field_inspection",
+          "maintenance_record",
+          "other"
+        ],
+        "title": "ValidationSource"
+      },
+      "ValidationSummary": {
+        "properties": {
+          "total_samples": {
+            "type": "integer",
+            "title": "Total Samples"
+          },
+          "target_total": {
+            "type": "integer",
+            "title": "Target Total"
+          },
+          "remaining_total": {
+            "type": "integer",
+            "title": "Remaining Total"
+          },
+          "target_per_class": {
+            "type": "integer",
+            "title": "Target Per Class"
+          },
+          "counts_by_vegetation_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts By Vegetation Class"
+          },
+          "by_vegetation_class": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "By Vegetation Class"
+          },
+          "counts_by_maintenance_truth": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts By Maintenance Truth"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_samples",
+          "target_total",
+          "remaining_total",
+          "target_per_class",
+          "counts_by_vegetation_class",
+          "by_vegetation_class",
+          "counts_by_maintenance_truth"
+        ],
+        "title": "ValidationSummary"
+      },
+      "VegetationClass": {
+        "type": "string",
+        "enum": [
+          "low_grass",
+          "tall_dense_grass",
+          "shrub",
+          "tree",
+          "mixed"
+        ],
+        "title": "VegetationClass"
+      }
+    }
+  }
+}

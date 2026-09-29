@@ -1,0 +1,434 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-25",
+  "project": "Motiva Faixa Verde",
+  "scope": {
+    "country": "BR",
+    "state": "SP",
+    "description": "Rodovias com operação/participação atual da Motiva no Estado de São Paulo. Trechos fora de SP foram excluídos.",
+    "geometry_crs_target": "EPSG:4326"
+  },
+  "notes": [
+    "As rodovias estaduais usam como fonte geométrica prioritária o conjunto oficial Malha Rodoviária da ARTESP (KMZ, domínio público).",
+    "As rodovias federais RioSP e Motiva Minas_SP devem usar a malha georreferenciada vigente do SNV/DNIT, filtrada para o Estado de São Paulo e recortada ao objeto da concessão.",
+    "ViaOeste não integra a camada ativa: a concessão terminou em 29/03/2025 e a Motiva Sorocabana iniciou operação em 30/03/2025.",
+    "Renovias é mantida no catálogo porque aparece no portfólio atual da Motiva, mas a participação da Motiva é de 40%; essa condição deve aparecer nos metadados da camada."
+  ],
+  "concessions": [
+    {
+      "concession_id": "autoban",
+      "display_name": "Motiva AutoBAn",
+      "status": "active",
+      "motiva_participation_pct": 100.0,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "ARTESP_MALHA_RODOVIARIA_KMZ",
+        "resource_name": "KMZ Autoban",
+        "resource_id": "b3e0ca4a-fcd2-4d2b-9c5b-28f16f8d119e",
+        "resource_page": "https://dadosabertos.artesp.sp.gov.br/dataset/malha-rodoviaria/resource/b3e0ca4a-fcd2-4d2b-9c5b-28f16f8d119e",
+        "download_url": "https://dadosabertos.artesp.sp.gov.br/dataset/d60ee312-79b7-4d2c-9049-a1777ef1d377/resource/b3e0ca4a-fcd2-4d2b-9c5b-28f16f8d119e/download/l01.kmz",
+        "license": "Public Domain"
+      },
+      "roads": [
+        {
+          "road_id": "SP-330",
+          "name": "Rodovia Anhanguera",
+          "km_start": 11.46,
+          "km_end": 158.5
+        },
+        {
+          "road_id": "SP-348",
+          "name": "Rodovia dos Bandeirantes",
+          "km_start": 13.36,
+          "km_end": 173.032
+        },
+        {
+          "road_id": "SP-300",
+          "name": "Rodovia Dom Gabriel Paulino Bueno Couto",
+          "km_start": 62.0,
+          "km_end": 64.6
+        },
+        {
+          "road_id": "SPI-102/330",
+          "name": "Rodovia Adalberto Panzan",
+          "km_start": 0.0,
+          "km_end": 7.54
+        }
+      ],
+      "official_info": "https://rodovias.motiva.com.br/autoban/sobre/sobre-autoban/"
+    },
+    {
+      "concession_id": "rodoanel_oeste",
+      "display_name": "Motiva RodoAnel Oeste",
+      "status": "active",
+      "motiva_participation_pct": 99.6,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "ARTESP_MALHA_RODOVIARIA_KMZ",
+        "resource_name": "KMZ Rodoanel",
+        "resource_id": "a7d37c93-f612-439a-b1af-b809ae71c1b8",
+        "resource_page": "https://dadosabertos.artesp.sp.gov.br/dataset/malha-rodoviaria/resource/a7d37c93-f612-439a-b1af-b809ae71c1b8",
+        "download_url": "https://dadosabertos.artesp.sp.gov.br/dataset/d60ee312-79b7-4d2c-9049-a1777ef1d377/resource/a7d37c93-f612-439a-b1af-b809ae71c1b8/download/l24.kmz",
+        "license": "Public Domain"
+      },
+      "roads": [
+        {
+          "road_id": "SP-021",
+          "name": "Rodoanel Mário Covas - Trecho Oeste",
+          "km_start": 0.0,
+          "km_end": 29.3
+        }
+      ],
+      "official_info": "https://rodovias.motiva.com.br/rodoanel/sobre/sobre-rodoanel/"
+    },
+    {
+      "concession_id": "spvias",
+      "display_name": "Motiva SPVias",
+      "status": "active",
+      "motiva_participation_pct": 100.0,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "ARTESP_MALHA_RODOVIARIA_KMZ",
+        "resource_name": "KMZ SPVias",
+        "resource_id": "5fd8fe8f-e122-4170-ba93-a6b93ace1389",
+        "resource_page": "https://dadosabertos.artesp.sp.gov.br/dataset/malha-rodoviaria/resource/5fd8fe8f-e122-4170-ba93-a6b93ace1389",
+        "download_url": "https://dadosabertos.artesp.sp.gov.br/dataset/d60ee312-79b7-4d2c-9049-a1777ef1d377/resource/5fd8fe8f-e122-4170-ba93-a6b93ace1389/download/l20.kmz",
+        "license": "Public Domain"
+      },
+      "roads": [
+        {
+          "road_id": "SP-127-A",
+          "ref": "SP-127",
+          "name": "Rodovia Antônio Romano Schincariol",
+          "km_start": 105.9,
+          "km_end": 148.35
+        },
+        {
+          "road_id": "SP-127-B",
+          "ref": "SP-127",
+          "name": "Rodovia Francisco da Silva Pontes",
+          "km_start": 158.3,
+          "km_end": 213.15
+        },
+        {
+          "road_id": "SP-255",
+          "name": "Rodovia João Mellão",
+          "km_start": 237.77,
+          "km_end": 288.19
+        },
+        {
+          "road_id": "SP-258",
+          "name": "Rodovia Francisco Alves Negrão",
+          "km_start": 222.8,
+          "km_end": 342.67
+        },
+        {
+          "road_id": "SP-270",
+          "name": "Rodovia Raposo Tavares",
+          "km_start": 115.5,
+          "km_end": 168.21
+        },
+        {
+          "road_id": "SP-280",
+          "name": "Rodovia Presidente Castello Branco",
+          "km_start": 129.6,
+          "km_end": 315.034
+        }
+      ],
+      "official_info": "https://rodovias.motiva.com.br/spvias/sobre/sobre-sp-vias/"
+    },
+    {
+      "concession_id": "sorocabana",
+      "display_name": "Motiva Sorocabana",
+      "status": "active",
+      "motiva_participation_pct": 100.0,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "ARTESP_MALHA_RODOVIARIA_KMZ",
+        "resource_name": "KMZ Rota Sorocabana",
+        "resource_id": "f011fa3c-a0b4-43d0-b1ff-571c6cb3044a",
+        "resource_page": "https://dadosabertos.artesp.sp.gov.br/dataset/malha-rodoviaria/resource/f011fa3c-a0b4-43d0-b1ff-571c6cb3044a",
+        "download_url": "https://dadosabertos.artesp.sp.gov.br/dataset/d60ee312-79b7-4d2c-9049-a1777ef1d377/resource/f011fa3c-a0b4-43d0-b1ff-571c6cb3044a/download/l33.kmz",
+        "license": "Public Domain"
+      },
+      "roads": [
+        {
+          "road_id": "SP-075",
+          "name": "Rodovia Senador José Ermírio de Moraes (Castelinho)",
+          "km_start": 0.0,
+          "km_end": 15.695
+        },
+        {
+          "road_id": "SP-079",
+          "name": "Raimundo Antunes Soares / Padre Guilherme Hovel-Svd / Tenente Celestino Américo",
+          "km_start": 97.65,
+          "km_end": 213.665
+        },
+        {
+          "road_id": "SP-250-1",
+          "ref": "SP-250",
+          "name": "Bunjiro Nakao / José de Carvalho / Nestor Fogaça",
+          "km_start": 45.0,
+          "km_end": 68.7
+        },
+        {
+          "road_id": "SP-250-2",
+          "ref": "SP-250",
+          "name": "Bunjiro Nakao / José de Carvalho / Nestor Fogaça",
+          "km_start": 70.994,
+          "km_end": 101.18
+        },
+        {
+          "road_id": "SP-250-3",
+          "ref": "SP-250",
+          "name": "Bunjiro Nakao / José de Carvalho / Nestor Fogaça",
+          "km_start": 102.28,
+          "km_end": 176.55
+        },
+        {
+          "road_id": "SPA-160/250",
+          "name": "Rodovia José de Almeida Rosa",
+          "km_start": 0.0,
+          "km_end": 15.9
+        },
+        {
+          "road_id": "SP-264",
+          "name": "Rodovia João Leme dos Santos / Francisco José Ayub",
+          "km_start": 102.05,
+          "km_end": 143.535
+        },
+        {
+          "road_id": "SPA-103/079",
+          "name": "Rodovia Doutor Miguel Affonso Ferreira de Castilho",
+          "km_start": 0.0,
+          "km_end": 2.495
+        },
+        {
+          "road_id": "SPA-104/079",
+          "name": "Rodovia João Guimarães",
+          "km_start": 0.0,
+          "km_end": 11.8
+        },
+        {
+          "road_id": "AV-ANTONIO-FALCI",
+          "name": "Avenida Antonio Falci - Ibiúna",
+          "km_start": 0.0,
+          "km_end": 3.335
+        },
+        {
+          "road_id": "SPA-053/280",
+          "name": "Rodovia Prefeito Livio Tagliassachi",
+          "km_start": 0.0,
+          "km_end": 8.8
+        },
+        {
+          "road_id": "SP-270-1",
+          "ref": "SP-270",
+          "name": "Rodovia Raposo Tavares",
+          "km_start": 34.065,
+          "km_end": 87.655
+        },
+        {
+          "road_id": "SP-270-2",
+          "ref": "SP-270",
+          "name": "Rodovia Raposo Tavares",
+          "km_start": 88.675,
+          "km_end": 115.76
+        },
+        {
+          "road_id": "SPI-087/270",
+          "name": "Brigadeiro Tobias / Sorocaba",
+          "km_start": 0.0,
+          "km_end": 2.018
+        },
+        {
+          "road_id": "SPI-060/270",
+          "name": "São Roque / Raposo Tavares",
+          "km_start": 0.0,
+          "km_end": 3.837
+        },
+        {
+          "road_id": "SP-280-SOR",
+          "ref": "SP-280",
+          "name": "Rodovia Castello Branco",
+          "km_start": 54.14,
+          "km_end": 79.74
+        },
+        {
+          "road_id": "SPI-091/270",
+          "name": "Rodovia Doutor Celso Charuri",
+          "km_start": 0.0,
+          "km_end": 6.165
+        }
+      ],
+      "official_info": "https://rodovias.motiva.com.br/sorocabana/central-de-ajuda/duvidas-frequentes/"
+    },
+    {
+      "concession_id": "riosp_sp",
+      "display_name": "Motiva RioSP - trecho paulista",
+      "status": "active",
+      "motiva_participation_pct": 100.0,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "DNIT_SNV_CURRENT",
+        "source_page": "https://www.gov.br/dnit/pt-br/assuntos/atlas-e-mapas/pnv-e-snv",
+        "filter": "UF=SP and BR in {116,101}; clip to concession object defined by ANTT",
+        "secondary_authority": "ANTT"
+      },
+      "roads": [
+        {
+          "road_id": "BR-116/SP",
+          "name": "Rodovia Presidente Dutra",
+          "sp_extent_description": "Divisa RJ/SP até o entroncamento com BR-381/SP-015 (Marginal Tietê)",
+          "sp_length_km_reference": 230.6
+        },
+        {
+          "road_id": "BR-101/SP",
+          "name": "Rodovia Rio-Santos",
+          "sp_extent_description": "Divisa RJ/SP até Praia Grande, Ubatuba",
+          "sp_length_km_reference": 52.1
+        }
+      ],
+      "official_info": "https://www.gov.br/antt/pt-br/assuntos/rodovias/concessionarias/lista-de-concessoes/ccr-rio-sp"
+    },
+    {
+      "concession_id": "minas_sp_sp",
+      "display_name": "Motiva Minas_SP - trecho paulista",
+      "status": "active",
+      "operation_start": "2026-04-03",
+      "motiva_participation_pct": 100.0,
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "DNIT_SNV_CURRENT",
+        "source_page": "https://www.gov.br/dnit/pt-br/assuntos/atlas-e-mapas/pnv-e-snv",
+        "filter": "UF=SP and BR=381; include only the São Paulo state portion of the concession"
+      },
+      "roads": [
+        {
+          "road_id": "BR-381/SP",
+          "name": "Rodovia Fernão Dias",
+          "sp_extent_description": "Trecho paulista da BR-381, incluindo Guarulhos–Vargem até a divisa SP/MG"
+        }
+      ],
+      "official_info": "https://rodovias.motiva.com.br/minas-sp/sobre/"
+    },
+    {
+      "concession_id": "renovias",
+      "display_name": "Renovias",
+      "status": "active",
+      "motiva_participation_pct": 40.0,
+      "participation_note": "Participação minoritária da Motiva; manter sinalização própria nos metadados/legenda.",
+      "include_in_sp_overlay": true,
+      "geometry": {
+        "preferred_source": "ARTESP_MALHA_RODOVIARIA_KMZ",
+        "resource_name": "KMZ Renovias",
+        "resource_id": "2eb11203-6ada-434b-9179-8eb933f01634",
+        "resource_page": "https://dadosabertos.artesp.sp.gov.br/dataset/malha-rodoviaria/resource/2eb11203-6ada-434b-9179-8eb933f01634",
+        "download_url": "https://dadosabertos.artesp.sp.gov.br/dataset/d60ee312-79b7-4d2c-9049-a1777ef1d377/resource/2eb11203-6ada-434b-9179-8eb933f01634/download/l11.kmz",
+        "license": "Public Domain"
+      },
+      "roads": [
+        {
+          "road_id": "SP-340",
+          "name": "Campinas–Mococa",
+          "km_start": 114.0,
+          "km_end": 281.0
+        },
+        {
+          "road_id": "SP-342",
+          "name": "Mogi Guaçu–Águas da Prata",
+          "km_start": 172.0,
+          "km_end": 251.0
+        },
+        {
+          "road_id": "SP-344",
+          "name": "Aguaí–Vargem Grande do Sul",
+          "km_start": 200.0,
+          "km_end": 242.0
+        },
+        {
+          "road_id": "SP-350",
+          "name": "Casa Branca–São José do Rio Pardo",
+          "km_start": 238.0,
+          "km_end": 272.0
+        },
+        {
+          "road_id": "SP-215",
+          "name": "Vargem Grande do Sul–Casa Branca",
+          "km_start": 29.0,
+          "km_end": 49.0
+        }
+      ],
+      "official_info": "https://ri.motiva.com.br/resultados/prazo-dos-contratos-reajustes-e-bandas-de-mitigacao/"
+    }
+  ],
+  "excluded": [
+    {
+      "name": "ViaOeste",
+      "reason": "Concessão encerrada em 29/03/2025; rede operacional atual foi redistribuída, com presença Motiva pela Sorocabana."
+    },
+    {
+      "name": "ViaSul",
+      "state": "RS",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "ViaCosteira",
+      "state": "SC",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "Motiva Paraná",
+      "state": "PR",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "Motiva Pantanal",
+      "state": "MS",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "ViaLagos",
+      "state": "RJ",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "ViaRio",
+      "state": "RJ",
+      "reason": "fora do escopo SP"
+    },
+    {
+      "name": "RioSP - trechos RJ",
+      "state": "RJ",
+      "reason": "somente trecho paulista entra na camada"
+    },
+    {
+      "name": "Motiva Minas_SP - trechos MG",
+      "state": "MG",
+      "reason": "somente trecho paulista entra na camada"
+    }
+  ],
+  "frontend_target": {
+    "suggested_path": "apps/web/public/data/motiva-sp-roads.geojson",
+    "feature_properties_required": [
+      "road_id",
+      "road_ref",
+      "road_name",
+      "concession_id",
+      "concession_name",
+      "motiva_participation_pct"
+    ],
+    "geometry_type": [
+      "LineString",
+      "MultiLineString"
+    ],
+    "color_preferences_storage": "localStorage",
+    "layer_order": [
+      "operational_raster_basemap",
+      "motiva_roads_casing",
+      "motiva_roads_line",
+      "aoi_layers",
+      "aoi_vertices_labels_results"
+    ]
+  }
+}

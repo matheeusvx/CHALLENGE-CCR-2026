@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "louveira_lateral",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[-47.059359415204611,-22.961513455044848],[-47.056834192547228,-22.960688402155363],[-47.051892358959662,-22.969438706666196],[-47.054919910855332,-22.970413705529229],[-47.059359415204611,-22.961513455044848]]]}}
+]
+}
