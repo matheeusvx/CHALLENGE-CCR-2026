@@ -118,7 +118,7 @@ export const analysisResponseSchema = z.object({
     start_date: z.iso.date(),
     end_date: z.iso.date(),
     timezone: z.string(),
-    strategy: z.enum(["previous_calendar_month", "explicit"]),
+    strategy: z.enum(["previous_calendar_month", "lookback_days", "explicit"]),
   }),
   recommendation: z.object({
     decision: z.enum(["cortar", "nao_cortar", "inconclusivo"]),
@@ -303,3 +303,11 @@ export function parseGeometryText(value: string): GeometryDocument {
   }
   return result.data;
 }
+
+
+export const manualAnalysisJobResponseSchema = z.object({
+  analysis_id: z.string().uuid(),
+  status: z.enum(["in_progress", "completed", "failed"]),
+  result: analysisResponseSchema.nullish(),
+  error_code: z.string().nullish(),
+});

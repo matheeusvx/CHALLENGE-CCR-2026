@@ -115,7 +115,7 @@ class AnalysisPeriodResponse(StrictModel):
     start_date: date
     end_date: date
     timezone: str
-    strategy: Literal["previous_calendar_month", "explicit"]
+    strategy: Literal["previous_calendar_month", "lookback_days", "explicit"]
 
 
 class SpatialZoneResponse(StrictModel):
@@ -363,6 +363,13 @@ class AnalysisResponse(StrictModel):
     warnings: list[dict[str, Any]]
     errors: list[dict[str, Any]]
     analysis_trigger: Literal["manual", "automatic_viewport"] = "manual"
+
+
+class ManualAnalysisJobResponse(StrictModel):
+    analysis_id: str
+    status: Literal["in_progress", "completed", "failed"]
+    result: AnalysisResponse | None = None
+    error_code: str | None = None
 
 
 class AnalysisHistoryItem(StrictModel):

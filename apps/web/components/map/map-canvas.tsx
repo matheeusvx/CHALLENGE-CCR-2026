@@ -325,7 +325,7 @@ export function MapCanvas({ result, validationFailed = false }: Props) {
     }
 
     if (response.status === "cache_hit" || response.status === "completed") {
-      if (!response.result || response.result.status !== "completed") {
+      if (!response.result || response.result.status === "failed") {
         removeCanonicalAoiLayer(map);
         removeRoadsideLayer(map);
         setAutoFailed("invalid_terminal_response");

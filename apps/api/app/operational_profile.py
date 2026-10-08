@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -65,7 +65,7 @@ class AnalysisPeriod:
     start_date: date
     end_date: date
     timezone: str
-    strategy: Literal["previous_calendar_month", "explicit"]
+    strategy: Literal["previous_calendar_month", "lookback_days", "explicit"]
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -87,6 +87,7 @@ def get_analysis_date_range(
     now: datetime | None = None,
     *,
     timezone_name: str = DEFAULT_ANALYSIS_TIMEZONE,
+    lookback_days: int | None = None,
 ) -> AnalysisPeriod:
     """Retorna hoje e o mesmo dia do mes anterior no timezone operacional."""
 
@@ -96,12 +97,15 @@ def get_analysis_date_range(
         current = current.replace(tzinfo=analysis_timezone)
     else:
         current = current.astimezone(analysis_timezone)
+    if lookback_days is not None and lookback_days <= 0:
+        raise ValueError("ANALYSIS_LOOKBACK_DAYS deve ser um inteiro positivo.")
     end_date = current.date()
     return AnalysisPeriod(
-        start_date=_one_calendar_month_before(end_date),
+        start_date=(end_date - timedelta(days=lookback_days)
+                    if lookback_days is not None else _one_calendar_month_before(end_date)),
         end_date=end_date,
         timezone=timezone_name,
-        strategy="previous_calendar_month",
+        strategy="lookback_days" if lookback_days is not None else "previous_calendar_month",
     )
 
 
@@ -111,11 +115,12 @@ def resolve_analysis_period(
     *,
     now: datetime | None = None,
     timezone_name: str = DEFAULT_ANALYSIS_TIMEZONE,
+    lookback_days: int | None = None,
 ) -> AnalysisPeriod:
     """Preserva datas explicitas antigas ou aplica a janela operacional."""
 
     if start_date is None and end_date is None:
-        return get_analysis_date_range(now, timezone_name=timezone_name)
+        return get_analysis_date_range(now, timezone_name=timezone_name, lookback_days=lookback_days)
     if start_date is None or end_date is None:
         raise ValueError("As datas inicial e final devem ser informadas em conjunto.")
     if start_date > end_date:

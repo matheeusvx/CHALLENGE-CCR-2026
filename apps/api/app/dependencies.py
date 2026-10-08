@@ -231,3 +231,15 @@ def get_validation_temporal_benchmark_runner() -> ValidationTemporalBenchmarkRun
         ),
         output_root=settings.output_root,
     )
+
+
+@lru_cache(maxsize=1)
+def get_manual_analysis_coordinator():
+    from .manual_analysis import ManualAnalysisCoordinator
+
+    automatic = get_automatic_analysis_coordinator()
+    return ManualAnalysisCoordinator(
+        automatic.repository.path, automatic.executor,
+        max_pending=automatic.policy.max_concurrent,
+        timeout_seconds=automatic.policy.in_progress_ttl_seconds,
+    )

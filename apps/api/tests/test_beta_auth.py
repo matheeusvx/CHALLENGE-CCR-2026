@@ -210,3 +210,33 @@ def test_authenticated_scopes_reuse_automatic_science_cache(beta_env, tmp_path) 
         assert analysis_id in {
             item["analysis_id"] for item in motiva.get("/api/analyses").json()["items"]
         }
+
+
+def test_beta_manual_jobs_are_private_to_authenticated_account(beta_env, tmp_path):
+    from apps.api.app.dependencies import get_manual_analysis_coordinator
+    from apps.api.app.manual_analysis import ManualAnalysisCoordinator
+    from apps.api.tests.test_automatic_analysis import HoldingExecutor
+    from apps.api.tests.conftest import VALID_GEOMETRY
+
+    executor = HoldingExecutor()
+    coordinator = ManualAnalysisCoordinator(tmp_path / "jobs.sqlite3", executor)
+    app = create_app()
+    app.dependency_overrides[get_manual_analysis_coordinator] = lambda: coordinator
+    app.dependency_overrides[get_analysis_service] = lambda: lambda config, analysis_id: make_result(analysis_id)
+    with TestClient(app) as group, TestClient(app) as motiva:
+        group.headers[PROXY_HEADER] = motiva.headers[PROXY_HEADER] = PROXY_SECRET
+        assert _login(group, GROUP_EMAIL, GROUP_PASSWORD).status_code == 200
+        assert _login(motiva, MOTIVA_EMAIL, MOTIVA_PASSWORD).status_code == 200
+        created = group.post("/api/analyses/jobs", json={"geometry": VALID_GEOMETRY})
+        assert created.status_code == 202
+        identifier = created.json()["analysis_id"]
+        url = f"/api/analyses/jobs/{identifier}"
+        assert motiva.get(url, headers={"X-Operator-Scope": "group"}).status_code == 404
+        assert group.get(url).json()["status"] == "in_progress"
+        function, args = executor.calls.pop()
+        function(*args)
+        assert group.get(url).json()["status"] == "completed"
+        assert motiva.get(url).status_code == 404
+        assert group.get(f"/api/analyses/{identifier}").status_code == 200
+        assert motiva.get(f"/api/analyses/{identifier}").status_code == 404
+        assert motiva.get(f"/api/analyses/{identifier}/artifacts/summary").status_code == 404

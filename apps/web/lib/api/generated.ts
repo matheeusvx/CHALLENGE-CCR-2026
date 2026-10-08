@@ -158,6 +158,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/analyses/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Manual Analysis */
+        post: operations["start_manual_analysis_api_analyses_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/analyses/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Manual Analysis Job */
+        get: operations["get_manual_analysis_job_api_analyses_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -180,7 +214,7 @@ export interface components {
              * Strategy
              * @enum {string}
              */
-            strategy: "previous_calendar_month" | "explicit";
+            strategy: "previous_calendar_month" | "lookback_days" | "explicit";
         };
         /** AnalysisResponse */
         AnalysisResponse: {
@@ -717,6 +751,19 @@ export interface components {
          * @enum {string}
          */
         VegetationClass: "low_grass" | "tall_dense_grass" | "shrub" | "tree" | "mixed";
+        /** ManualAnalysisJobResponse */
+        ManualAnalysisJobResponse: {
+            /** Analysis Id */
+            analysis_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "in_progress" | "completed" | "failed";
+            result?: components["schemas"]["AnalysisResponse"] | null;
+            /** Error Code */
+            error_code?: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1010,6 +1057,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    start_manual_analysis_api_analyses_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Operator-Scope"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualAnalysisJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_manual_analysis_job_api_analyses_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Operator-Scope"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualAnalysisJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

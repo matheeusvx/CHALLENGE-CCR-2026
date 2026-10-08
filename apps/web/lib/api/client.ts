@@ -35,6 +35,7 @@ export async function apiRequest<T>(
       credentials: "same-origin",
     });
   } catch (cause) {
+    if (init?.signal?.aborted) throw cause;
     console.error("Falha de rede ao acessar o serviço de análise.", cause);
     throw new ApiError(
       "NETWORK_ERROR",

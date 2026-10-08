@@ -205,3 +205,22 @@ def test_multisource_disabled_keeps_the_sentinel_service_unchanged(monkeypatch) 
 
     assert ApiSettings().multisource_enabled is False
     assert get_analysis_service() is run_monitoring_analysis
+
+
+def test_lookback_env_and_operational_timezone(monkeypatch):
+    monkeypatch.setenv("ANALYSIS_LOOKBACK_DAYS", "60")
+    settings = ApiSettings()
+    assert settings.analysis_lookback_days == 60
+    now = datetime.fromisoformat("2026-08-11T01:00:00+00:00")
+    period = get_analysis_date_range(now, lookback_days=settings.analysis_lookback_days)
+    assert period.start_date.isoformat() == "2026-06-11"
+    assert period.end_date.isoformat() == "2026-08-10"
+    assert period.strategy == "lookback_days"
+    monkeypatch.delenv("ANALYSIS_LOOKBACK_DAYS")
+    assert ApiSettings().analysis_lookback_days is None
+
+
+@pytest.mark.parametrize("days", [0, -1])
+def test_invalid_lookback(days):
+    with pytest.raises(ValueError):
+        get_analysis_date_range(lookback_days=days)

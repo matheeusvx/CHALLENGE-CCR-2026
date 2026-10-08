@@ -53,14 +53,38 @@ probabilidade calibrada.
 
 - `GET /api/health`
 - `POST /api/analyses/validate-geometry`
-- `POST /api/analyses/run`
+- `POST /api/analyses/jobs` (202: identificador e status)
+- `GET /api/analyses/jobs/{job_id}` (polling no escopo autenticado)
+- `POST /api/analyses/run` (sincrono, mantido para compatibilidade)
 - `GET /api/analyses/{analysis_id}/artifacts/{artifact_name}`
 
-No fluxo web, `POST /api/analyses/run` precisa receber apenas `geometry`. A API
+No fluxo web, `POST /api/analyses/jobs` precisa receber apenas `geometry`. A API
 preenche o perfil interno `roadside_grass_default` e calcula `end_date` com a
 data atual do timezone operacional; `start_date` e o mesmo dia do mes calendario
 anterior, ajustado corretamente em finais de mes. A resposta registra esses
 valores em `analysis_period`.
+
+A UI consulta o job a cada 2 segundos e mostra "Processando cenas Sentinel-2".
+Os jobs manuais usam o executor da analise automatica e uma tabela separada no
+mesmo SQLite (`AUTOMATIC_ANALYSIS_DB_PATH`). A mesma implementacao manual executa
+o motor cientifico e grava historico/artefatos antes de publicar sucesso.
+`completed` e `insufficient_observations` sao resultados validos; `failed` e erro.
+Criacao e polling exigem o mesmo `operator_scope` autenticado. O limite de jobs
+manuais pendentes segue `AUTO_ANALYSIS_MAX_CONCURRENT`, mesmo com automatica
+desabilitada; o executor compartilhado limita o total de threads em processamento.
+
+Para ampliar a janela sem mudar thresholds, defina no `.env` da API (ou no `.env`
+da raiz carregado no inicio) `ANALYSIS_LOOKBACK_DAYS=60` e reinicie a API.
+Manual e automatica usarao hoje menos 60 dias ate hoje no `ANALYSIS_TIMEZONE`.
+Ausente/vazio preserva o mes calendario anterior; datas explicitas continuam
+prevalecendo. `analysis_period.strategy` passa a `lookback_days`. As datas entram
+na chave do cache automatico, portanto uma janela diferente nao reutiliza a antiga.
+
+Execucao em threads e adequada ao ambiente local, mas nao e uma fila distribuida:
+reiniciar o processo interrompe jobs ativos, sem retomada automatica. Status e
+resultados terminais ficam no SQLite; jobs interrompidos expiram pelo TTL existente
+(`AUTO_ANALYSIS_IN_PROGRESS_TTL_SECONDS`, 1800 por padrao) e retornam `JOB_TIMEOUT`.
+O timeout nao interrompe uma thread Sentinel que ainda esteja em execucao.
 
 Chamadas existentes ainda podem enviar datas e parametros explicitamente. Os
 thresholds internos atuais sao experimentais: nuvens 30%, pool de 40 candidatas,

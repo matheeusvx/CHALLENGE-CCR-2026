@@ -99,6 +99,12 @@ class ApiSettings:
     cors_origins_raw: str = os.getenv(
         "API_CORS_ORIGINS", "http://localhost:3000"
     )
+    analysis_lookback_days: int | None = field(
+        default_factory=lambda: (
+            int(os.environ["ANALYSIS_LOOKBACK_DAYS"])
+            if os.getenv("ANALYSIS_LOOKBACK_DAYS", "").strip() else None
+        )
+    )
     analysis_timezone: str = os.getenv(
         "ANALYSIS_TIMEZONE", DEFAULT_ANALYSIS_TIMEZONE
     )

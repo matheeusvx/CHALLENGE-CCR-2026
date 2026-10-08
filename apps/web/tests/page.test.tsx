@@ -94,6 +94,23 @@ async function completeCurrentAnalysis() {
 }
 
 describe("workspace geoespacial", () => {
+  it("mostra processamento e mantém resultado manual insuficiente como INCONCLUSIVO", async () => {
+    let resolve!: (value: AnalysisResponse) => void;
+    vi.mocked(api.runAnalysis).mockReturnValue(new Promise((done) => { resolve = done; }));
+    useAnalysisStore.getState().setGeometry(polygon, "drawn");
+    render(<Home />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Validar área" }));
+    await screen.findByText("Área validada");
+    fireEvent.click(screen.getByRole("button", { name: "Executar análise" }));
+    expect(await screen.findByText("Processando cenas Sentinel-2")).toBeInTheDocument();
+    await act(async () => resolve({ ...result, status: "insufficient_observations", recommendation: { ...result.recommendation, decision: "inconclusivo" } }));
+    expect((await screen.findAllByText("INCONCLUSIVO")).length).toBeGreaterThan(0);
+    expect(useAnalysisStore.getState().currentResult?.response.status).toBe("insufficient_observations");
+    expect(useHistoryStore.getState().entries[0].response.recommendation.decision).toBe("inconclusivo");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("Processando cenas Sentinel-2")).not.toBeInTheDocument();
+  });
+
   it("renderiza a página, o mapa e o produto", () => {
     render(<Home />, { wrapper });
     expect(screen.getByRole("heading", { name: "Motiva Faixa Verde" })).toBeInTheDocument();
@@ -196,7 +213,7 @@ describe("workspace geoespacial", () => {
     expect(runButton).toBeEnabled();
     fireEvent.click(runButton);
     expect((await screen.findAllByText("Vegetação abaixo do nível alto local.")).length).toBeGreaterThan(0);
-    expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon });
+    expect(api.runAnalysis).toHaveBeenCalledWith({ geometry: polygon }, expect.any(AbortSignal));
     expect(screen.getAllByText("10/07/2026 a 10/08/2026").length).toBeGreaterThan(0);
     expect(screen.getByTestId("analysis-map")).toHaveAttribute("data-decision", "nao_cortar");
     expect(screen.getByText("Altura estimada")).toBeInTheDocument();

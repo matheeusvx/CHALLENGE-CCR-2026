@@ -3,7 +3,7 @@ import {
   analysisHistoryClearResponseSchema,
   analysisHistoryHideResponseSchema,
   analysisHistoryPageSchema,
-  analysisResponseSchema,
+  manualAnalysisJobResponseSchema,
   automaticAnalysisResponseSchema,
   geometryValidationSchema,
   healthSchema,
@@ -11,7 +11,7 @@ import {
   type AutomaticAnalysisResponse,
   type GeometryDocument,
 } from "@/lib/schemas/analyses";
-import { apiRequest } from "./client";
+import { ApiError, apiRequest } from "./client";
 import type { components } from "./generated";
 
 type GeneratedAnalysisRunRequest = components["schemas"]["AnalysisRunRequest"];
@@ -28,11 +28,43 @@ export const validateGeometry = (geometry: GeometryDocument) =>
     body: JSON.stringify({ geometry }),
   });
 
-export const runAnalysis = (values: AnalysisRunValues) =>
-  apiRequest("/api/analyses/run", analysisResponseSchema, {
-    method: "POST",
-    body: JSON.stringify(values),
+/** Start a short request, then poll independently of the scientific worker. */
+export async function runAnalysis(values: AnalysisRunValues, signal?: AbortSignal) {
+  const job = await apiRequest("/api/analyses/jobs", manualAnalysisJobResponseSchema, {
+    method: "POST", body: JSON.stringify(values), signal,
   });
+  let status = job;
+  while (true) {
+    signal?.throwIfAborted();
+    if (status.status === "failed" || status.result?.status === "failed") {
+      throw new ApiError(status.error_code ?? "PROCESSING_ERROR", "O pipeline não conseguiu concluir a análise.", 500);
+    }
+    if (status.status === "completed") {
+      if (!status.result) throw new ApiError("INVALID_TERMINAL_RESPONSE", "A API retornou uma resposta inesperada.", 502);
+      return status.result;
+    }
+    await waitForManualPoll(signal);
+    status = await apiRequest(`/api/analyses/jobs/${job.analysis_id}`, manualAnalysisJobResponseSchema, {
+      signal, cache: "no-store",
+    });
+  }
+}
+
+function waitForManualPoll(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, 2000);
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
 
 /** Historico de analises gravado no servidor, da mais recente para a mais antiga. */
 export const listAnalyses = (options: { limit?: number; offset?: number; decision?: string } = {}) => {

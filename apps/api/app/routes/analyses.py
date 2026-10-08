@@ -49,10 +49,12 @@ from ..dependencies import (
     get_analysis_now,
     get_analysis_service,
     get_manual_road_geometry_provider,
+    get_manual_analysis_coordinator,
     get_operator_scope_id,
 )
 from ..automatic_analysis import AutomaticAnalysisCoordinator, AutomaticPipelineFailure
 from ..exceptions import ApiError
+from ..manual_analysis import ManualAnalysisCoordinator
 from ..operational_profile import (
     DEFAULT_OPERATIONAL_ANALYSIS_PROFILE,
     AnalysisPeriod,
@@ -66,6 +68,7 @@ from ..schemas import (
     AnalysisHistoryPage,
     AnalysisResponse,
     AnalysisRunRequest,
+    ManualAnalysisJobResponse,
     AutomaticAnalysisRequest,
     AutomaticAnalysisResponse,
     Centroid,
@@ -306,6 +309,7 @@ def run_analysis(
             payload.end_date,
             now=now,
             timezone_name=settings.analysis_timezone,
+            lookback_days=settings.analysis_lookback_days,
         )
     except ValueError as exc:
         raise ApiError(
@@ -313,10 +317,26 @@ def run_analysis(
             str(exc),
             status_code=422,
         ) from exc
+    return _execute_manual_analysis(
+        payload, operator_scope_id, service, analysis_period, road_geometry_provider,
+        analysis_id=str(uuid4()),
+    )
+
+
+def _execute_manual_analysis(
+    payload: AnalysisRunRequest,
+    operator_scope_id: str,
+    service: AnalysisService,
+    analysis_period: AnalysisPeriod,
+    road_geometry_provider: RoadGeometryProvider,
+    *,
+    analysis_id: str,
+    require_persistence: bool = False,
+) -> AnalysisResponse:
     geometry_metadata = _validated_geometry_metadata(payload.geometry)
     try:
         config = _build_monitoring_config(payload, analysis_period)
-        result = service(config, analysis_id=str(uuid4()))
+        result = service(config, analysis_id=analysis_id)
     except InvalidAnalysisGeometryError as exc:
         raise ApiError(
             "INVALID_GEOMETRY",
@@ -358,8 +378,48 @@ def run_analysis(
         payload.geometry,
         identity=identity,
         operator_scope_id=operator_scope_id,
+        raise_on_error=require_persistence,
     )
     return response
+
+
+@router.post("/jobs", response_model=ManualAnalysisJobResponse, status_code=202)
+def start_manual_analysis(
+    payload: AnalysisRunRequest,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+    service: AnalysisService = Depends(get_analysis_service),
+    now: datetime = Depends(get_analysis_now),
+    road_geometry_provider: RoadGeometryProvider = Depends(get_manual_road_geometry_provider),
+    coordinator: ManualAnalysisCoordinator = Depends(get_manual_analysis_coordinator),
+) -> dict[str, Any]:
+    enforce_rate_limit("analysis", operator_scope_id, limit=5, window_seconds=10 * 60)
+    try:
+        period = resolve_analysis_period(
+            payload.start_date, payload.end_date, now=now,
+            timezone_name=settings.analysis_timezone,
+            lookback_days=settings.analysis_lookback_days,
+        )
+        _validated_geometry_metadata(payload.geometry)
+        _build_monitoring_config(payload, period)
+    except ValueError as exc:
+        raise ApiError("INVALID_PARAMETERS", str(exc), status_code=422) from exc
+
+    def execute(analysis_id: str) -> dict[str, Any]:
+        return _execute_manual_analysis(
+            payload, operator_scope_id, service, period, road_geometry_provider,
+            analysis_id=analysis_id, require_persistence=True,
+        ).model_dump(mode="json")
+
+    return coordinator.start(operator_scope_id, execute)
+
+
+@router.get("/jobs/{job_id}", response_model=ManualAnalysisJobResponse)
+def get_manual_analysis_job(
+    job_id: UUID,
+    operator_scope_id: str = Depends(get_operator_scope_id),
+    coordinator: ManualAnalysisCoordinator = Depends(get_manual_analysis_coordinator),
+) -> dict[str, Any]:
+    return coordinator.get(str(job_id), operator_scope_id)
 
 
 def _build_support(
@@ -432,7 +492,8 @@ def run_persisted_road_section(section: Any, *, now: datetime) -> str:
     if section.subject_kind != "road_section" or not section.geometry:
         raise ValueError("only persisted road_section geometry is eligible")
     analysis_period = resolve_analysis_period(
-        None, None, now=now, timezone_name=settings.analysis_timezone
+        None, None, now=now, timezone_name=settings.analysis_timezone,
+        lookback_days=settings.analysis_lookback_days
     )
     payload = AnalysisRunRequest(geometry=section.geometry)
     _validated_geometry_metadata(section.geometry)
@@ -613,6 +674,7 @@ def run_automatic_analysis(
             None,
             now=now,
             timezone_name=settings.analysis_timezone,
+            lookback_days=settings.analysis_lookback_days,
         )
     except ValueError as exc:
         raise ApiError("INVALID_DATE_RANGE", str(exc), status_code=422) from exc

@@ -565,6 +565,47 @@ describe("AUTO-02 — Análise automática por viewport no mapa", () => {
     expect(getCurrentAnalysisResponse(storeState)?.analysis_id).toBe(cachedResult.analysis_id);
   });
 
+  it.each(["cache_hit", "completed"] as const)("%s aceita observações insuficientes como resultado INCONCLUSIVO", async (status) => {
+    useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
+    const result = makeMockResult("inconclusivo");
+    result.status = "insufficient_observations";
+    mockRunAutomaticAnalysis.mockResolvedValueOnce(automaticAnalysisResponseSchema.parse({
+      status, cache_hit: status === "cache_hit", canonical_bounds: mockBounds, result,
+    }));
+    const { container } = render(<MapCanvas />);
+    act(() => runtime.maps[0].emit("load"));
+    act(() => runtime.maps[0].emit("moveend"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe(status);
+    expect(useAutoAnalysisStore.getState().reason).toBeNull();
+    expect(useAutoAnalysisStore.getState().result).toEqual(result);
+    expect(getCurrentAnalysisResponse(useAnalysisStore.getState())).toEqual(result);
+    expect(useAnalysisStore.getState().activeTab).toBe("result");
+    expect(useHistoryStore.getState().entries[0].response).toEqual(result);
+    expect(container.querySelector(".auto-result-badge")).toHaveTextContent("INCONCLUSIVO");
+    render(<AnalysisResultSidebar result={result} onRetry={vi.fn()} />);
+    expect(screen.getByText("INCONCLUSIVO", { selector: ".decision-block strong" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["cache_hit", "failed"], ["completed", "failed"],
+    ["cache_hit", null], ["completed", null],
+  ] as const)("%s rejeita resultado %s", async (status, resultStatus) => {
+    useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
+    useAnalysisStore.setState({ currentResult: null });
+    const result = resultStatus ? { ...makeMockResult("inconclusivo"), status: resultStatus } : null;
+    mockRunAutomaticAnalysis.mockResolvedValueOnce({ status, result } satisfies AutomaticAnalysisResponse);
+    const { container } = render(<MapCanvas />);
+    act(() => runtime.maps[0].emit("load"));
+    act(() => runtime.maps[0].emit("moveend"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(useAutoAnalysisStore.getState().uiStatus).toBe("failed");
+    expect(useAutoAnalysisStore.getState().reason).toBe("invalid_terminal_response");
+    expect(useAutoAnalysisStore.getState().result).toBeNull();
+    expect(getCurrentAnalysisResponse(useAnalysisStore.getState())).toBeUndefined();
+    expect(useHistoryStore.getState().entries).toHaveLength(0);
+    expect(container.querySelector(".auto-result-badge")).toBeNull();
+  });
   it("I) sidebar direita muda automaticamente para Resultado", async () => {
     useAutoAnalysisStore.setState({ enabled: true, uiStatus: "idle" });
     expect(useAnalysisStore.getState().activeTab).toBe("area");

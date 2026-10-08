@@ -15,6 +15,8 @@ import { WorkspaceTabs } from "./workspace-tabs";
 
 export function GeospatialWorkspace() {
   const state = useAnalysisStore();
+  const manualAbortController = useRef<AbortController | null>(null);
+  useEffect(() => () => { manualAbortController.current?.abort(); }, [state.geometryRevision]);
   const previousGeometryRevision = useRef(state.geometryRevision);
   const [validationRevision, setValidationRevision] = useState<number | null>(null);
   const [analysisRevision, setAnalysisRevision] = useState<number | null>(null);
@@ -24,7 +26,12 @@ export function GeospatialWorkspace() {
   });
   const addHistoryEntry = useHistoryStore((store) => store.addEntry);
   const analysis = useMutation({
-    mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => runAnalysis({ geometry }),
+    mutationFn: ({ geometry }: { geometry: NonNullable<typeof state.geometry>; revision: number }) => {
+      manualAbortController.current?.abort();
+      const controller = new AbortController();
+      manualAbortController.current = controller;
+      return runAnalysis({ geometry }, controller.signal);
+    },
     onSuccess: (data, variables) => {
       const current = useAnalysisStore.getState();
       if (variables.revision !== current.geometryRevision || !isCurrentGeometryValidated(current)) return;
